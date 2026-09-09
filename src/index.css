@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Fondos y Superficies */
+  --bg-app: #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --bg-surface-subtle: #F1F5F9;
+  --bg-surface-elevated: #FFFFFF;
+
+  /* Tipografía y Textos */
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-tertiary: #94A3B8;
+
+  /* Bordes y Divisiones */
+  --border-subtle: #E2E8F0;
+  --border-default: #CBD5E1;
+  --border-focus: #0F4C5C;
+
+  /* Color Clínico Primario (Azul Petróleo / Deep Medical Teal) */
+  --primary-color: #0F4C5C;
+  --primary-hover: #134E5E;
+  --primary-light: #E0F2FE;
+  --primary-active: #0A323D;
+
+  /* Estados Clínicos */
+  --danger-color: #DC2626;
+  --danger-bg: #FEF2F2;
+  --danger-border: #FCA5A5;
+
+  --success-color: #059669;
+  --success-bg: #ECFDF5;
+  --success-border: #A7F3D0;
+
+  --warning-color: #D97706;
+  --warning-bg: #FFFBEB;
+  --warning-border: #FDE68A;
+
+  /* Radios Estilo Apple */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Sombras Difusas Suaves */
+  --shadow-subtle: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 2px 8px -2px rgba(15, 23, 42, 0.05), 0 1px 3px -1px rgba(15, 23, 42, 0.03);
+  --shadow-elevated: 0 8px 24px -4px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+  --shadow-modal: 0 20px 40px -10px rgba(15, 23, 42, 0.16), 0 8px 16px -4px rgba(15, 23, 42, 0.06);
+
+  /* Transición Estándar (180ms) */
+  --transition-fast: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark {
+  --bg-app: #0B1120;
+  --bg-surface: #1E293B;
+  --bg-surface-subtle: #182234;
+  --bg-surface-elevated: #334155;
+
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #64748B;
+
+  --border-subtle: #334155;
+  --border-default: #475569;
+  --border-focus: #38BDF8;
+
+  --primary-color: #0284C7;
+  --primary-hover: #0369A1;
+  --primary-light: #0C4A6E;
+
+  --danger-color: #EF4444;
+  --danger-bg: #450A0A;
+  --danger-border: #7F1D1D;
+
+  --success-color: #10B981;
+  --success-bg: #064E3B;
+  --success-border: #065F46;
+
+  --warning-color: #F59E0B;
+  --warning-bg: #451A03;
+  --warning-border: #78350F;
+}
+
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
+  
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  button, a, input, select, textarea {
+    transition: all var(--transition-fast);
+  }
+}
+
+/* Hide scrollbars on touch horizontally scrollable elements */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Glassmorphism sutil inspirado en Apple */
+.apple-glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.apple-glass-dark {
+  background: rgba(30, 41, 59, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}

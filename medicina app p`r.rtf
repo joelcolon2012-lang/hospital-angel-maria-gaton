@@ -1,0 +1,443 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang3082{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil Calibri;}}
+{\*\generator Riched20 10.0.19041}\viewkind4\uc1 
+\pard\sa200\sl276\slmult1\f0\fs22\lang10 Quiero construir una aplicaci\'f3n m\'e9dica m\'f3vil llamada \ldblquote Emergencia Cl\'ednica \f1\emdash  DR COLON\rdblquote , dise\f0\'f1ada principalmente para utilizarse desde un tel\'e9fono durante el trabajo en un servicio de Emergencia.\par
+\par
+Antes de modificar archivos, genera un plan de implementaci\'f3n completo y espera mi aprobaci\'f3n. Despu\'e9s desarrolla la aplicaci\'f3n por m\'f3dulos, probando cada funci\'f3n en vista m\'f3vil.\par
+\par
+OBJETIVO\par
+\par
+Crear una aplicaci\'f3n web progresiva instalable en Android y iPhone que permita:\par
+\par
+Registrar pacientes r\'e1pidamente.\par
+Recoger progresivamente los datos necesarios para su historial cl\'ednico.\par
+Cargar y organizar im\'e1genes de ECG, radiograf\'edas, tomograf\'edas, lesiones, resultados y documentos.\par
+Registrar diagn\'f3sticos diferenciales y diagn\'f3stico principal.\par
+Documentar tratamientos, \'f3rdenes m\'e9dicas, evoluci\'f3n y disposici\'f3n final.\par
+Generar autom\'e1ticamente una historia cl\'ednica estructurada y editable.\par
+Exportar el documento final en PDF y copiarlo como texto.\par
+Consultar posteriormente los pacientes mediante buscador y filtros.\par
+\par
+TECNOLOG\'cdA\par
+\par
+Construye inicialmente una PWA responsive, optimizada para pantallas m\'f3viles.\par
+\par
+Usa:\par
+\par
+React o Next.js con TypeScript.\par
+Tailwind CSS para el dise\'f1o.\par
+Firebase Authentication.\par
+Firestore como base de datos.\par
+Firebase Storage para im\'e1genes y documentos.\par
+Funcionamiento offline con almacenamiento local y sincronizaci\'f3n posterior.\par
+Arquitectura modular y componentes reutilizables.\par
+Variables de entorno para todas las credenciales.\par
+Reglas de seguridad de Firebase: cada usuario solo podr\'e1 consultar sus propios registros.\par
+Cifrado durante transmisi\'f3n y almacenamiento.\par
+Registro de auditor\'eda de creaci\'f3n, modificaci\'f3n, acceso y eliminaci\'f3n.\par
+Cierre autom\'e1tico de sesi\'f3n configurable.\par
+Copias de seguridad y recuperaci\'f3n.\par
+Eliminaci\'f3n l\'f3gica de registros antes del borrado definitivo.\par
+\par
+No coloques datos m\'e9dicos reales en el c\'f3digo, las pruebas, los registros del sistema ni el repositorio.\par
+\par
+DISE\'d1O VISUAL\par
+\par
+Crear una interfaz cl\'ednica, profesional, r\'e1pida y limpia:\par
+\par
+Fondo marfil o gris muy claro.\par
+Azul petr\'f3leo como color principal.\par
+Rojo \'fanicamente para alertas cl\'ednicas.\par
+Verde para acciones completadas.\par
+Botones grandes, adecuados para uso con una mano.\par
+Tipograf\'eda clara y de alta legibilidad.\par
+Barra inferior fija en m\'f3viles.\par
+Modo claro y modo oscuro.\par
+Formularios divididos en secciones colapsables.\par
+Guardado autom\'e1tico con indicador: \ldblquote Guardado\rdblquote , \ldblquote Pendiente de sincronizar\rdblquote  o \ldblquote Error\rdblquote .\par
+Bot\'f3n flotante de \ldblquote Nueva evoluci\'f3n\rdblquote .\par
+Mostrar fecha y hora autom\'e1ticamente, pero permitir editarlas.\par
+\par
+PANTALLA DE ACCESO\par
+\par
+Crear:\par
+\par
+Inicio de sesi\'f3n mediante correo y contrase\'f1a.\par
+Recuperaci\'f3n de contrase\'f1a.\par
+Opci\'f3n de autenticaci\'f3n biom\'e9trica cuando el dispositivo lo permita.\par
+Aviso de confidencialidad.\par
+Casilla para aceptar condiciones de uso.\par
+Roles preparados para m\'e9dico, residente y administrador, aunque inicialmente exista un \'fanico usuario.\par
+\par
+TABLERO PRINCIPAL\par
+\par
+Mostrar:\par
+\par
+Pacientes activos.\par
+En observaci\'f3n.\par
+Pendientes de resultados.\par
+Pendientes de reevaluaci\'f3n.\par
+Ingresados.\par
+Referidos.\par
+Dados de alta.\par
+N\'famero de pacientes por nivel de triaje.\par
+Pr\'f3ximas reevaluaciones.\par
+Alertas pendientes.\par
+Bot\'f3n grande \ldblquote Registrar paciente\rdblquote .\par
+\par
+Permitir ordenar por:\par
+\par
+Hora de llegada.\par
+Gravedad.\par
+Nombre.\par
+Cub\'edculo.\par
+Estado.\par
+Tiempo sin reevaluaci\'f3n.\par
+\par
+REGISTRO R\'c1PIDO DEL PACIENTE\par
+\par
+Campos:\par
+\par
+C\'f3digo interno autom\'e1tico.\par
+N\'famero de expediente opcional.\par
+Nombre y apellidos.\par
+Documento de identidad opcional.\par
+Fecha de nacimiento o edad aproximada.\par
+Sexo.\par
+Tel\'e9fono opcional.\par
+Contacto responsable.\par
+Fecha y hora de llegada.\par
+Procedencia.\par
+Cub\'edculo, cama o \'e1rea.\par
+Nivel de triaje.\par
+Motivo de consulta.\par
+Estado actual.\par
+M\'e9dico responsable.\par
+\par
+Evitar registros duplicados mediante advertencia por nombre, documento, expediente y fecha de nacimiento. No bloquear autom\'e1ticamente: solicitar confirmaci\'f3n.\par
+\par
+TRIAJE Y DATOS INICIALES\par
+\par
+Registrar:\par
+\par
+Presi\'f3n arterial.\par
+Frecuencia cardiaca.\par
+Frecuencia respiratoria.\par
+Temperatura.\par
+Saturaci\'f3n de ox\'edgeno.\par
+Glucemia.\par
+Peso.\par
+Talla.\par
+Escala de Glasgow.\par
+Dolor de 0 a 10.\par
+Ox\'edgeno suplementario.\par
+Estado hemodin\'e1mico.\par
+Alergias.\par
+Embarazo o posibilidad de embarazo.\par
+Anticoagulaci\'f3n.\par
+Comorbilidades relevantes.\par
+\par
+Los rangos anormales deben resaltarse visualmente, pero nunca generar por s\'ed solos un diagn\'f3stico definitivo.\par
+\par
+HISTORIA CL\'cdNICA\par
+\par
+Crear las siguientes secciones:\par
+\par
+Motivo de consulta.\par
+Historia de la enfermedad actual.\par
+Antecedentes patol\'f3gicos.\par
+Antecedentes quir\'fargicos.\par
+Antecedentes al\'e9rgicos.\par
+Medicamentos habituales.\par
+H\'e1bitos t\'f3xicos.\par
+Antecedentes familiares.\par
+Antecedentes ginecoobst\'e9tricos cuando correspondan.\par
+Revisi\'f3n por sistemas.\par
+Examen f\'edsico general.\par
+Examen cardiovascular.\par
+Examen respiratorio.\par
+Examen abdominal.\par
+Examen neurol\'f3gico.\par
+Examen de extremidades.\par
+Piel y faneras.\par
+Otros hallazgos.\par
+Impresi\'f3n cl\'ednica.\par
+Plan diagn\'f3stico y terap\'e9utico.\par
+\par
+Permitir dictado por voz utilizando las funciones disponibles del dispositivo.\par
+\par
+ESTUDIOS E IM\'c1GENES\par
+\par
+Crear una galer\'eda por paciente con las categor\'edas:\par
+\par
+Electrocardiograma.\par
+Radiograf\'eda.\par
+Tomograf\'eda.\par
+Resonancia.\par
+Ultrasonido.\par
+Laboratorio.\par
+Fotograf\'eda cl\'ednica.\par
+Documento.\par
+Otro.\par
+\par
+En cada archivo registrar:\par
+\par
+Fecha y hora.\par
+Tipo de estudio.\par
+Regi\'f3n anat\'f3mica.\par
+Descripci\'f3n.\par
+Interpretaci\'f3n preliminar.\par
+Resultado oficial.\par
+Estado: solicitado, tomado, pendiente o informado.\par
+Etiquetas.\par
+Usuario que lo carg\'f3.\par
+\par
+Permitir:\par
+\par
+Tomar una fotograf\'eda con la c\'e1mara.\par
+Elegir varias im\'e1genes.\par
+Previsualizar.\par
+Rotar y recortar.\par
+Comprimir sin perder legibilidad cl\'ednica.\par
+Ampliar.\par
+Eliminar solo con confirmaci\'f3n.\par
+Comparar dos im\'e1genes.\par
+Descargar el archivo original.\par
+No modificar permanentemente el archivo original.\par
+\par
+LABORATORIOS\par
+\par
+Crear entrada manual y opci\'f3n de fotografiar o adjuntar resultados.\par
+\par
+Organizar por:\par
+\par
+Hemograma.\par
+Qu\'edmica sangu\'ednea.\par
+Electrolitos.\par
+Funci\'f3n renal.\par
+Funci\'f3n hep\'e1tica.\par
+Coagulaci\'f3n.\par
+Gases arteriales.\par
+Orina.\par
+Marcadores cardiacos.\par
+Cultivos.\par
+Otros.\par
+\par
+Cada resultado debe conservar:\par
+\par
+Valor.\par
+Unidad.\par
+Rango de referencia.\par
+Fecha y hora.\par
+Indicador alto, bajo, cr\'edtico o normal.\par
+Fuente manual o archivo adjunto.\par
+\par
+Mostrar tendencias temporales sin diagnosticar autom\'e1ticamente.\par
+\par
+LISTA DE PROBLEMAS Y DIAGN\'d3STICOS\par
+\par
+Crear una lista din\'e1mica que permita a\'f1adir:\par
+\par
+Problema cl\'ednico.\par
+Diagn\'f3stico diferencial.\par
+Diagn\'f3stico probable.\par
+Diagn\'f3stico confirmado.\par
+Diagn\'f3stico descartado.\par
+C\'f3digo CIE-10 opcional.\par
+Evidencias a favor.\par
+Evidencias en contra.\par
+Estudios pendientes.\par
+Fecha y hora.\par
+Estado del diagn\'f3stico.\par
+\par
+La aplicaci\'f3n debe diferenciar claramente entre hallazgos, problemas, diagn\'f3sticos diferenciales y diagn\'f3sticos confirmados.\par
+\par
+Si posteriormente se integra inteligencia artificial, debe funcionar solamente como apoyo cl\'ednico. Toda sugerencia debe mostrar:\par
+\par
+\ldblquote Requiere validaci\'f3n m\'e9dica\rdblquote .\par
+Datos utilizados.\par
+Datos faltantes.\par
+Posibles diagn\'f3sticos.\par
+Signos de alarma.\par
+Nivel de confianza orientativo.\par
+Fuentes cl\'ednicas utilizadas.\par
+\par
+Nunca presentar una recomendaci\'f3n de IA como diagn\'f3stico definitivo ni ejecutar tratamientos autom\'e1ticamente.\par
+\par
+\'d3RDENES Y TRATAMIENTO\par
+\par
+Campos:\par
+\par
+Soluciones.\par
+Medicamentos.\par
+Dosis.\par
+V\'eda.\par
+Frecuencia.\par
+Hora de inicio.\par
+Duraci\'f3n.\par
+Indicaci\'f3n.\par
+Ajuste renal.\par
+Estado: indicada, administrada, suspendida o completada.\par
+Observaciones.\par
+Procedimientos.\par
+Interconsultas.\par
+Estudios solicitados.\par
+\par
+Antes de guardar un medicamento, comprobar si existe una alergia registrada y mostrar advertencia. No bloquear una decisi\'f3n m\'e9dica: exigir justificaci\'f3n cuando se decida continuar.\par
+\par
+EVOLUCIONES\par
+\par
+Cada evoluci\'f3n debe registrar autom\'e1ticamente:\par
+\par
+Fecha y hora.\par
+Usuario.\par
+Signos vitales.\par
+Cambios cl\'ednicos.\par
+Resultados nuevos.\par
+Reevaluaci\'f3n de problemas.\par
+Diagn\'f3sticos actualizados.\par
+Conducta.\par
+Pr\'f3xima hora de reevaluaci\'f3n.\par
+\par
+No permitir que una evoluci\'f3n nueva sobrescriba una anterior. Las correcciones deben conservar la versi\'f3n previa en el registro de auditor\'eda.\par
+\par
+DISPOSICI\'d3N FINAL\par
+\par
+Opciones:\par
+\par
+Observaci\'f3n.\par
+Ingreso.\par
+Alta.\par
+Referimiento.\par
+Traslado.\par
+Abandono.\par
+Fallecimiento.\par
+\par
+Registrar:\par
+\par
+Fecha y hora.\par
+Condici\'f3n al egreso.\par
+Diagn\'f3sticos finales.\par
+Tratamiento indicado.\par
+Recomendaciones.\par
+Signos de alarma.\par
+Destino.\par
+M\'e9dico receptor.\par
+Centro receptor.\par
+Resumen de referencia.\par
+\par
+GENERADOR DE DOCUMENTOS\par
+\par
+Crear plantillas para:\par
+\par
+Historia cl\'ednica completa.\par
+Nota de recibimiento.\par
+Evoluci\'f3n m\'e9dica.\par
+Nota de reevaluaci\'f3n.\par
+Resumen de referimiento.\par
+Nota de alta.\par
+Epicrisis.\par
+Lista de \'f3rdenes m\'e9dicas.\par
+\par
+El usuario debe poder elegir las secciones que aparecer\'e1n, editar el resultado antes de confirmarlo, copiarlo y exportarlo como PDF.\par
+\par
+Nunca incluir campos vac\'edos, texto inventado ni hallazgos que el usuario no haya registrado. Cuando falte informaci\'f3n esencial, mostrar \ldblquote Dato no registrado\rdblquote  \'fanicamente dentro del formulario, no completar por suposici\'f3n.\par
+\par
+B\'daSQUEDA Y REPORTES\par
+\par
+Permitir buscar por:\par
+\par
+Nombre.\par
+C\'f3digo.\par
+Expediente.\par
+Fecha.\par
+Diagn\'f3stico.\par
+Cub\'edculo.\par
+Estado.\par
+Etiqueta.\par
+\par
+Crear estad\'edsticas sin identificaci\'f3n personal:\par
+\par
+N\'famero de pacientes atendidos.\par
+Diagn\'f3sticos m\'e1s frecuentes.\par
+Tiempo promedio hasta reevaluaci\'f3n.\par
+Destinos finales.\par
+Pacientes por nivel de triaje.\par
+Estudios solicitados.\par
+\par
+No usar la informaci\'f3n de pacientes para entrenar modelos.\par
+\par
+SEGURIDAD Y PRIVACIDAD\par
+\par
+La aplicaci\'f3n manejar\'e1 informaci\'f3n cl\'ednica sensible. Implementar:\par
+\par
+Principio de m\'ednimo acceso.\par
+Autenticaci\'f3n segura.\par
+Autorizaci\'f3n por usuario y rol.\par
+Reglas de acceso del servidor, no solo de la interfaz.\par
+Cifrado.\par
+Auditor\'eda.\par
+Copias de seguridad.\par
+Bloqueo de capturas de pantalla cuando sea t\'e9cnicamente posible.\par
+Ocultamiento de informaci\'f3n al pasar la aplicaci\'f3n a segundo plano.\par
+Consentimiento y aviso de privacidad configurables.\par
+Exportaci\'f3n segura.\par
+Eliminaci\'f3n y retenci\'f3n configurables.\par
+Nunca exponer credenciales o informaci\'f3n de pacientes en URLs, logs o mensajes de error.\par
+\par
+A\'f1adir un aviso permanente: \ldblquote Herramienta de documentaci\'f3n y apoyo cl\'ednico. No sustituye el juicio m\'e9dico ni los protocolos institucionales\rdblquote .\par
+\par
+PRIMERA VERSI\'d3N FUNCIONAL\par
+\par
+Construir primero:\par
+\par
+Acceso seguro.\par
+Tablero de pacientes activos.\par
+Registro r\'e1pido.\par
+Signos vitales y triaje.\par
+Historia cl\'ednica.\par
+Galer\'eda de im\'e1genes.\par
+Laboratorios.\par
+Lista de problemas y diagn\'f3sticos.\par
+Evoluciones.\par
+Generaci\'f3n de historia cl\'ednica y PDF.\par
+B\'fasqueda.\par
+Funcionamiento offline y sincronizaci\'f3n.\par
+\par
+PRUEBAS OBLIGATORIAS\par
+\par
+Crear datos completamente ficticios y comprobar:\par
+\par
+Uso desde pantalla m\'f3vil.\par
+Registro completo de un paciente.\par
+Guardado autom\'e1tico.\par
+Carga de varias im\'e1genes.\par
+Funcionamiento sin conexi\'f3n.\par
+Sincronizaci\'f3n al recuperar conexi\'f3n.\par
+Protecci\'f3n entre usuarios.\par
+Prevenci\'f3n de duplicados.\par
+Advertencia por alergias.\par
+Generaci\'f3n de PDF.\par
+Conservaci\'f3n de evoluciones anteriores.\par
+Manejo de errores.\par
+Accesibilidad.\par
+Rendimiento con al menos 500 pacientes ficticios.\par
+\par
+ENTREGABLES\par
+\par
+Al finalizar proporciona:\par
+\par
+C\'f3digo fuente organizado.\par
+Archivo README con instalaci\'f3n y configuraci\'f3n.\par
+Modelo de base de datos.\par
+Reglas de seguridad.\par
+Variables de entorno de ejemplo sin secretos.\par
+Instrucciones de despliegue.\par
+Pruebas automatizadas.\par
+Capturas de pantalla m\'f3vil.\par
+Registro de decisiones t\'e9cnicas.\par
+Lista clara de funciones pendientes.\par
+Demostraci\'f3n en navegador m\'f3vil.\par
+\par
+No declares el proyecto terminado hasta haber ejecutado las pruebas y mostrado evidencia visual de las funciones principales.\par
+}
+ 

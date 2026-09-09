@@ -1,0 +1,15 @@
+# Dependencias
+node_modules/
+.pnp
+.pnp.js
+
+# Compilacion
+dist/
+build/
+
+# Logs y entorno
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db

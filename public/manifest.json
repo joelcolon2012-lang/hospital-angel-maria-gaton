@@ -1,0 +1,16 @@
+{
+  "short_name": "HR Ángel M. Gatón",
+  "name": "Hospital Regional Ángel María Gatón — Emergencias",
+  "icons": [
+    {
+      "src": "/hospital_logo.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0F4C5C",
+  "display": "standalone",
+  "orientation": "portrait"
+}
