@@ -10,8 +10,8 @@ export const ShareAppModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'cloud' | 'wifi'>('cloud');
 
-  // Enlaces activos de acceso
-  const cloudUrl = 'https://331209d47991d4.lhr.life';
+  // Enlaces oficiales de acceso
+  const cloudUrl = 'https://joelcolon2012-lang.github.io/hospital-angel-maria-gaton/';
   const wifiUrl = 'http://172.17.22.254:3000';
 
   if (!isOpen) return null;
