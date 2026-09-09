@@ -205,29 +205,85 @@ export class GoogleDriveService {
 
   public getGasScriptCode(): string {
     return `// =======================================================================
-// CONECTOR OFICIAL GOOGLE DRIVE — HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN
+// BASE DE DATOS EN LA NUBE & CONECTOR GOOGLE DRIVE — HOSPITAL DR. ÁNGEL MARÍA GATÓN
 // Médico Responsable: Dr. Colón
 // =======================================================================
 
+var FOLDER_NAME = "Hospital Regional Angel Maria Gaton";
+var DB_FILE_NAME = "hospital_master_db.json";
+
+function getRootFolder() {
+  var folders = DriveApp.getFoldersByName(FOLDER_NAME);
+  return folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME);
+}
+
+function getDatabaseFile() {
+  var folder = getRootFolder();
+  var files = folder.getFilesByName(DB_FILE_NAME);
+  if (files.hasNext()) {
+    return files.next();
+  }
+  var initialData = {
+    version: 1,
+    lastUpdated: new Date().getTime(),
+    data: { patients: [], studies: [], labs: [], orders: [], evolutions: [] }
+  };
+  return folder.createFile(DB_FILE_NAME, JSON.stringify(initialData), MimeType.PLAIN_TEXT);
+}
+
+// -------------------------------------------------------------
+// GET: Consulta directa de pacientes desde cualquier celular o PC
+// -------------------------------------------------------------
+function doGet(e) {
+  try {
+    if (e && e.parameter && e.parameter.action === "ping") {
+      return ContentService.createTextOutput(JSON.stringify({ success: true, status: "ok" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var dbFile = getDatabaseFile();
+    var content = dbFile.getBlob().getDataAsString();
+    return ContentService.createTextOutput(content)
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// -------------------------------------------------------------
+// POST: Guardar pacientes en la nube, subir notas Word/PDF o respaldos
+// -------------------------------------------------------------
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    var rootFolderName = "Hospital Regional Angel Maria Gaton";
-    var rootFolders = DriveApp.getFoldersByName(rootFolderName);
-    var rootFolder = rootFolders.hasNext() ? rootFolders.next() : DriveApp.createFolder(rootFolderName);
-    
-    // 1. Copia de Seguridad de la Base de Datos
-    if (data.action === "backup") {
-      var fileName = data.fileName || ("Respaldo_HR_Gaton_" + Utilities.formatDate(new Date(), "GMT-4", "yyyy-MM-dd_HHmm") + ".json");
-      var file = rootFolder.createFile(fileName, JSON.stringify(data.backup, null, 2), "application/json");
+    var rootFolder = getRootFolder();
+
+    // 1. SINCRONIZAR Y GUARDAR PACIENTES EN GOOGLE DRIVE 24/7
+    if (data.action === "sync_push") {
+      var dbFile = getDatabaseFile();
+      var toSave = {
+        version: 1,
+        lastUpdated: data.payload.lastUpdated || new Date().getTime(),
+        savedAtIso: new Date().toISOString(),
+        data: data.payload.data || data.payload
+      };
+      dbFile.setContent(JSON.stringify(toSave));
       return ContentService.createTextOutput(JSON.stringify({ 
         success: true, 
-        fileUrl: file.getUrl(), 
-        fileName: fileName 
+        message: "Guardado permanentemente en Google Drive",
+        lastUpdated: toSave.lastUpdated 
       })).setMimeType(ContentService.MimeType.JSON);
     }
-    
-    // 2. Cargar Nota Médica, Documento Word (.docx) o PDF
+
+    // 2. CONSULTAR BASE DE DATOS MÁS RECIENTE
+    if (data.action === "sync_pull") {
+      var dbFile = getDatabaseFile();
+      var content = dbFile.getBlob().getDataAsString();
+      return ContentService.createTextOutput(content)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. SUBIR NOTA MÉDICA (WORD .DOCX O PDF) A CARPETA DEL PACIENTE
     if (data.action === "upload") {
       var pacFolderName = "[" + (data.patientCode || "EXP") + "] " + (data.patientName || "Paciente");
       var pacFolders = rootFolder.getFoldersByName(pacFolderName);
@@ -243,7 +299,18 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 3. Prueba de Conexión
+    // 4. CREAR COPIA DE SEGURIDAD INDEPENDIENTE
+    if (data.action === "backup") {
+      var fileName = data.fileName || ("Respaldo_HR_Gaton_" + Utilities.formatDate(new Date(), "GMT-4", "yyyy-MM-dd_HHmm") + ".json");
+      var file = rootFolder.createFile(fileName, JSON.stringify(data.backup, null, 2), MimeType.PLAIN_TEXT);
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: true, 
+        fileUrl: file.getUrl(), 
+        fileName: fileName 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 5. PRUEBA DE CONEXIÓN
     if (data.action === "ping") {
       return ContentService.createTextOutput(JSON.stringify({ 
         success: true, 
@@ -251,18 +318,12 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ success: false, message: "Acción no reconocida" })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ success: false, message: "Acción no reconocida" }))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
-}
-
-function doGet(e) {
-  return ContentService.createTextOutput(JSON.stringify({ 
-    success: true, 
-    status: "Servicio Google Drive HR Angel Maria Gaton Activo",
-    user: Session.getActiveUser().getEmail() 
-  })).setMimeType(ContentService.MimeType.JSON);
 }`;
   }
 

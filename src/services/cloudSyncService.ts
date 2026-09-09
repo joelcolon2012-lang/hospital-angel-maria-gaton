@@ -12,6 +12,7 @@
 
 import { db } from '../db/dexieDb';
 import { Patient, MedicalStudy, LabResult, MedicalOrder, PatientEvolution } from '../types';
+import { googleDriveService, DEFAULT_GAS_URL } from './googleDriveService';
 
 export interface HospitalMasterData {
   patients: Patient[];
@@ -27,8 +28,8 @@ export interface SyncConfiguration {
   enableLocalServerSync: boolean;
   enableCloudSync: boolean;
   cloudProvider: 'firebase' | 'cloudVault' | 'disabled';
-  firebaseUrl: string; // ej: https://emergencia-dr-colon-default-rtdb.firebaseio.com/hospital_master.json
-  cloudVaultKey: string; // Clave de clínica para sincronización gratuita
+  firebaseUrl: string;
+  cloudVaultKey: string;
   autoSyncDebounceSeconds: number;
   lastSyncedTime: string;
   syncState: 'idle' | 'syncing' | 'synced' | 'error';
@@ -37,7 +38,7 @@ export interface SyncConfiguration {
 
 const SYNC_STORAGE_KEY = 'hr_colon_sync_settings_v2';
 const DEFAULT_VAULT_KEY = 'dr-colon-emergencia-gaton';
-const GLOBAL_CLOUD_ENDPOINT = 'https://api.restful-api.dev/objects/ff808181a067127101a083c32d394f84';
+export const MASTER_GAS_URL = DEFAULT_GAS_URL;
 
 class CloudSyncService {
   private config: SyncConfiguration;
@@ -138,16 +139,21 @@ class CloudSyncService {
     });
   }
 
+  public getGasUrl(): string {
+    const driveCfg = googleDriveService.getConfig();
+    return (driveCfg.gasUrl && driveCfg.gasUrl.trim()) || MASTER_GAS_URL;
+  }
+
   private startBackgroundSync() {
     if (typeof window === 'undefined') return;
 
-    // Polling regular cada 5 segundos para recibir cambios de otros dispositivos
+    // Polling regular cada 12 segundos para recibir cambios de otros dispositivos
     if (this.pollInterval) clearInterval(this.pollInterval);
     this.pollInterval = setInterval(() => {
       if (document.visibilityState === 'visible' && !this.isProcessingSync) {
         this.pullLatestData();
       }
-    }, 5000);
+    }, 12000);
   }
 
   /**
@@ -184,7 +190,7 @@ class CloudSyncService {
   }
 
   /**
-   * Envía los datos locales al servidor de la PC (/api/sync) y a la Nube (si está configurada)
+   * Envía los datos locales a Google Drive en la Nube y al Servidor Local
    */
   public async triggerPushSync(): Promise<{ success: boolean; message: string }> {
     if (this.isProcessingSync) return { success: false, message: 'Sincronización en curso' };
@@ -199,7 +205,31 @@ class CloudSyncService {
 
       let syncedServers: string[] = [];
 
-      // 1. Sincronizar con el Servidor Local de la PC (/api/sync)
+      // 1. Sincronizar con Google Drive en la Nube 24/7 (Google Apps Script)
+      const gasUrl = this.getGasUrl();
+      if (gasUrl) {
+        try {
+          const res = await fetch(gasUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'sync_push',
+              payload: {
+                version: 1,
+                lastUpdated: data.lastUpdated,
+                data: data,
+              },
+            }),
+          });
+          if (res.ok || res.type === 'opaque') {
+            syncedServers.push('Google Drive Cloud (Dr. Colón)');
+          }
+        } catch (e) {
+          console.warn('[Sync] Error con Google Drive Cloud push:', e);
+        }
+      }
+
+      // 2. Sincronizar con el Servidor Local de la PC (/api/sync)
       if (this.config.enableLocalServerSync) {
         try {
           const res = await fetch('/api/sync', {
@@ -215,12 +245,11 @@ class CloudSyncService {
             syncedServers.push('PC Local (Disco Duro)');
           }
         } catch (e) {
-          // El servidor local puede no responder si el móvil está en datos 4G fuera del Wi-Fi
-          console.log('[Sync] Servidor local no disponible en esta red:', e);
+          // Servidor local no disponible en red externa
         }
       }
 
-      // 2. Sincronizar con Firebase Realtime Database (si está configurado)
+      // 3. Sincronizar con Firebase (si está configurado)
       if (this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl) {
         try {
           let url = this.config.firebaseUrl.trim();
@@ -233,30 +262,9 @@ class CloudSyncService {
             body: JSON.stringify(data),
           });
           if (res.ok) {
-            syncedServers.push('Google Firebase (Nube 24/7)');
+            syncedServers.push('Google Firebase');
           }
-        } catch (e) {
-          console.warn('[Sync] Error sincronizando con Firebase:', e);
-        }
-      }
-
-      // 3. Sincronizar con Nube Global Universal (24/7 permanente)
-      if (this.config.enableCloudSync) {
-        try {
-          const res = await fetch(GLOBAL_CLOUD_ENDPOINT, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: 'Hospital-Dr-Colon-Master-DB',
-              data: data,
-            }),
-          });
-          if (res.ok) {
-            syncedServers.push('Nube Global 24/7');
-          }
-        } catch (e) {
-          console.warn('[Sync] Error con Nube Global:', e);
-        }
+        } catch (e) {}
       }
 
       // 4. Guardar respaldo local inmediato en el navegador
@@ -285,7 +293,7 @@ class CloudSyncService {
   }
 
   /**
-   * Consulta el Servidor Local y la Nube para traer cambios hechos en otros dispositivos
+   * Consulta Google Drive y Servidores para traer cambios hechos en otros dispositivos
    */
   public async pullLatestData(): Promise<boolean> {
     if (this.isProcessingSync) return false;
@@ -293,77 +301,85 @@ class CloudSyncService {
     let remoteData: HospitalMasterData | null = null;
     let remoteTimestamp = 0;
 
-    // Probar 1: Servidor Local
+    // 1. Consultar Google Drive en la Nube 24/7 (Google Apps Script)
+    const gasUrl = this.getGasUrl();
+    if (gasUrl) {
+      try {
+        const res = await fetch(`${gasUrl}?t=${Date.now()}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json) {
+            const master = json.data || json;
+            if (master && Array.isArray(master.patients) && master.patients.length > 0) {
+              const ts = json.lastUpdated || master.lastUpdated || 0;
+              if (ts > remoteTimestamp || !remoteData) {
+                remoteData = master;
+                remoteTimestamp = ts;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Sync] Google Drive Cloud pull:', e);
+      }
+    }
+
+    // 2. Consultar Servidor Local de la PC (/api/sync)
     if (this.config.enableLocalServerSync) {
       try {
         const res = await fetch('/api/sync');
         if (res.ok) {
           const json = await res.json();
           if (json && json.data && json.lastUpdated) {
-            remoteData = json.data;
-            remoteTimestamp = json.lastUpdated;
-          }
-        }
-      } catch {
-        // Red local inaccesible (ej. fuera de la clínica con 4G)
-      }
-    }
-
-    // Probar 2: Firebase Realtime Database
-    if (!remoteData && this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl) {
-      try {
-        let url = this.config.firebaseUrl.trim();
-        if (!url.endsWith('.json')) {
-          url = url.replace(/\/+$/, '') + '/hospital_master.json';
-        }
-        const res = await fetch(url);
-        if (res.ok) {
-          const json = await res.json();
-          if (json && json.lastUpdated && json.lastUpdated > remoteTimestamp) {
-            remoteData = json;
-            remoteTimestamp = json.lastUpdated;
-          }
-        }
-      } catch (e) {
-        console.warn('[Sync] Error consultando Firebase:', e);
-      }
-    }
-
-    // Probar 3: Nube Global Universal (CORS 24/7 para cualquier PC o celular)
-    if (!remoteData && this.config.enableCloudSync) {
-      try {
-        const res = await fetch(GLOBAL_CLOUD_ENDPOINT);
-        if (res.ok) {
-          const json = await res.json();
-          if (json && json.data && json.data.patients && json.data.lastUpdated) {
-            if (json.data.lastUpdated > remoteTimestamp) {
+            if (json.lastUpdated > remoteTimestamp) {
               remoteData = json.data;
-              remoteTimestamp = json.data.lastUpdated;
+              remoteTimestamp = json.lastUpdated;
             }
           }
         }
-      } catch (e) {
-        // Nube inaccesible
-      }
+      } catch {}
     }
 
-    // Si no hay datos remotos, o si los datos remotos son más viejos que nuestro último cambio local, no sobrescribir
-    if (!remoteData || remoteTimestamp <= this.lastLocalTimestamp) {
-      // Si la base de datos local está completamente vacía (por ejemplo, celular que se acaba de abrir por primera vez),
-      // pero el servidor remoto sí tiene pacientes, SIEMPRE hidratar:
-      const localCount = await db.patients.count();
-      if (localCount > 0 || !remoteData || !remoteData.patients || remoteData.patients.length === 0) {
-        return false;
-      }
+    // 3. Consultar Base de Datos Maestra desplegada (public/hospital_master_db.json)
+    if (!remoteData) {
+      try {
+        const baseUrl = (import.meta as any).env?.BASE_URL || './';
+        const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
+        if (res.ok) {
+          const json = await res.json();
+          const master = json.data || json;
+          if (master && Array.isArray(master.patients) && master.patients.length > 0) {
+            remoteData = master;
+            remoteTimestamp = json.lastUpdated || Date.now();
+          }
+        }
+      } catch {}
     }
 
-    // Si los datos remotos son más recientes, hidratar Dexie
+    // 4. Si no hay datos remotos válidos, no hidratar
+    if (!remoteData || !remoteData.patients || remoteData.patients.length === 0) {
+      return false;
+    }
+
+    // Comprobar si el dispositivo local está vacío o solo contiene los casos ficticios iniciales
+    const localPatients = await db.patients.toArray();
+    const hasOnlyMockData = localPatients.length === 0 || 
+      (localPatients.length <= 4 && localPatients.every(p => p.id.startsWith('pat-00')));
+
+    // Si el dispositivo local solo tiene casos modelo de prueba, SIEMPRE hidratar con los datos reales
+    if (hasOnlyMockData) {
+      console.log('[Sync] Dispositivo nuevo o con datos modelo detectado. Reemplazando con pacientes reales de la nube...');
+    } else if (remoteTimestamp <= this.lastLocalTimestamp) {
+      return false;
+    }
+
+    // Hidratar Dexie
     try {
       this.isProcessingSync = true;
-      await this.hydrateDexie(remoteData);
-      this.lastLocalTimestamp = remoteTimestamp;
+      await this.hydrateDexie(remoteData, hasOnlyMockData);
+      this.lastLocalTimestamp = Math.max(remoteTimestamp, this.lastLocalTimestamp);
       try {
-        localStorage.setItem('hr_colon_last_local_timestamp', String(remoteTimestamp));
+        localStorage.setItem('hr_colon_last_local_timestamp', String(this.lastLocalTimestamp));
       } catch {}
 
       const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -382,13 +398,22 @@ class CloudSyncService {
   }
 
   /**
-   * Hidrata la base de datos Dexie con los datos suministrados SIN BORRAR pacientes nuevos locales
+   * Hidrata la base de datos Dexie con los datos suministrados
+   * Si purgeMockData es true, elimina primero los 4 casos dummy para que solo queden los pacientes reales
    */
-  public async hydrateDexie(data: HospitalMasterData): Promise<void> {
+  public async hydrateDexie(data: HospitalMasterData, purgeMockData: boolean = false): Promise<void> {
     if (!data.patients) return;
 
     await db.transaction('rw', db.patients, db.studies, db.labs, db.orders, db.evolutions, async () => {
-      // 1. Obtener pacientes locales actuales para no perder ningún dato nuevo
+      // 1. Si purgeMockData es true, limpiar casos modelo previos
+      if (purgeMockData) {
+        await db.patients.clear();
+        await db.studies.clear();
+        await db.labs.clear();
+        await db.orders.clear();
+        await db.evolutions.clear();
+      }
+
       const localPatients = await db.patients.toArray();
       const localMap = new Map(localPatients.map((p) => [p.id, p]));
 
@@ -397,7 +422,6 @@ class CloudSyncService {
         if (!localP) {
           await db.patients.add(remoteP);
         } else {
-          // Si el paciente remoto tiene timestamp más reciente o igual, actualizar
           const localTime = new Date(localP.updatedAt || localP.createdAt || 0).getTime();
           const remoteTime = new Date(remoteP.updatedAt || remoteP.createdAt || 0).getTime();
           if (remoteTime >= localTime) {

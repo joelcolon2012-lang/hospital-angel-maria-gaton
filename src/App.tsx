@@ -148,12 +148,15 @@ export default function App() {
       await refreshData();
 
       // 2. Traer novedades de la nube y otros dispositivos
-      await cloudSyncService.pullLatestData();
-      await refreshData();
+      const hadUpdates = await cloudSyncService.pullLatestData();
+      if (hadUpdates) {
+        await refreshData();
+      }
 
-      // 3. Sincronizar hacia la nube si hay pacientes locales
+      // 3. Sincronizar hacia la nube SOLO si hay pacientes reales creados localmente y no acabamos de recibir actualización remota
       const localData = await cloudSyncService.getLocalMasterData();
-      if (localData.patients && localData.patients.length > 0) {
+      const hasRealPatients = localData.patients.some((p) => !p.id.startsWith('pat-00'));
+      if (hasRealPatients && !hadUpdates) {
         await cloudSyncService.triggerPushSync();
       }
     };
