@@ -15,7 +15,7 @@ export interface DriveConfig {
   isMockMode?: boolean;
 }
 
-export const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzK_9IA-zhwA2ZJl3roNxUTrQZmqdPziHGYfoAtdiWojw5yX-NP2yDDPxmQyMYpq7l7/exec';
+export const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbziRJOJntFt8v2bVwEzxGtK3-zFYtgFp_Ql8ID_I_BLOrfECweZl4c0rAfw3EEUVyL8/exec';
 
 const STORAGE_KEY = 'hr_angel_maria_gaton_gdrive_config';
 const DRIVE_FOLDER_NAME = 'Hospital Regional Angel Maria Gaton';
@@ -30,17 +30,18 @@ export class GoogleDriveService {
     if (saved) {
       try {
         this.config = JSON.parse(saved);
-        if (!this.config.gasUrl) {
+        if (!this.config.gasUrl || this.config.gasUrl.includes('AKfycbzK_9IA-zhwA2ZJl3roNxUTrQZmqdPziHGYfoAtdiWojw5yX-NP2yDDPxmQyMYpq7l7')) {
           this.config.gasUrl = DEFAULT_GAS_URL;
           this.config.isConnected = true;
           this.config.isMockMode = false;
-          this.config.userEmail = 'Google Drive Dr. Colón';
+          this.config.userEmail = 'Google Drive Dr. Colón (v2 Realtime)';
+          this.saveConfig(this.config);
         }
       } catch {
-        this.config = { clientId: '', gasUrl: DEFAULT_GAS_URL, isConnected: true, isMockMode: false, userEmail: 'Google Drive Dr. Colón' };
+        this.config = { clientId: '', gasUrl: DEFAULT_GAS_URL, isConnected: true, isMockMode: false, userEmail: 'Google Drive Dr. Colón (v2 Realtime)' };
       }
     } else {
-      this.config = { clientId: '', gasUrl: DEFAULT_GAS_URL, isConnected: true, isMockMode: false, userEmail: 'Google Drive Dr. Colón' };
+      this.config = { clientId: '', gasUrl: DEFAULT_GAS_URL, isConnected: true, isMockMode: false, userEmail: 'Google Drive Dr. Colón (v2 Realtime)' };
     }
   }
 
