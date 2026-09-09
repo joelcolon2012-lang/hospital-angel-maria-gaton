@@ -29,6 +29,29 @@ export const GoogleDriveModal: React.FC<Props> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [gasDiagnosis, setGasDiagnosis] = useState<{
+    tested: boolean;
+    isV2Ready: boolean;
+    hasPatients: boolean;
+    patientCount: number;
+    message: string;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const currentCfg = googleDriveService.getConfig();
+    setConfig(currentCfg);
+    setGasUrlInput(currentCfg.gasUrl || '');
+
+    if (currentCfg.gasUrl) {
+      googleDriveService.verifyGasEndpoint(currentCfg.gasUrl).then((diag) => {
+        setGasDiagnosis({
+          tested: true,
+          ...diag
+        });
+      });
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -36,6 +59,23 @@ export const GoogleDriveModal: React.FC<Props> = ({
     navigator.clipboard.writeText(googleDriveService.getGasScriptCode());
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 3500);
+  };
+
+  const handleTestGasConnection = async () => {
+    setIsProcessing(true);
+    setStatusMessage(null);
+    try {
+      const diag = await googleDriveService.verifyGasEndpoint(gasUrlInput || config.gasUrl);
+      setGasDiagnosis({
+        tested: true,
+        ...diag
+      });
+      setStatusMessage({ text: diag.message, isError: !diag.isV2Ready });
+    } catch (err: any) {
+      setStatusMessage({ text: 'Error al verificar: ' + err?.message, isError: true });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleConnectGas = async () => {
@@ -263,205 +303,140 @@ export const GoogleDriveModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Connection Action Buttons */}
-        {!isConnected ? (
-          <div className="space-y-3 pt-1">
-            {/* Connection Mode Tabs */}
-            <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
-              <button
-                type="button"
-                onClick={() => setConnectionTab('gas')}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1 ${
-                  connectionTab === 'gas'
-                    ? 'bg-white text-emerald-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Zap className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Enlace Rápido (Recomendado)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setConnectionTab('oauth')}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1 ${
-                  connectionTab === 'oauth'
-                    ? 'bg-white text-petrol-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Key className="w-3.5 h-3.5 text-petrol-700" />
-                <span>Google OAuth</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setConnectionTab('mock')}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1 ${
-                  connectionTab === 'mock'
-                    ? 'bg-white text-amber-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-                <span>Demo</span>
-              </button>
-            </div>
-
-            {/* TAB 1: GOOGLE APPS SCRIPT WEB APP */}
-            {connectionTab === 'gas' && (
-              <div className="space-y-3 bg-emerald-50/50 border border-emerald-200/80 p-3.5 rounded-2xl">
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                    <Cloud className="w-4 h-4 text-emerald-600" />
-                    <span>Conexión Directa a tu Google Drive</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Permite guardar automáticamente notas y respaldos en tu Google Drive sin necesidad de contraseñas.
-                  </p>
-                </div>
-
-                <div className="bg-white/80 border border-emerald-200 rounded-xl p-3 space-y-2 text-[11px] text-slate-700">
-                  <p className="font-bold text-slate-800">Pasos para activar (Solo 1 vez):</p>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-600">
-                    <li>Abre <a href="https://script.google.com" target="_blank" rel="noreferrer" className="text-emerald-700 underline font-semibold">script.google.com</a> con tu cuenta Google.</li>
-                    <li>Haz clic en <strong>Nuevo Proyecto</strong>, borra todo y pega este código:</li>
-                  </ol>
-                  <button
-                    type="button"
-                    onClick={handleCopyScriptCode}
-                    className={`w-full py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 border transition-all ${
-                      copiedCode
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                    }`}
-                  >
-                    {copiedCode ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedCode ? '¡Código Copiado al Portapapeles!' : '📋 Copiar Código del Conector de Google Drive'}</span>
-                  </button>
-                  <ol start={3} className="list-decimal list-inside space-y-1 text-slate-600">
-                    <li>Arriba clic en <strong>Implementar &gt; Nueva implementación</strong>.</li>
-                    <li>Elige <strong>Aplicación web</strong>, en <em>Quién tiene acceso</em> elige <strong>Cualquier usuario</strong> y clic en <em>Implementar</em>.</li>
-                    <li>Copia la <strong>URL de la aplicación web</strong> y pégala aquí abajo:</li>
-                  </ol>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-800">
-                    URL de la Aplicación Web de Google:
-                  </label>
-                  <input
-                    type="text"
-                    value={gasUrlInput}
-                    onChange={(e) => setGasUrlInput(e.target.value)}
-                    placeholder="https://script.google.com/macros/s/AKfycb.../exec"
-                    className="w-full bg-white border border-emerald-300 rounded-xl p-2.5 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleConnectGas}
-                    disabled={isProcessing}
-                    className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95"
-                  >
-                    <Zap className="w-4 h-4 text-emerald-200" />
-                    <span>Vincular Google Drive Oficialmente</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: GOOGLE CLOUD OAUTH */}
-            {connectionTab === 'oauth' && (
-              <div className="space-y-3 bg-slate-50 border border-slate-200 p-3.5 rounded-2xl">
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    <Key className="w-4 h-4 text-petrol-700" />
-                    <span>Google OAuth 2.0 (Google Cloud Console)</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-600">
-                    Requiere un ID de Cliente de Google Cloud con origen autorizado en GitHub Pages.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-slate-700">Google OAuth Client ID:</label>
-                  <input
-                    type="text"
-                    value={clientIdInput}
-                    onChange={(e) => setClientIdInput(e.target.value)}
-                    placeholder="xxxxxx-xxxxxxxx.apps.googleusercontent.com"
-                    className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleConnectOAuth}
-                    disabled={isProcessing}
-                    className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
-                  >
-                    <Key className="w-3.5 h-3.5" />
-                    <span>Autorizar con Google OAuth2</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 3: MOCK DEMO */}
-            {connectionTab === 'mock' && (
-              <div className="space-y-3 bg-amber-50/50 border border-amber-200 p-3.5 rounded-2xl">
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-amber-700" />
-                    <span>Modo Demostración / Pruebas</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-600">
-                    Permite simular la subida y probar la interfaz del hospital sin credenciales externas.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleConnectMock}
-                  disabled={isProcessing}
-                  className="w-full py-2.5 bg-amber-700 hover:bg-amber-600 active:scale-95 text-white font-bold rounded-xl text-xs shadow-sm transition-all flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Activar Modo Demostración</span>
-                </button>
-              </div>
-            )}
+        {/* Live Cloud Status & Diagnostic Card */}
+        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700">Estado de Google Drive Cloud:</span>
+            <span
+              className={`text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 ${
+                gasDiagnosis?.isV2Ready
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : gasDiagnosis?.tested
+                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                  : isConnected
+                  ? 'bg-blue-100 text-blue-800'
+                  : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${gasDiagnosis?.isV2Ready ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+              {gasDiagnosis?.isV2Ready 
+                ? '🟢 v2 Activo en Tiempo Real' 
+                : gasDiagnosis?.tested
+                ? '⚠️ Requiere Nueva Versión'
+                : (config.gasUrl ? 'URL Configurada' : 'Desconectado')}
+            </span>
           </div>
-        ) : (
-          <div className="space-y-3 pt-1">
-            {/* Backup to Drive Button */}
+
+          {gasDiagnosis && (
+            <div className={`p-3 rounded-xl border text-xs font-medium leading-relaxed ${
+              gasDiagnosis.isV2Ready
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-amber-50 border-amber-200 text-amber-900'
+            }`}>
+              <p className="font-bold mb-1">
+                {gasDiagnosis.isV2Ready ? '¡Sincronización en la Nube Operativa!' : 'Atención: Actualización Necesaria en Google Script'}
+              </p>
+              <p>{gasDiagnosis.message}</p>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-1 text-xs text-slate-600">
+            <span>Endpoint: <strong className="font-mono text-[11px]">{config.gasUrl ? '.../exec' : 'No configurado'}</strong></span>
             <button
-              onClick={handleBackupNow}
+              type="button"
+              onClick={handleTestGasConnection}
               disabled={isProcessing}
-              className="w-full py-3 bg-petrol-900 hover:bg-petrol-800 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-2"
+              className="inline-flex items-center gap-1 px-3 py-1 bg-petrol-800 hover:bg-petrol-700 text-white font-bold rounded-lg text-xs transition-all disabled:opacity-50 active:scale-95"
             >
-              <Database className="w-4 h-4 text-emerald-300" />
-              <span>Crear Copia de Seguridad Completa en Google Drive</span>
-            </button>
-
-            {/* Restore from File */}
-            <div className="pt-2 border-t border-slate-100">
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Restaurar Base de Datos desde Respaldo JSON:
-              </label>
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleRestoreFile}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs"
-              />
-            </div>
-
-            {/* Disconnect Button */}
-            <button
-              onClick={handleDisconnect}
-              className="w-full py-2 text-slate-500 hover:text-red-600 font-semibold text-xs transition-colors"
-            >
-              Desconectar cuenta de Google Drive
+              <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
+              <span>Verificar Conexión en Vivo</span>
             </button>
           </div>
-        )}
+        </div>
+
+        {/* SECTION: Actualizar o Instalar Conector en Google Apps Script */}
+        <div className="space-y-3 bg-emerald-50/60 border border-emerald-200 p-4 rounded-2xl">
+          <div className="space-y-1">
+            <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+              <Cloud className="w-4 h-4 text-emerald-600" />
+              <span>Código Oficial de Sincronización en la Nube (Google Drive + Móvil)</span>
+            </h4>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              Para que los pacientes admitidos en el celular se guarden en la nube y aparezcan de inmediato en la PC:
+            </p>
+          </div>
+
+          <div className="bg-white border border-emerald-300 rounded-xl p-3.5 space-y-2.5 text-[11px] text-slate-700">
+            <p className="font-bold text-slate-900">Instrucciones para activar en 1 minuto:</p>
+            <ol className="list-decimal list-inside space-y-1.5 text-slate-600">
+              <li>Abre <a href="https://script.google.com" target="_blank" rel="noreferrer" className="text-emerald-700 underline font-bold">script.google.com</a> con tu cuenta Google y entra a tu proyecto.</li>
+              <li>Copia el código actualizado con el botón de abajo, selecciónalo todo en el editor de Google (Ctrl+A), pégalo y haz clic en Guardar (💾).</li>
+            </ol>
+            <button
+              type="button"
+              onClick={handleCopyScriptCode}
+              className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border shadow-sm transition-all active:scale-95 ${
+                copiedCode
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-700'
+              }`}
+            >
+              {copiedCode ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedCode ? '¡Código Copiado al Portapapeles!' : '📋 Copiar Código del Conector de Sincronización'}</span>
+            </button>
+            <ol start={3} className="list-decimal list-inside space-y-1.5 text-slate-600">
+              <li>Arriba haz clic en: <strong>Implementar &gt; Administrar implementaciones</strong>.</li>
+              <li>Haz clic en el <strong>Lápiz ✏️ (Editar)</strong>, en <em>Versión</em> selecciona <strong>"Nueva versión"</strong>, verifica que <em>Quién tiene acceso</em> sea <strong>"Cualquier usuario"</strong> y haz clic en <strong>Implementar</strong>.</li>
+            </ol>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-800">
+              URL de la Aplicación Web de Google:
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={gasUrlInput}
+                onChange={(e) => setGasUrlInput(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="flex-1 bg-white border border-emerald-300 rounded-xl p-2.5 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleConnectGas}
+                disabled={isProcessing}
+                className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs transition-all shrink-0 active:scale-95 disabled:opacity-50"
+              >
+                Guardar URL
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION: Respaldos y Restauración */}
+        <div className="space-y-3 pt-1 border-t border-slate-200">
+          <button
+            onClick={handleBackupNow}
+            disabled={isProcessing}
+            className="w-full py-2.5 bg-petrol-900 hover:bg-petrol-800 active:scale-95 text-white font-bold rounded-xl text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+          >
+            <Database className="w-4 h-4 text-emerald-300" />
+            <span>Crear Respaldo Completo en Google Drive</span>
+          </button>
+
+          <div className="pt-2 border-t border-slate-100">
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Restaurar Base de Datos desde Archivo JSON:
+            </label>
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleRestoreFile}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs"
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

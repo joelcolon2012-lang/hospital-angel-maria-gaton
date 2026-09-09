@@ -203,6 +203,79 @@ export class GoogleDriveService {
     }
   }
 
+  public async verifyGasEndpoint(urlToTest?: string): Promise<{
+    reachable: boolean;
+    isV2Ready: boolean;
+    hasPatients: boolean;
+    patientCount: number;
+    message: string;
+  }> {
+    const targetUrl = (urlToTest || this.config.gasUrl || DEFAULT_GAS_URL).trim();
+    if (!targetUrl) {
+      return { reachable: false, isV2Ready: false, hasPatients: false, patientCount: 0, message: 'No hay URL configurada.' };
+    }
+
+    try {
+      const res = await fetch(`${targetUrl}?action=ping&t=${Date.now()}`);
+      if (!res.ok && res.type !== 'opaque') {
+        return { reachable: false, isV2Ready: false, hasPatients: false, patientCount: 0, message: 'Google Apps Script no responde (código ' + res.status + ').' };
+      }
+
+      const json = await res.json().catch(() => null);
+      if (!json) {
+        return { reachable: true, isV2Ready: false, hasPatients: false, patientCount: 0, message: 'El endpoint respondió pero sin formato JSON.' };
+      }
+
+      const isV2 = json.version === 'v2-realtime';
+      
+      const dataRes = await fetch(`${targetUrl}?t=${Date.now()}`);
+      let patientCount = 0;
+      if (dataRes.ok) {
+        const dataJson = await dataRes.json().catch(() => null);
+        const master = dataJson ? (dataJson.data || dataJson) : null;
+        if (master && Array.isArray(master.patients)) {
+          patientCount = master.patients.length;
+        }
+      }
+
+      if (isV2) {
+        return {
+          reachable: true,
+          isV2Ready: true,
+          hasPatients: patientCount > 0,
+          patientCount,
+          message: `¡Google Apps Script v2 Activo y Sincronizando! (${patientCount} pacientes en la nube)`
+        };
+      }
+
+      if (json.status && json.status.includes('Angel Maria Gaton')) {
+        return {
+          reachable: true,
+          isV2Ready: false,
+          hasPatients: patientCount > 0,
+          patientCount,
+          message: 'Tu Google Apps Script responde, pero tiene la versión anterior de prueba. Requiere actualizar el script y desplegar "Nueva versión".'
+        };
+      }
+
+      return {
+        reachable: true,
+        isV2Ready: false,
+        hasPatients: false,
+        patientCount: 0,
+        message: 'Endpoint de Google activo pero requiere implementar la versión con base de datos.'
+      };
+    } catch (err: any) {
+      return {
+        reachable: false,
+        isV2Ready: false,
+        hasPatients: false,
+        patientCount: 0,
+        message: 'No se pudo conectar con Google Apps Script: ' + (err?.message || 'Error de red')
+      };
+    }
+  }
+
   public getGasScriptCode(): string {
     return `// =======================================================================
 // BASE DE DATOS EN LA NUBE & CONECTOR GOOGLE DRIVE — HOSPITAL DR. ÁNGEL MARÍA GATÓN
@@ -211,24 +284,77 @@ export class GoogleDriveService {
 
 var FOLDER_NAME = "Hospital Regional Angel Maria Gaton";
 var DB_FILE_NAME = "hospital_master_db.json";
+var CHUNK_SIZE = 8000;
 
-function getRootFolder() {
-  var folders = DriveApp.getFoldersByName(FOLDER_NAME);
-  return folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME);
+// Almacenamiento rápido y sin permisos en PropertiesService
+function saveToProperties(jsonStr, lastUpdated) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var count = Math.ceil(jsonStr.length / CHUNK_SIZE);
+    props.setProperty("db_chunk_count", String(count));
+    props.setProperty("db_last_updated", String(lastUpdated || new Date().getTime()));
+    for (var i = 0; i < count; i++) {
+      props.setProperty("db_chunk_" + i, jsonStr.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
+    }
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
-function getDatabaseFile() {
-  var folder = getRootFolder();
-  var files = folder.getFilesByName(DB_FILE_NAME);
-  if (files.hasNext()) {
-    return files.next();
+function loadFromProperties() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var countStr = props.getProperty("db_chunk_count");
+    if (!countStr) return null;
+    var count = parseInt(countStr, 10);
+    var full = "";
+    for (var i = 0; i < count; i++) {
+      var chunk = props.getProperty("db_chunk_" + i);
+      if (chunk) full += chunk;
+    }
+    if (!full) return null;
+    var parsed = JSON.parse(full);
+    var lastUpdated = parseInt(props.getProperty("db_last_updated") || "0", 10);
+    return {
+      version: 1,
+      lastUpdated: lastUpdated || (parsed.lastUpdated || 0),
+      data: parsed.data || parsed
+    };
+  } catch (err) {
+    return null;
   }
-  var initialData = {
-    version: 1,
-    lastUpdated: new Date().getTime(),
-    data: { patients: [], studies: [], labs: [], orders: [], evolutions: [] }
-  };
-  return folder.createFile(DB_FILE_NAME, JSON.stringify(initialData), MimeType.PLAIN_TEXT);
+}
+
+// Almacenamiento en Google Drive (si está autorizado)
+function saveToDrive(jsonStr) {
+  try {
+    var folders = DriveApp.getFoldersByName(FOLDER_NAME);
+    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME);
+    var files = folder.getFilesByName(DB_FILE_NAME);
+    if (files.hasNext()) {
+      files.next().setContent(jsonStr);
+    } else {
+      folder.createFile(DB_FILE_NAME, jsonStr, MimeType.PLAIN_TEXT);
+    }
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function loadFromDrive() {
+  try {
+    var folders = DriveApp.getFoldersByName(FOLDER_NAME);
+    if (!folders.hasNext()) return null;
+    var folder = folders.next();
+    var files = folder.getFilesByName(DB_FILE_NAME);
+    if (!files.hasNext()) return null;
+    var content = files.next().getBlob().getDataAsString();
+    return JSON.parse(content);
+  } catch (err) {
+    return null;
+  }
 }
 
 // -------------------------------------------------------------
@@ -237,16 +363,38 @@ function getDatabaseFile() {
 function doGet(e) {
   try {
     if (e && e.parameter && e.parameter.action === "ping") {
-      return ContentService.createTextOutput(JSON.stringify({ success: true, status: "ok" }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: true, 
+        version: "v2-realtime",
+        status: "Servicio de Sincronización HR Angel María Gatón Activo",
+        time: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
     }
-    var dbFile = getDatabaseFile();
-    var content = dbFile.getBlob().getDataAsString();
-    return ContentService.createTextOutput(content)
+
+    var dbData = loadFromProperties();
+    if (!dbData || !dbData.data || !dbData.data.patients || dbData.data.patients.length === 0) {
+      var driveData = loadFromDrive();
+      if (driveData) {
+        dbData = driveData;
+        saveToProperties(JSON.stringify(driveData), driveData.lastUpdated);
+      }
+    }
+
+    if (!dbData) {
+      dbData = {
+        version: 1,
+        lastUpdated: 0,
+        data: { patients: [], studies: [], labs: [], orders: [], evolutions: [] }
+      };
+    }
+
+    return ContentService.createTextOutput(JSON.stringify(dbData))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: err.toString(),
+      success: false 
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -255,66 +403,106 @@ function doGet(e) {
 // -------------------------------------------------------------
 function doPost(e) {
   try {
-    var data = JSON.parse(e.postData.contents);
-    var rootFolder = getRootFolder();
+    if (!e || !e.postData || !e.postData.contents) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Sin datos recibidos" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
 
-    // 1. SINCRONIZAR Y GUARDAR PACIENTES EN GOOGLE DRIVE 24/7
+    var data = JSON.parse(e.postData.contents);
+
+    // 1. SINCRONIZAR Y GUARDAR PACIENTES EN LA NUBE (CELULAR & PC)
     if (data.action === "sync_push") {
-      var dbFile = getDatabaseFile();
+      var payload = data.payload || {};
+      var rawData = payload.data || payload;
+      var lastUpdated = payload.lastUpdated || new Date().getTime();
+
       var toSave = {
         version: 1,
-        lastUpdated: data.payload.lastUpdated || new Date().getTime(),
+        lastUpdated: lastUpdated,
         savedAtIso: new Date().toISOString(),
-        data: data.payload.data || data.payload
+        data: rawData
       };
-      dbFile.setContent(JSON.stringify(toSave));
+      var jsonStr = JSON.stringify(toSave);
+
+      saveToProperties(jsonStr, lastUpdated);
+      saveToDrive(jsonStr);
+
+      var patientCount = (rawData.patients && rawData.patients.length) ? rawData.patients.length : 0;
+
       return ContentService.createTextOutput(JSON.stringify({ 
         success: true, 
-        message: "Guardado permanentemente en Google Drive",
-        lastUpdated: toSave.lastUpdated 
+        message: "Guardado permanentemente en la Nube (" + patientCount + " pacientes)",
+        lastUpdated: lastUpdated,
+        patientCount: patientCount
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // 2. CONSULTAR BASE DE DATOS MÁS RECIENTE
     if (data.action === "sync_pull") {
-      var dbFile = getDatabaseFile();
-      var content = dbFile.getBlob().getDataAsString();
-      return ContentService.createTextOutput(content)
+      var currentDb = loadFromProperties() || loadFromDrive();
+      if (!currentDb) {
+        currentDb = {
+          version: 1,
+          lastUpdated: 0,
+          data: { patients: [], studies: [], labs: [], orders: [], evolutions: [] }
+        };
+      }
+      return ContentService.createTextOutput(JSON.stringify(currentDb))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 3. SUBIR NOTA MÉDICA (WORD .DOCX O PDF) A CARPETA DEL PACIENTE
+    // 3. SUBIR NOTA MÉDICA (WORD .DOCX O PDF)
     if (data.action === "upload") {
-      var pacFolderName = "[" + (data.patientCode || "EXP") + "] " + (data.patientName || "Paciente");
-      var pacFolders = rootFolder.getFoldersByName(pacFolderName);
-      var pacFolder = pacFolders.hasNext() ? pacFolders.next() : rootFolder.createFolder(pacFolderName);
-      
-      var decoded = Utilities.base64Decode(data.base64Data);
-      var blob = Utilities.newBlob(decoded, data.mimeType || "application/octet-stream", data.fileName || "documento.docx");
-      var file = pacFolder.createFile(blob);
-      return ContentService.createTextOutput(JSON.stringify({ 
-        success: true, 
-        fileUrl: file.getUrl(), 
-        fileName: data.fileName 
-      })).setMimeType(ContentService.MimeType.JSON);
+      try {
+        var folders = DriveApp.getFoldersByName(FOLDER_NAME);
+        var rootFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME);
+        var pacFolderName = "[" + (data.patientCode || "EXP") + "] " + (data.patientName || "Paciente");
+        var pacFolders = rootFolder.getFoldersByName(pacFolderName);
+        var pacFolder = pacFolders.hasNext() ? pacFolders.next() : rootFolder.createFolder(pacFolderName);
+        
+        var decoded = Utilities.base64Decode(data.base64Data);
+        var blob = Utilities.newBlob(decoded, data.mimeType || "application/octet-stream", data.fileName || "documento.docx");
+        var file = pacFolder.createFile(blob);
+        return ContentService.createTextOutput(JSON.stringify({ 
+          success: true, 
+          fileUrl: file.getUrl(), 
+          fileName: data.fileName 
+        })).setMimeType(ContentService.MimeType.JSON);
+      } catch (uploadErr) {
+        return ContentService.createTextOutput(JSON.stringify({ 
+          success: false, 
+          error: "Error al subir archivo a Drive: " + uploadErr.toString() 
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
     }
 
-    // 4. CREAR COPIA DE SEGURIDAD INDEPENDIENTE
+    // 4. COPIA DE SEGURIDAD INDEPENDIENTE
     if (data.action === "backup") {
-      var fileName = data.fileName || ("Respaldo_HR_Gaton_" + Utilities.formatDate(new Date(), "GMT-4", "yyyy-MM-dd_HHmm") + ".json");
-      var file = rootFolder.createFile(fileName, JSON.stringify(data.backup, null, 2), MimeType.PLAIN_TEXT);
-      return ContentService.createTextOutput(JSON.stringify({ 
-        success: true, 
-        fileUrl: file.getUrl(), 
-        fileName: fileName 
-      })).setMimeType(ContentService.MimeType.JSON);
+      try {
+        var folders = DriveApp.getFoldersByName(FOLDER_NAME);
+        var rootFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME);
+        var fileName = data.fileName || ("Respaldo_HR_Gaton_" + Utilities.formatDate(new Date(), "GMT-4", "yyyy-MM-dd_HHmm") + ".json");
+        var file = rootFolder.createFile(fileName, JSON.stringify(data.backup, null, 2), MimeType.PLAIN_TEXT);
+        return ContentService.createTextOutput(JSON.stringify({ 
+          success: true, 
+          fileUrl: file.getUrl(), 
+          fileName: fileName 
+        })).setMimeType(ContentService.MimeType.JSON);
+      } catch (backupErr) {
+        return ContentService.createTextOutput(JSON.stringify({ 
+          success: false, 
+          error: "Error al guardar respaldo en Drive: " + backupErr.toString() 
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
     }
 
-    // 5. PRUEBA DE CONEXIÓN
+    // 5. PING
     if (data.action === "ping") {
       return ContentService.createTextOutput(JSON.stringify({ 
         success: true, 
-        userEmail: Session.getActiveUser().getEmail() || "Cuenta Google Activa" 
+        version: "v2-realtime",
+        status: "ok",
+        time: new Date().toISOString()
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -324,6 +512,12 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// Función opcional para autorizar permisos de Google Drive en 1 clic
+function autorizarPermisosDrive() {
+  var root = DriveApp.getRootFolder();
+  Logger.log("Google Drive autorizado correctamente: " + root.getName());
 }`;
   }
 

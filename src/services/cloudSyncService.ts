@@ -222,14 +222,43 @@ class CloudSyncService {
             }),
           });
           if (res.ok || res.type === 'opaque') {
-            syncedServers.push('Google Drive Cloud (Dr. Colón)');
+            const resJson = await res.json().catch(() => null);
+            if (resJson && resJson.success) {
+              syncedServers.push(`Google Drive Cloud (${resJson.patientCount || data.patients.length} pac.)`);
+            } else if (res.ok) {
+              syncedServers.push('Google Drive Cloud (Dr. Colón)');
+            }
           }
         } catch (e) {
           console.warn('[Sync] Error con Google Drive Cloud push:', e);
         }
       }
 
-      // 2. Sincronizar con el Servidor Local de la PC (/api/sync)
+      // 2. Sincronizar con Firebase (si está configurado)
+      if (this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl) {
+        try {
+          let url = this.config.firebaseUrl.trim();
+          if (!url.endsWith('.json')) {
+            url = url.replace(/\/+$/, '') + '/hospital_master.json';
+          }
+          const res = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              version: 1,
+              lastUpdated: data.lastUpdated,
+              data: data,
+            }),
+          });
+          if (res.ok) {
+            syncedServers.push('Google Firebase Realtime');
+          }
+        } catch (e) {
+          console.warn('[Sync] Error Firebase push:', e);
+        }
+      }
+
+      // 3. Sincronizar con el Servidor Local de la PC (/api/sync)
       if (this.config.enableLocalServerSync) {
         try {
           const res = await fetch('/api/sync', {
@@ -247,24 +276,6 @@ class CloudSyncService {
         } catch (e) {
           // Servidor local no disponible en red externa
         }
-      }
-
-      // 3. Sincronizar con Firebase (si está configurado)
-      if (this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl) {
-        try {
-          let url = this.config.firebaseUrl.trim();
-          if (!url.endsWith('.json')) {
-            url = url.replace(/\/+$/, '') + '/hospital_master.json';
-          }
-          const res = await fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-          });
-          if (res.ok) {
-            syncedServers.push('Google Firebase');
-          }
-        } catch (e) {}
       }
 
       // 4. Guardar respaldo local inmediato en el navegador
@@ -307,7 +318,7 @@ class CloudSyncService {
       try {
         const res = await fetch(`${gasUrl}?t=${Date.now()}`);
         if (res.ok) {
-          const json = await res.json();
+          const json = await res.json().catch(() => null);
           if (json) {
             const master = json.data || json;
             if (master && Array.isArray(master.patients) && master.patients.length > 0) {
@@ -324,12 +335,38 @@ class CloudSyncService {
       }
     }
 
-    // 2. Consultar Servidor Local de la PC (/api/sync)
+    // 2. Consultar Firebase Realtime Database (si está configurado)
+    if (this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl) {
+      try {
+        let url = this.config.firebaseUrl.trim();
+        if (!url.endsWith('.json')) {
+          url = url.replace(/\/+$/, '') + '/hospital_master.json';
+        }
+        const res = await fetch(`${url}?t=${Date.now()}`);
+        if (res.ok) {
+          const json = await res.json().catch(() => null);
+          if (json) {
+            const master = json.data || json;
+            if (master && Array.isArray(master.patients) && master.patients.length > 0) {
+              const ts = json.lastUpdated || master.lastUpdated || 0;
+              if (ts > remoteTimestamp || !remoteData) {
+                remoteData = master;
+                remoteTimestamp = ts;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Sync] Firebase pull:', e);
+      }
+    }
+
+    // 3. Consultar Servidor Local de la PC (/api/sync)
     if (this.config.enableLocalServerSync) {
       try {
         const res = await fetch('/api/sync');
         if (res.ok) {
-          const json = await res.json();
+          const json = await res.json().catch(() => null);
           if (json && json.data && json.lastUpdated) {
             if (json.lastUpdated > remoteTimestamp) {
               remoteData = json.data;
