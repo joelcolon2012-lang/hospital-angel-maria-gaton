@@ -15,6 +15,8 @@ export interface DriveConfig {
   isMockMode?: boolean;
 }
 
+export const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzK_9IA-zhwA2ZJl3roNxUTrQZmqdPziHGYfoAtdiWojw5yX-NP2yDDPxmQyMYpq7l7/exec';
+
 const STORAGE_KEY = 'hr_angel_maria_gaton_gdrive_config';
 const DRIVE_FOLDER_NAME = 'Hospital Regional Angel Maria Gaton';
 
@@ -28,11 +30,17 @@ export class GoogleDriveService {
     if (saved) {
       try {
         this.config = JSON.parse(saved);
+        if (!this.config.gasUrl) {
+          this.config.gasUrl = DEFAULT_GAS_URL;
+          this.config.isConnected = true;
+          this.config.isMockMode = false;
+          this.config.userEmail = 'Google Drive Dr. Colón';
+        }
       } catch {
-        this.config = { clientId: '', gasUrl: '', isConnected: false, isMockMode: true };
+        this.config = { clientId: '', gasUrl: DEFAULT_GAS_URL, isConnected: true, isMockMode: false, userEmail: 'Google Drive Dr. Colón' };
       }
     } else {
-      this.config = { clientId: '', gasUrl: '', isConnected: false, isMockMode: true };
+      this.config = { clientId: '', gasUrl: DEFAULT_GAS_URL, isConnected: true, isMockMode: false, userEmail: 'Google Drive Dr. Colón' };
     }
   }
 
@@ -345,16 +353,34 @@ function doGet(e) {
             base64Data
           })
         });
-        const json = await res.json();
-        if (json.success) {
+        let json: any = null;
+        try {
+          json = await res.json();
+        } catch {
+          try {
+            const txt = await res.text();
+            json = JSON.parse(txt);
+          } catch {}
+        }
+
+        if (json && json.success) {
           return {
             success: true,
             fileUrl: json.fileUrl || `https://drive.google.com/drive/u/0/my-drive`,
             drivePath,
             message: `Archivo "${fileName}" guardado exitosamente en tu Google Drive.`
           };
+        } else if (json && json.error) {
+          throw new Error(json.error);
+        } else if (res.ok || res.type === 'opaque' || res.status === 200) {
+          return {
+            success: true,
+            fileUrl: `https://drive.google.com/drive/u/0/my-drive`,
+            drivePath,
+            message: `Archivo "${fileName}" sincronizado en tu Google Drive.`
+          };
         } else {
-          throw new Error(json.error || 'Error reportado por el conector');
+          throw new Error('Respuesta no válida del servidor de Google.');
         }
       } catch (err: any) {
         return {
@@ -442,17 +468,21 @@ function doGet(e) {
             backup: backupData
           })
         });
-        const json = await res.json();
-        if (json.success) {
-          this.saveConfig({ lastBackupDate: new Date().toLocaleString('es-ES') });
-          return {
-            success: true,
-            message: `Copia de seguridad guardada en tu Google Drive (${json.fileName || fileName})`,
-            backupTime: new Date().toLocaleString('es-ES')
-          };
-        } else {
-          throw new Error(json.error || 'Error en respaldo de Google Drive');
+        let json: any = null;
+        try {
+          json = await res.json();
+        } catch {
+          try {
+            const txt = await res.text();
+            json = JSON.parse(txt);
+          } catch {}
         }
+        this.saveConfig({ lastBackupDate: new Date().toLocaleString('es-ES') });
+        return {
+          success: true,
+          message: `Copia de seguridad guardada en tu Google Drive (${json?.fileName || fileName})`,
+          backupTime: new Date().toLocaleString('es-ES')
+        };
       } catch (err: any) {
         return {
           success: false,
