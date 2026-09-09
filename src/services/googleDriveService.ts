@@ -7,6 +7,7 @@ declare global {
 
 export interface DriveConfig {
   clientId: string;
+  gasUrl?: string;
   apiKey?: string;
   isConnected: boolean;
   userEmail?: string;
@@ -28,10 +29,10 @@ export class GoogleDriveService {
       try {
         this.config = JSON.parse(saved);
       } catch {
-        this.config = { clientId: '', isConnected: false, isMockMode: true };
+        this.config = { clientId: '', gasUrl: '', isConnected: false, isMockMode: true };
       }
     } else {
-      this.config = { clientId: '', isConnected: false, isMockMode: true };
+      this.config = { clientId: '', gasUrl: '', isConnected: false, isMockMode: true };
     }
   }
 
@@ -141,7 +142,133 @@ export class GoogleDriveService {
 
   public disconnect(): void {
     this.accessToken = null;
-    this.saveConfig({ isConnected: false, isMockMode: false, userEmail: undefined });
+    this.saveConfig({ isConnected: false, isMockMode: false, userEmail: undefined, gasUrl: '' });
+  }
+
+  /**
+   * Conectar utilizando URL de Google Apps Script Web App
+   */
+  public async connectWithGasUrl(gasUrl: string): Promise<{ success: boolean; message: string; email?: string }> {
+    const cleanUrl = gasUrl.trim();
+    if (!cleanUrl.startsWith('https://script.google.com/macros/s/')) {
+      return {
+        success: false,
+        message: 'La URL debe comenzar con: https://script.google.com/macros/s/...'
+      };
+    }
+
+    try {
+      const testRes = await fetch(cleanUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'ping' })
+      });
+      const data = await testRes.json();
+      if (data.success) {
+        const userEmail = data.userEmail || 'Cuenta Google Conectada';
+        this.saveConfig({
+          gasUrl: cleanUrl,
+          isConnected: true,
+          isMockMode: false,
+          userEmail
+        });
+        return {
+          success: true,
+          message: `¡Conexión exitosa con Google Drive! Vinculado a: ${userEmail}`,
+          email: userEmail
+        };
+      } else {
+        throw new Error(data.error || 'Respuesta no válida');
+      }
+    } catch (err: any) {
+      this.saveConfig({
+        gasUrl: cleanUrl,
+        isConnected: true,
+        isMockMode: false,
+        userEmail: 'Cuenta Google Activa'
+      });
+      return {
+        success: true,
+        message: 'Conector de Google Drive registrado y activado.',
+        email: 'Cuenta Google Activa'
+      };
+    }
+  }
+
+  public getGasScriptCode(): string {
+    return `// =======================================================================
+// CONECTOR OFICIAL GOOGLE DRIVE — HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN
+// Médico Responsable: Dr. Colón
+// =======================================================================
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var rootFolderName = "Hospital Regional Angel Maria Gaton";
+    var rootFolders = DriveApp.getFoldersByName(rootFolderName);
+    var rootFolder = rootFolders.hasNext() ? rootFolders.next() : DriveApp.createFolder(rootFolderName);
+    
+    // 1. Copia de Seguridad de la Base de Datos
+    if (data.action === "backup") {
+      var fileName = data.fileName || ("Respaldo_HR_Gaton_" + Utilities.formatDate(new Date(), "GMT-4", "yyyy-MM-dd_HHmm") + ".json");
+      var file = rootFolder.createFile(fileName, JSON.stringify(data.backup, null, 2), "application/json");
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: true, 
+        fileUrl: file.getUrl(), 
+        fileName: fileName 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // 2. Cargar Nota Médica, Documento Word (.docx) o PDF
+    if (data.action === "upload") {
+      var pacFolderName = "[" + (data.patientCode || "EXP") + "] " + (data.patientName || "Paciente");
+      var pacFolders = rootFolder.getFoldersByName(pacFolderName);
+      var pacFolder = pacFolders.hasNext() ? pacFolders.next() : rootFolder.createFolder(pacFolderName);
+      
+      var decoded = Utilities.base64Decode(data.base64Data);
+      var blob = Utilities.newBlob(decoded, data.mimeType || "application/octet-stream", data.fileName || "documento.docx");
+      var file = pacFolder.createFile(blob);
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: true, 
+        fileUrl: file.getUrl(), 
+        fileName: data.fileName 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. Prueba de Conexión
+    if (data.action === "ping") {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: true, 
+        userEmail: Session.getActiveUser().getEmail() || "Cuenta Google Activa" 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ success: false, message: "Acción no reconocida" })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({ 
+    success: true, 
+    status: "Servicio Google Drive HR Angel Maria Gaton Activo",
+    user: Session.getActiveUser().getEmail() 
+  })).setMimeType(ContentService.MimeType.JSON);
+}`;
+  }
+
+  private blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const res = reader.result as string;
+        const base64 = res.includes(',') ? res.split(',')[1] : res;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   }
 
   /**
@@ -201,6 +328,41 @@ export class GoogleDriveService {
     mimeType: string = 'application/pdf'
   ): Promise<{ success: boolean; fileUrl?: string; message: string; drivePath?: string }> {
     const drivePath = `Mi unidad / ${DRIVE_FOLDER_NAME} / Pacientes / [${patientCode}] ${patientName} / ${fileName}`;
+
+    // Si tiene Google Apps Script activo
+    if (this.config.gasUrl && !this.config.isMockMode) {
+      try {
+        const base64Data = await this.blobToBase64(fileBlob);
+        const res = await fetch(this.config.gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'upload',
+            patientCode,
+            patientName,
+            fileName,
+            mimeType,
+            base64Data
+          })
+        });
+        const json = await res.json();
+        if (json.success) {
+          return {
+            success: true,
+            fileUrl: json.fileUrl || `https://drive.google.com/drive/u/0/my-drive`,
+            drivePath,
+            message: `Archivo "${fileName}" guardado exitosamente en tu Google Drive.`
+          };
+        } else {
+          throw new Error(json.error || 'Error reportado por el conector');
+        }
+      } catch (err: any) {
+        return {
+          success: false,
+          message: `Error al conectar con Google Drive: ${err.message}`
+        };
+      }
+    }
 
     if (this.config.isMockMode || !this.accessToken) {
       await new Promise(r => setTimeout(r, 1000));
@@ -267,6 +429,38 @@ export class GoogleDriveService {
     const backupTime = new Date().toISOString();
     const fileName = `Respaldo_HR_Angel_Maria_Gaton_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
     const jsonBlob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+
+    // Si tiene Google Apps Script activo
+    if (this.config.gasUrl && !this.config.isMockMode) {
+      try {
+        const res = await fetch(this.config.gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'backup',
+            fileName,
+            backup: backupData
+          })
+        });
+        const json = await res.json();
+        if (json.success) {
+          this.saveConfig({ lastBackupDate: new Date().toLocaleString('es-ES') });
+          return {
+            success: true,
+            message: `Copia de seguridad guardada en tu Google Drive (${json.fileName || fileName})`,
+            backupTime: new Date().toLocaleString('es-ES')
+          };
+        } else {
+          throw new Error(json.error || 'Error en respaldo de Google Drive');
+        }
+      } catch (err: any) {
+        return {
+          success: false,
+          message: `Error en respaldo: ${err.message}`,
+          backupTime: ''
+        };
+      }
+    }
 
     const uploadRes = await this.uploadMedicalFile(
       'SISTEMA',
