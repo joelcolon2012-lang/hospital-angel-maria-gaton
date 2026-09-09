@@ -74,11 +74,11 @@ export class GoogleDriveService {
 
   public async authenticate(useMock: boolean = false): Promise<{ success: boolean; message: string; email?: string }> {
     if (useMock) {
-      this.saveConfig({ isConnected: true, isMockMode: true, userEmail: 'emergencias.hr.angelgaton@gmail.com' });
+      this.saveConfig({ isConnected: true, isMockMode: true, userEmail: 'dr.colon.emergencias@gmail.com' });
       return {
         success: true,
         message: 'Conectado a Google Drive en Modo Simulado (Listo para pruebas sin credenciales)',
-        email: 'emergencias.hr.angelgaton@gmail.com'
+        email: 'dr.colon.emergencias@gmail.com'
       };
     }
 
@@ -91,23 +91,48 @@ export class GoogleDriveService {
 
     return new Promise((resolve) => {
       try {
-        if (!this.tokenClient) {
-          this.initOAuthClient(this.config.clientId);
+        if (!window.google?.accounts?.oauth2) {
+          resolve({ success: false, message: 'La librería Google Identity Services no está disponible. Recarga la página.' });
+          return;
         }
 
-        if (this.tokenClient) {
-          this.tokenClient.requestAccessToken({ prompt: 'consent' });
-          // Note: In real web, callback handles token
-          setTimeout(() => {
-            resolve({
-              success: true,
-              message: 'Conexión a Google Drive autorizada correctamente.',
-              email: this.config.userEmail || 'cuenta.medica@gmail.com'
-            });
-          }, 1500);
-        } else {
-          resolve({ success: false, message: 'No se pudo iniciar el cliente OAuth de Google.' });
-        }
+        this.tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: this.config.clientId.trim(),
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+          callback: async (tokenResponse: any) => {
+            if (tokenResponse && tokenResponse.access_token) {
+              this.accessToken = tokenResponse.access_token;
+              let email = 'dr.colon@hospital.local';
+
+              // Obtener correo del usuario
+              try {
+                const infoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                  headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+                });
+                if (infoRes.ok) {
+                  const infoJson = await infoRes.json();
+                  if (infoJson.email) email = infoJson.email;
+                }
+              } catch {}
+
+              this.saveConfig({ clientId: this.config.clientId, isConnected: true, isMockMode: false, userEmail: email });
+              resolve({
+                success: true,
+                message: `Google Drive conectado exitosamente con la cuenta: ${email}`,
+                email
+              });
+            } else if (tokenResponse && tokenResponse.error) {
+              resolve({
+                success: false,
+                message: `Error de Google: ${tokenResponse.error_description || tokenResponse.error}`
+              });
+            } else {
+              resolve({ success: false, message: 'Autenticación con Google cancelada o sin token.' });
+            }
+          },
+        });
+
+        this.tokenClient.requestAccessToken({ prompt: 'consent' });
       } catch (err: any) {
         resolve({ success: false, message: err.message || 'Error durante la autenticación con Google.' });
       }
@@ -117,6 +142,52 @@ export class GoogleDriveService {
   public disconnect(): void {
     this.accessToken = null;
     this.saveConfig({ isConnected: false, isMockMode: false, userEmail: undefined });
+  }
+
+  /**
+   * Busca o crea una carpeta en Google Drive
+   */
+  private async getOrCreateFolder(folderName: string, parentId?: string): Promise<string | null> {
+    if (!this.accessToken) return null;
+    try {
+      let q = `mimeType='application/vnd.google-apps.folder' and name='${folderName.replace(/'/g, "\\'")}' and trashed=false`;
+      if (parentId) {
+        q += ` and '${parentId}' in parents`;
+      }
+      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` }
+      });
+      if (searchRes.ok) {
+        const data = await searchRes.json();
+        if (data.files && data.files.length > 0) {
+          return data.files[0].id;
+        }
+      }
+
+      // Crear si no existe
+      const folderMetadata: any = {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+      };
+      if (parentId) {
+        folderMetadata.parents = [parentId];
+      }
+      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(folderMetadata)
+      });
+      if (createRes.ok) {
+        const folderJson = await createRes.json();
+        return folderJson.id;
+      }
+    } catch (e) {
+      console.warn('Error gestionando carpeta en Drive:', e);
+    }
+    return null;
   }
 
   /**
@@ -132,23 +203,30 @@ export class GoogleDriveService {
     const drivePath = `Mi unidad / ${DRIVE_FOLDER_NAME} / Pacientes / [${patientCode}] ${patientName} / ${fileName}`;
 
     if (this.config.isMockMode || !this.accessToken) {
-      // Realistic simulation for hospital demo
-      await new Promise(r => setTimeout(r, 1200));
-      const simulatedUrl = `https://drive.google.com/file/d/demo-${Date.now()}/view`;
+      await new Promise(r => setTimeout(r, 1000));
+      const simulatedUrl = `https://drive.google.com/drive/u/0/my-drive`;
       return {
         success: true,
         fileUrl: simulatedUrl,
         drivePath,
-        message: `Archivo "${fileName}" guardado exitosamente en Google Drive en la carpeta: ${drivePath}`
+        message: `Archivo "${fileName}" preparado para Google Drive en la carpeta: ${drivePath}`
       };
     }
 
     try {
-      // Upload using Google Drive v3 REST API
-      const metadata = {
+      // 1. Organizar carpeta principal y del paciente
+      const rootFolderId = await this.getOrCreateFolder(DRIVE_FOLDER_NAME);
+      const patientFolderId = rootFolderId ? await this.getOrCreateFolder(`[${patientCode}] ${patientName}`, rootFolderId) : null;
+
+      const metadata: any = {
         name: fileName,
         mimeType: mimeType,
       };
+      if (patientFolderId) {
+        metadata.parents = [patientFolderId];
+      } else if (rootFolderId) {
+        metadata.parents = [rootFolderId];
+      }
 
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
@@ -163,7 +241,7 @@ export class GoogleDriveService {
       });
 
       if (!response.ok) {
-        throw new Error(`Error en API de Google Drive: ${response.statusText}`);
+        throw new Error(`Error en API de Google Drive (${response.status}): ${response.statusText}`);
       }
 
       const result = await response.json();
@@ -171,7 +249,7 @@ export class GoogleDriveService {
         success: true,
         fileUrl: `https://drive.google.com/file/d/${result.id}/view`,
         drivePath,
-        message: `Archivo sincronizado exitosamente en Google Drive.`
+        message: `Archivo guardado exitosamente en Google Drive.`
       };
     } catch (error: any) {
       console.error('Error al subir a Google Drive:', error);
