@@ -113,6 +113,7 @@ function hospitalDatabasePlugin(): Plugin {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [react(), hospitalDatabasePlugin()],
   server: {
     port: 3000,
