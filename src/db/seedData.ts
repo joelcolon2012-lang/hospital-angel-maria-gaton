@@ -1,4 +1,4 @@
-﻿import { Patient, MedicalStudy, LabResult, ClinicalProblem, MedicalOrder, PatientEvolution } from '../types';
+import { Patient, MedicalStudy, LabResult, ClinicalProblem, MedicalOrder, PatientEvolution } from '../types';
 
 // Realistic SVG generator for mock clinical images
 function generateMockEcgDataUrl(label: string = 'ECG DI-DII-DIII'): string {
@@ -538,6 +538,24 @@ export const SEED_EVOLUTIONS: PatientEvolution[] = [
 export async function seedDatabaseIfEmpty(db: any): Promise<void> {
   const count = await db.patients.count();
   if (count === 0) {
+    // 1. Verificar si existe respaldo real del usuario guardado en localStorage
+    try {
+      if (typeof window !== 'undefined') {
+        const backupStr = localStorage.getItem('hr_colon_patients_backup');
+        if (backupStr) {
+          const backupPatients = JSON.parse(backupStr);
+          if (Array.isArray(backupPatients) && backupPatients.length > 0) {
+            console.log('[Seed] Restaurando expedientes reales desde respaldo local...');
+            await db.patients.bulkAdd(backupPatients);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Seed] Error leyendo respaldo local:', e);
+    }
+
+    // 2. Solo si el sistema está completamente virgen, sembrar casos modelo
     console.log('Seeding initial clinical database with realistic emergency cases...');
     await db.patients.bulkAdd(SEED_PATIENTS);
     await db.studies.bulkAdd(SEED_STUDIES);

@@ -135,22 +135,32 @@ export default function App() {
     }
   };
 
+  const saveLocalBackup = async () => {
+    try {
+      const allP = await db.patients.toArray();
+      localStorage.setItem('hr_colon_patients_backup', JSON.stringify(allP));
+    } catch {}
+  };
+
   useEffect(() => {
     const initializeDataAndSync = async () => {
-      // 1. Intentar consultar servidor local PC y nube para ver si hay datos remotos
+      // 1. Cargar datos locales inmediatamente (para visualización instantánea)
+      await refreshData();
+
+      // 2. Traer novedades de la nube y otros dispositivos
       await cloudSyncService.pullLatestData();
       await refreshData();
 
-      // 2. Si el servidor local en disco está vacío, subir el conjunto inicial
+      // 3. Sincronizar hacia la nube si hay pacientes locales
       const localData = await cloudSyncService.getLocalMasterData();
       if (localData.patients && localData.patients.length > 0) {
-        cloudSyncService.triggerPushSync();
+        await cloudSyncService.triggerPushSync();
       }
     };
 
     initializeDataAndSync();
 
-    // 3. Suscribirse a cambios de otros dispositivos vía polling/nube
+    // 4. Suscribirse a cambios de otros dispositivos vía polling/nube
     const unsubscribe = cloudSyncService.subscribe(() => {
       refreshData();
     });
@@ -239,10 +249,18 @@ export default function App() {
       },
     };
 
+    // 1. Guardar en Dexie DB
     await db.patients.add(newP);
+    
+    // 2. Guardar respaldo inmediato en localStorage para blindar contra recargas
+    await saveLocalBackup();
+
+    // 3. Actualizar estado en pantalla
     await refreshData();
     setActivePatient(newP);
-    cloudSyncService.scheduleAutoSync();
+
+    // 4. Empujar inmediatamente a la nube para que esté en todas las computadoras
+    await cloudSyncService.triggerPushSync();
   };
 
   const handleUpdateVitals = async (updatedVitals: Vitals) => {
@@ -251,6 +269,7 @@ export default function App() {
     await db.patients.put(updated);
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    await saveLocalBackup();
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -264,6 +283,7 @@ export default function App() {
     await db.patients.put(updated);
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    await saveLocalBackup();
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -273,6 +293,7 @@ export default function App() {
     await db.patients.put(updated);
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    await saveLocalBackup();
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -287,7 +308,8 @@ export default function App() {
     await db.patients.put(updated);
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    cloudSyncService.scheduleAutoSync();
+    await saveLocalBackup();
+    await cloudSyncService.triggerPushSync();
   };
 
   // Studies
@@ -412,7 +434,8 @@ export default function App() {
       patientId: p.id,
       details: `Expediente archivado por ${currentUser.name}`,
     });
-    cloudSyncService.triggerPushSync();
+    await saveLocalBackup();
+    await cloudSyncService.triggerPushSync();
   };
 
   // Patient scoped data

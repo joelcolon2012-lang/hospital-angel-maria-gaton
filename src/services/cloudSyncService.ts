@@ -37,6 +37,7 @@ export interface SyncConfiguration {
 
 const SYNC_STORAGE_KEY = 'hr_colon_sync_settings_v2';
 const DEFAULT_VAULT_KEY = 'dr-colon-emergencia-gaton';
+const GLOBAL_CLOUD_ENDPOINT = 'https://api.restful-api.dev/objects/ff808181a067127101a083c32d394f84';
 
 class CloudSyncService {
   private config: SyncConfiguration;
@@ -48,6 +49,12 @@ class CloudSyncService {
 
   constructor() {
     this.config = this.loadConfig();
+    try {
+      const storedTime = localStorage.getItem('hr_colon_last_local_timestamp');
+      if (storedTime) {
+        this.lastLocalTimestamp = parseInt(storedTime, 10) || 0;
+      }
+    } catch {}
     this.initNetworkListeners();
     this.startBackgroundSync();
   }
@@ -62,7 +69,7 @@ class CloudSyncService {
           cloudProvider: parsed.cloudProvider && parsed.cloudProvider !== 'disabled' ? parsed.cloudProvider : 'cloudVault',
           firebaseUrl: parsed.firebaseUrl || '',
           cloudVaultKey: parsed.cloudVaultKey || DEFAULT_VAULT_KEY,
-          autoSyncDebounceSeconds: 1.2,
+          autoSyncDebounceSeconds: 0.5,
           lastSyncedTime: parsed.lastSyncedTime || '',
           syncState: 'idle',
           ...parsed,
@@ -79,7 +86,7 @@ class CloudSyncService {
       cloudProvider: 'cloudVault',
       firebaseUrl: '',
       cloudVaultKey: DEFAULT_VAULT_KEY,
-      autoSyncDebounceSeconds: 1.2,
+      autoSyncDebounceSeconds: 0.5,
       lastSyncedTime: '',
       syncState: 'idle',
     };
@@ -233,23 +240,30 @@ class CloudSyncService {
         }
       }
 
-      // 3. Sincronizar con Cloud Vault Gratuito (si está configurado)
-      if (this.config.enableCloudSync && this.config.cloudProvider === 'cloudVault' && this.config.cloudVaultKey) {
+      // 3. Sincronizar con Nube Global Universal (24/7 permanente)
+      if (this.config.enableCloudSync) {
         try {
-          const key = encodeURIComponent(this.config.cloudVaultKey.trim());
-          const url = `https://kvdb.io/4y9h81u6jQv2D7p8Xw4k/${key}`;
-          const res = await fetch(url, {
-            method: 'POST',
+          const res = await fetch(GLOBAL_CLOUD_ENDPOINT, {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
+            body: JSON.stringify({
+              name: 'Hospital-Dr-Colon-Master-DB',
+              data: data,
+            }),
           });
           if (res.ok) {
-            syncedServers.push('Cloud Vault Seguro');
+            syncedServers.push('Nube Global 24/7');
           }
         } catch (e) {
-          console.warn('[Sync] Error con Cloud Vault:', e);
+          console.warn('[Sync] Error con Nube Global:', e);
         }
       }
+
+      // 4. Guardar respaldo local inmediato en el navegador
+      try {
+        localStorage.setItem('hr_colon_patients_backup', JSON.stringify(data.patients));
+        localStorage.setItem('hr_colon_last_local_timestamp', String(data.lastUpdated));
+      } catch {}
 
       const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       this.config.syncState = 'synced';
@@ -315,21 +329,21 @@ class CloudSyncService {
       }
     }
 
-    // Probar 3: Cloud Vault
-    if (!remoteData && this.config.enableCloudSync && this.config.cloudProvider === 'cloudVault' && this.config.cloudVaultKey) {
+    // Probar 3: Nube Global Universal (CORS 24/7 para cualquier PC o celular)
+    if (!remoteData && this.config.enableCloudSync) {
       try {
-        const key = encodeURIComponent(this.config.cloudVaultKey.trim());
-        const url = `https://kvdb.io/4y9h81u6jQv2D7p8Xw4k/${key}`;
-        const res = await fetch(url);
+        const res = await fetch(GLOBAL_CLOUD_ENDPOINT);
         if (res.ok) {
           const json = await res.json();
-          if (json && json.lastUpdated && json.lastUpdated > remoteTimestamp) {
-            remoteData = json;
-            remoteTimestamp = json.lastUpdated;
+          if (json && json.data && json.data.patients && json.data.lastUpdated) {
+            if (json.data.lastUpdated > remoteTimestamp) {
+              remoteData = json.data;
+              remoteTimestamp = json.data.lastUpdated;
+            }
           }
         }
-      } catch {
-        // Vault inaccesible
+      } catch (e) {
+        // Nube inaccesible
       }
     }
 
@@ -348,6 +362,9 @@ class CloudSyncService {
       this.isProcessingSync = true;
       await this.hydrateDexie(remoteData);
       this.lastLocalTimestamp = remoteTimestamp;
+      try {
+        localStorage.setItem('hr_colon_last_local_timestamp', String(remoteTimestamp));
+      } catch {}
 
       const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       this.config.lastSyncedTime = nowTime;
@@ -365,42 +382,67 @@ class CloudSyncService {
   }
 
   /**
-   * Hidrata la base de datos Dexie con los datos suministrados
+   * Hidrata la base de datos Dexie con los datos suministrados SIN BORRAR pacientes nuevos locales
    */
   public async hydrateDexie(data: HospitalMasterData): Promise<void> {
     if (!data.patients) return;
 
     await db.transaction('rw', db.patients, db.studies, db.labs, db.orders, db.evolutions, async () => {
-      // Actualizar o insertar pacientes
-      if (data.patients && data.patients.length > 0) {
-        await db.patients.clear();
-        await db.patients.bulkAdd(data.patients);
+      // 1. Obtener pacientes locales actuales para no perder ningún dato nuevo
+      const localPatients = await db.patients.toArray();
+      const localMap = new Map(localPatients.map((p) => [p.id, p]));
+
+      for (const remoteP of data.patients) {
+        const localP = localMap.get(remoteP.id);
+        if (!localP) {
+          await db.patients.add(remoteP);
+        } else {
+          // Si el paciente remoto tiene timestamp más reciente o igual, actualizar
+          const localTime = new Date(localP.updatedAt || localP.createdAt || 0).getTime();
+          const remoteTime = new Date(remoteP.updatedAt || remoteP.createdAt || 0).getTime();
+          if (remoteTime >= localTime) {
+            await db.patients.put(remoteP);
+          }
+        }
       }
 
-      // Actualizar estudios
+      // 2. Actualizar estudios
       if (data.studies && data.studies.length > 0) {
-        await db.studies.clear();
-        await db.studies.bulkAdd(data.studies);
+        for (const s of data.studies) {
+          await db.studies.put(s);
+        }
       }
 
-      // Actualizar labs
+      // 3. Actualizar labs
       if (data.labs && data.labs.length > 0) {
-        await db.labs.clear();
-        await db.labs.bulkAdd(data.labs);
+        for (const l of data.labs) {
+          await db.labs.put(l);
+        }
       }
 
-      // Actualizar orders
+      // 4. Actualizar orders
       if (data.orders && data.orders.length > 0) {
-        await db.orders.clear();
-        await db.orders.bulkAdd(data.orders);
+        for (const o of data.orders) {
+          await db.orders.put(o);
+        }
       }
 
-      // Actualizar evolutions
+      // 5. Actualizar evolutions
       if (data.evolutions && data.evolutions.length > 0) {
-        await db.evolutions.clear();
-        await db.evolutions.bulkAdd(data.evolutions);
+        for (const e of data.evolutions) {
+          await db.evolutions.put(e);
+        }
       }
     });
+
+    // Guardar copia de seguridad en localStorage
+    try {
+      const allP = await db.patients.toArray();
+      localStorage.setItem('hr_colon_patients_backup', JSON.stringify(allP));
+      if (data.lastUpdated) {
+        localStorage.setItem('hr_colon_last_local_timestamp', String(data.lastUpdated));
+      }
+    } catch {}
   }
 
   /**
