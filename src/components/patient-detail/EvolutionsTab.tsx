@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { PatientEvolution, Patient } from '../../types';
-import { Plus, Clock, FileText, Save, Download, Check, Trash2, Copy, Sparkles, Stethoscope } from 'lucide-react';
+import { Plus, Clock, FileText, Save, Download, Check, Trash2, Copy, Sparkles, Stethoscope, AlertCircle } from 'lucide-react';
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
 import { downloadFileToPC } from '../../services/hospitalNoteGenerator';
+import { MandatoryNotePreviewModal } from '../documents/MandatoryNotePreviewModal';
 
 interface Props {
   patient: Patient;
@@ -13,7 +14,9 @@ interface Props {
 
 export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolution, onDeleteEvolution }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDraftFromPrevious, setIsDraftFromPrevious] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
+  const [isPreviewWordOpen, setIsPreviewWordOpen] = useState(false);
   const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
   const v = patient.vitals;
@@ -189,24 +192,53 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
             {savedFeedback ? '¡Guardado y Descargado!' : 'Guardar y Descargar en PC'}
           </button>
 
-          {evolutions.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                handleClonePreviousEvolution();
-                setIsModalOpen(true);
-              }}
-              className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95"
-              title="Clonar la última evolución médica para continuar el pase de visita del nuevo día"
-            >
-              <Copy className="w-3.5 h-3.5 text-teal-700" />
-              <span>Clonar Última</span>
-            </button>
-          )}
+          {/* Previsualizar y Exportar Word (.DOCX) con Plantilla Oficial */}
+          <button
+            type="button"
+            onClick={() => setIsPreviewWordOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-blue-800 hover:bg-blue-900 text-white transition-all active:scale-95 shadow-sm cursor-pointer"
+            title="Previsualización obligatoria con plantilla oficial activa y descarga de Word (.DOCX)"
+          >
+            <FileText className="w-3.5 h-3.5 text-blue-200" />
+            <span>Word (.DOCX)</span>
+          </button>
+
+          {/* DUPLICAR EVOLUCIÓN ANTERIOR */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!evolutions || evolutions.length === 0) {
+                alert('No hay evoluciones anteriores registradas para duplicar.');
+                return;
+              }
+              handleClonePreviousEvolution();
+              setIsDraftFromPrevious(true);
+              setIsModalOpen(true);
+            }}
+            className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+            title="Genera un nuevo borrador editable basado en la evolución anterior con fecha y hora actuales"
+          >
+            <Copy className="w-3.5 h-3.5 text-emerald-300" />
+            <span>DUPLICAR EVOLUCIÓN ANTERIOR</span>
+          </button>
 
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95"
+            onClick={() => {
+              setIsDraftFromPrevious(false);
+              setFormData({
+                timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
+                doctorName: patient.attendingDoctor || 'Dr. Colón',
+                vitalSignsSummary: currentVitalsSummary,
+                clinicalChanges: '',
+                newResults: '',
+                problemReevaluation: '',
+                updatedDiagnoses: '',
+                conduct: '',
+                nextReevaluationTime: '',
+              });
+              setIsModalOpen(true);
+            }}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Nueva Evolución</span>
@@ -305,23 +337,14 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
-              <h3 className="text-base font-bold text-petrol-900">Registrar Nueva Evolución</h3>
+              <h3 className="text-base font-bold text-petrol-900">
+                {isDraftFromPrevious ? 'Borrador de Evolución Médica' : 'Registrar Nueva Evolución'}
+              </h3>
               <div className="flex flex-wrap items-center gap-1.5">
-                {evolutions.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleClonePreviousEvolution}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-2.5 py-1 rounded-lg transition-all active:scale-95"
-                    title="Clonar datos de la última evolución para continuar el seguimiento"
-                  >
-                    <Copy className="w-3 h-3" />
-                    <span>Clonar Última</span>
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={handleImportBaselinePhysicalExam}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-all active:scale-95"
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-all active:scale-95 cursor-pointer"
                   title="Importar examen físico inicial para realizar ajustes sutiles del día"
                 >
                   <Stethoscope className="w-3 h-3" />
@@ -329,6 +352,21 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
                 </button>
               </div>
             </div>
+
+            {/* Banner de Borrador basado en Evolución Anterior */}
+            {isDraftFromPrevious && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-900">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-black uppercase tracking-wider text-amber-950">
+                    BORRADOR BASADO EN EVOLUCIÓN ANTERIOR
+                  </p>
+                  <p className="text-[11px] text-amber-800 mt-0.5 leading-snug">
+                    Se copiaron la estructura y los hallazgos previos. El médico debe revisar y confirmar los datos del día antes de finalizar. La evolución anterior permanecerá intacta en el historial.
+                  </p>
+                </div>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -423,6 +461,20 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal de Previsualización Obligatoria de Evolución (Sección 37) */}
+      {isPreviewWordOpen && (
+        <MandatoryNotePreviewModal
+          isOpen={isPreviewWordOpen}
+          onClose={() => setIsPreviewWordOpen(false)}
+          patient={patient}
+          orders={[]}
+          labs={[]}
+          studies={[]}
+          evolutions={evolutions}
+          initialDocType="evolucion"
+        />
       )}
     </div>
   );

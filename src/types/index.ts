@@ -162,28 +162,31 @@ export interface ClinicalHistory {
   obGynHistory: string;
   systemsReview: string;
   physicalExam: {
-    // 12 Acápites Cefalocaudales Oficiales Solicitados
-    head?: string;               // 1. Cabeza
-    eyes?: string;               // 2. Ojos
-    ears?: string;               // 3. Oídos
-    nose?: string;               // 4. Nariz
-    mouth?: string;              // 5. Boca
-    neck?: string;               // 6. Cuello
-    thorax?: string;             // 7. Tórax
-    abdominal: string;           // 8. Abdomen
-    upperExtremities?: string;   // 9. Extremidades Superiores
-    lowerExtremities?: string;   // 10. Extremidades Inferiores
-    genitourinaryRectal?: string;// 11. Genitales & Tacto Rectal (si aplica)
-    neurological: string;        // 12. Neurológico
+    // 16 Acápites Cefalocaudales Oficiales Independientes
+    general: string;             // 1. Estado General
+    head?: string;               // 2. Cabeza
+    eyes?: string;               // 3. Ojos
+    ears?: string;               // 4. Oídos
+    nose?: string;               // 5. Nariz
+    mouth?: string;              // 6. Boca
+    neck?: string;               // 7. Cuello
+    thorax?: string;             // 8. Tórax
+    lungs?: string;              // 9. Pulmones
+    heart?: string;              // 10. Corazón
+    abdominal: string;           // 11. Abdomen
+    genitals?: string;           // 12. Genitales
+    skin: string;                // 13. Piel y Anexos
+    upperExtremities?: string;   // 14. Extremidades Superiores
+    lowerExtremities?: string;   // 15. Extremidades Inferiores
+    neurological: string;        // 16. Neurológico
 
     // Campos de compatibilidad previa
-    general: string;
-    cardiovascular: string;
-    respiratory: string;
-    extremities: string;
-    skin: string;
-    otherFindings: string;
+    cardiovascular?: string;
+    respiratory?: string;
+    extremities?: string;
+    otherFindings?: string;
     genitourinary?: string;
+    genitourinaryRectal?: string;
     rectalExam?: string;
   };
   physicalExamSystems?: Record<string, { status: 'NORMAL' | 'ALTERADO'; notes: string }>;
@@ -200,6 +203,47 @@ export interface HospitalSettings {
   defaultExequatur: string;
   themeColor: string;
   isDarkMode: boolean;
+  normalPhysicalExam?: Record<string, string>; // MI EXAMEN FÍSICO NORMAL PERSONALIZABLE
+  customFormOptions?: Record<string, string[]>;
+  activeTemplates?: Record<string, OfficialHospitalTemplate>;
+  preferredGuidelines?: string[];
+  activeScales?: string[];
+}
+
+export type OfficialTemplateId = 'nota_emergencia' | 'nota_recibimiento' | 'evolucion' | 'orden_medica';
+
+export interface OfficialTemplateSection {
+  id: string;
+  title: string;
+  description: string;
+  required: boolean;
+  orderIndex: number;
+  enabled: boolean;
+}
+
+export interface OfficialTemplateVersion {
+  version: number;
+  updatedAt: string;
+  updatedBy: string;
+  changeSummary: string;
+  sections: OfficialTemplateSection[];
+}
+
+export interface OfficialHospitalTemplate {
+  id: OfficialTemplateId;
+  title: string;
+  subtitle: string;
+  activeVersion: number;
+  currentSections: OfficialTemplateSection[];
+  versionHistory: OfficialTemplateVersion[];
+}
+
+export interface QuickOptionItem {
+  id: string;
+  category: string;
+  label: string;
+  orderIndex: number;
+  isActive: boolean;
 }
 
 export type StudyCategory = 
@@ -259,7 +303,7 @@ export interface LabResult {
   referenceRange: string;
   flag: LabFlag;
   timestamp: string;
-  source: 'manual' | 'adjunto';
+  source: 'manual' | 'adjunto' | 'foto_vision';
 }
 
 export interface ClinicalProblem {

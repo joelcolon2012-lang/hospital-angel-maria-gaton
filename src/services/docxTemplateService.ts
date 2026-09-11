@@ -8,8 +8,10 @@
  */
 
 import PizZip from 'pizzip';
-import { 
-  Patient, 
+import { db } from '../db/dexieDb';
+import {
+  Patient,
+  PatientEvolution, 
   MedicalOrder, 
   LabResult, 
   MedicalStudy, 
@@ -31,8 +33,17 @@ export interface DocxExportOptions {
  */
 async function injectOfficialLogoIfPresent(zip: PizZip): Promise<void> {
   try {
-    const customLogo = typeof localStorage !== 'undefined' ? localStorage.getItem('hospital_custom_logo') : null;
-    const logoUrl = (customLogo && customLogo.startsWith('data:')) ? customLogo : '/hospital_logo.jpg';
+    let logoUrl = '/hospital_logo.jpg';
+    try {
+      const identitySetting = await db.settings.get('hospital_identity_settings');
+      if (identitySetting && identitySetting.value && identitySetting.value.logoUrl) {
+        logoUrl = identitySetting.value.logoUrl;
+      } else if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem('hospital_custom_logo');
+        if (stored) logoUrl = stored;
+      }
+    } catch {}
+
     const res = await fetch(logoUrl);
     if (res.ok) {
       const logoBuffer = await res.arrayBuffer();
@@ -570,5 +581,94 @@ export async function generateFinalDispositionDocx(
   } catch (error: any) {
     console.error('Error generando DOCX de Disposición Final:', error);
     alert('Error al generar la disposición final DOCX: ' + error.message);
+  }
+}
+
+/**
+ * 5. GENERAR NOTA DE EVOLUCIÓN MÉDICA HOSPITALARIA (.DOCX)
+ */
+export async function generateEvolutionDocx(
+  patient: Patient,
+  evolutions: PatientEvolution[] = [],
+  orders: MedicalOrder[] = [],
+  options: DocxExportOptions = {}
+): Promise<void> {
+  try {
+    const arrayBuffer = await loadTemplateBuffer('NOTA DE RECIBIMIENTO EN SALA.docx');
+    const zip = new PizZip(arrayBuffer);
+    await injectOfficialLogoIfPresent(zip);
+
+    const { date, time } = getFormattedDateTime();
+    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
+    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+    const bed = options.hospitalWard || patient.cubicle || 'SALA 3';
+
+    const lastEvo = evolutions[0];
+    const dayNumber = evolutions.length > 0 ? evolutions.length : 1;
+
+    const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()}  EDAD: ${patient.age ? `${patient.age} AÑOS` : 'N/D'}  SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
+
+    const v = patient.vitals || {};
+    const vitalsLine = `SIGNOS VITALES DEL TURNO: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG | FC: ${v.heartRate || '78'} LPM | FR: ${v.respiratoryRate || '18'} RPM | SPO2: ${v.oxygenSaturation || '98'}% AA | TEMP: ${v.temperature || '36.8'} °C | GLICEMIA: ${v.bloodGlucose || '95'} MG/DL`;
+
+    const subjectiveText = lastEvo ? lastEvo.clinicalChanges.toUpperCase() : 'PACIENTE EN ADECUADA CONDICIÓN CLÍNICA GENERAL, AFEBRIL, HEMODINÁMICAMENTE ESTABLE, TOLERANDO VÍA ORAL Y SIN REGISTRO DE EVENTOS AGUDOS DURANTE EL TURNO.';
+    const objectiveExamText = 'EXAMEN FÍSICO DIRIGIDO: PACIENTE CONSCIENTE, ORIENTADO, ADECUADA MECÁNICA VENTILATORIA. CORAZÓN: RUIDOS CARDÍACOS RÍTMICOS, NO SOPLOS. PULMONES: MURMULLO VESICULAR CONSERVADO EN AMBOS CAMPOS PULMONARES, SIN ESTERTORES. ABDOMEN: BLANDO, DEPRESIBLE, RUIDOS PRESENTES, NO DOLOROSO. EXTREMIDADES: SIN EDEMAS.';
+    const assessmentText = lastEvo && lastEvo.problemReevaluation ? lastEvo.problemReevaluation.toUpperCase() : 'JUICIO CLÍNICO: PACIENTE CON ADECUADA RESPUESTA AL PROTOCOLO MÉDICO ADMINISTRADO, SIN SIGNOS DE COMPLICACIÓN NI DETERIORO.';
+    const conductText = lastEvo && lastEvo.conduct ? lastEvo.conduct.toUpperCase() : 'CONDUCTA: CONTINUAR TRATAMIENTO MÉDICO PAUTADO, MONITORIZACIÓN DE CONSTANTES VITALES Y VIGILANCIA EVOLUTIVA ESTRICTA.';
+
+    // Diagnósticos
+    let rawDiag = patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'SÍNDROME CLÍNICO EN EVOLUCIÓN';
+    const diagList = rawDiag.split(/[\n,;]+/).map(d => d.trim().toUpperCase()).filter(Boolean);
+
+    let xml = zip.file('word/document.xml')?.asText() || '';
+
+    const newParagraphs: string[] = [
+      createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
+      createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80),
+      createDocxParagraphXml('NOTA DE EVOLUCIÓN MÉDICA HOSPITALARIA', true, true, 160),
+      createDocxParagraphXml(headerLine, true, false, 120),
+      createDocxParagraphXml(`ESTANCIA HOSPITALARIA: DÍA ${dayNumber} DE HOSPITALIZACIÓN`, true, false, 120),
+      createDocxParagraphXml(vitalsLine, false, false, 140),
+      createDocxParagraphXml('1. EVOLUCIÓN SUBJETIVA Y NOVEDADES:', true, false, 40),
+      createDocxParagraphXml(subjectiveText, false, false, 120),
+      createDocxParagraphXml('2. EXAMEN FÍSICO OBJETIVO:', true, false, 40),
+      createDocxParagraphXml(objectiveExamText, false, false, 120),
+      createDocxParagraphXml('3. ANÁLISIS CLÍNICO Y JUICIO EVOLUTIVO:', true, false, 40),
+      createDocxParagraphXml(assessmentText, false, false, 120),
+      createDocxParagraphXml('4. DIAGNÓSTICOS ACTIVOS:', true, false, 40),
+    ];
+
+    diagList.forEach((d, i) => {
+      newParagraphs.push(createDocxParagraphXml(`${i + 1}. ${d}`, true, false, 50));
+    });
+
+    newParagraphs.push(createDocxParagraphXml('5. CONDUCTA MÉDICA Y PLAN:', true, false, 40));
+    newParagraphs.push(createDocxParagraphXml(conductText, false, false, 200));
+
+    newParagraphs.push(createDocxParagraphXml('', false, false, 120));
+    newParagraphs.push(createDocxParagraphXml('____________________________________', true, true, 40));
+    newParagraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
+    newParagraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • MÉDICO TRATANTE • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
+
+    const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
+    if (bodyMatch) {
+      const sectPrMatch = xml.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
+      const sectPr = sectPrMatch ? sectPrMatch[0] : '';
+      xml = xml.replace(/<w:body>[\s\S]*?<\/w:body>/, `<w:body>${newParagraphs.join('')}${sectPr}</w:body>`);
+      zip.file('word/document.xml', xml);
+    }
+
+    const outBlob = zip.generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE'
+    });
+
+    const safeName = patient.fullName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+    const safeDate = date.replace(/\//g, '-');
+    triggerBrowserDownload(outBlob, `EVOLUCION_MEDICA_${safeName}_${safeDate}.docx`);
+  } catch (error: any) {
+    console.error('Error generando DOCX de Evolución Médica:', error);
+    alert('Error al generar la evolución DOCX: ' + error.message);
   }
 }

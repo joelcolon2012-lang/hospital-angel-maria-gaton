@@ -4,6 +4,7 @@ import { generatePatientPDF, DocumentSectionSelection } from '../../services/pdf
 import { googleDriveService } from '../../services/googleDriveService';
 import { X, FileDown, Copy, Cloud, Check, Loader2, FileText, CheckCircle2, Download } from 'lucide-react';
 import { generateEmergencyNoteDocx } from '../../services/docxTemplateService';
+import { MandatoryNotePreviewModal } from './MandatoryNotePreviewModal';
 
 interface Props {
   isOpen: boolean;
@@ -36,6 +37,7 @@ export const DocumentExporterModal: React.FC<Props> = ({
   const [copied, setCopied] = useState(false);
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
   const [driveResult, setDriveResult] = useState<{ success: boolean; message: string; drivePath?: string } | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -336,12 +338,12 @@ export const DocumentExporterModal: React.FC<Props> = ({
               <span>{isUploadingToDrive ? 'Guardando en Drive...' : 'Guardar en Google Drive'}</span>
             </button>
 
-            {/* Download Word (.DOCX) */}
+            {/* Previsualizar y Descargar Word (.DOCX Oficial - Sección 37) */}
             <button
               type="button"
-              onClick={() => generateEmergencyNoteDocx(patient, orders, labs)}
-              className="flex-1 sm:flex-initial px-4 py-2.5 bg-blue-800 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md active:scale-95"
-              title="Descargar documento oficial en Microsoft Word (.DOCX)"
+              onClick={() => setIsPreviewOpen(true)}
+              className="flex-1 sm:flex-initial px-4 py-2.5 bg-blue-800 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md active:scale-95 cursor-pointer"
+              title="Previsualización obligatoria y descarga oficial en Microsoft Word (.DOCX)"
             >
               <FileText className="w-4 h-4 text-blue-200" />
               <span>Descargar en Word (.DOCX)</span>
@@ -359,6 +361,20 @@ export const DocumentExporterModal: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Previsualización Obligatoria (Sección 37) */}
+      {isPreviewOpen && (
+        <MandatoryNotePreviewModal
+          isOpen={isPreviewOpen}
+          onClose={() => setIsPreviewOpen(false)}
+          patient={patient}
+          orders={orders}
+          labs={labs}
+          studies={[]}
+          evolutions={evolutions}
+          initialDocType="emergencia"
+        />
+      )}
     </div>
   );
 };

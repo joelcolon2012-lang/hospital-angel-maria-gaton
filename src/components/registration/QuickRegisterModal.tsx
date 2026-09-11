@@ -1,13 +1,16 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Patient, TriageLevel } from '../../types';
 import { X, UserPlus, AlertTriangle, Mic } from 'lucide-react';
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
+import { checkPatientDuplicates } from '../../services/patientDuplicateDetector';
+import { DuplicateWarningModal } from '../patient/DuplicateWarningModal';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSavePatient: (patientData: Partial<Patient>) => void;
   existingPatients: Patient[];
+  onOpenExistingPatient?: (patient: Patient) => void;
 }
 
 export const QuickRegisterModal: React.FC<Props> = ({
@@ -15,6 +18,7 @@ export const QuickRegisterModal: React.FC<Props> = ({
   onClose,
   onSavePatient,
   existingPatients,
+  onOpenExistingPatient,
 }) => {
   const defaultCode = `EMG-${new Date().getFullYear()}-${String(existingPatients.length + 1).padStart(3, '0')}`;
   const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -36,30 +40,16 @@ export const QuickRegisterModal: React.FC<Props> = ({
     attendingDoctor: 'Dr. Colón',
   });
 
-  const [duplicateMatch, setDuplicateMatch] = useState<Patient | null>(null);
-  const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    show: boolean;
+    patient: Patient | null;
+    reasons: string[];
+  }>({ show: false, patient: null, reasons: [] });
 
   if (!isOpen) return null;
 
   const handleChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const checkForDuplicates = (): Patient | null => {
-    const trimmedName = formData.fullName.trim().toLowerCase();
-    const trimmedDoc = formData.idDocument.trim().toLowerCase();
-    const trimmedRec = formData.medicalRecordNumber.trim().toLowerCase();
-
-    if (!trimmedName && !trimmedDoc && !trimmedRec) return null;
-
-    return (
-      existingPatients.find((p) => {
-        if (trimmedDoc && p.idDocument && p.idDocument.toLowerCase() === trimmedDoc) return true;
-        if (trimmedRec && p.medicalRecordNumber && p.medicalRecordNumber.toLowerCase() === trimmedRec) return true;
-        if (trimmedName.length > 3 && p.fullName.toLowerCase() === trimmedName) return true;
-        return false;
-      }) || null
-    );
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -69,11 +59,24 @@ export const QuickRegisterModal: React.FC<Props> = ({
       return;
     }
 
-    // Check for duplicates
-    const duplicate = checkForDuplicates();
-    if (duplicate && !showDuplicateWarning) {
-      setDuplicateMatch(duplicate);
-      setShowDuplicateWarning(true);
+    // Check for duplicates con el servicio unificado
+    const dupResult = checkPatientDuplicates(
+      {
+        fullName: formData.fullName,
+        age: formData.age,
+        idDocument: formData.idDocument,
+        medicalRecordNumber: formData.medicalRecordNumber,
+        phone: formData.phone,
+      },
+      existingPatients
+    );
+
+    if (dupResult.isDuplicate && dupResult.matchedPatient) {
+      setDuplicateWarning({
+        show: true,
+        patient: dupResult.matchedPatient,
+        reasons: dupResult.matchReasons,
+      });
       return;
     }
 
@@ -121,37 +124,6 @@ export const QuickRegisterModal: React.FC<Props> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Duplicate Warning Prompt */}
-        {showDuplicateWarning && duplicateMatch && (
-          <div className="bg-amber-50 border-b border-amber-200 p-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-900">
-                <p className="font-bold">¡Posible Registro Duplicado Detectado!</p>
-                <p className="mt-0.5">
-                  Ya existe un paciente con datos coincidentes: <strong>{duplicateMatch.fullName}</strong> ({duplicateMatch.internalCode}, {duplicateMatch.cubicle}).
-                </p>
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={saveAndFinish}
-                    className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg font-bold"
-                  >
-                    Confirmar y Registrar como Nuevo Episodio
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowDuplicateWarning(false)}
-                    className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-lg font-semibold"
-                  >
-                    Volver y Editar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
@@ -310,6 +282,27 @@ export const QuickRegisterModal: React.FC<Props> = ({
           </div>
         </form>
       </div>
+
+      {/* Modal de Advertencia de Duplicados */}
+      {duplicateWarning.show && duplicateWarning.patient && (
+        <DuplicateWarningModal
+          isOpen={duplicateWarning.show}
+          onClose={() => setDuplicateWarning({ show: false, patient: null, reasons: [] })}
+          matchedPatient={duplicateWarning.patient}
+          reasons={duplicateWarning.reasons}
+          onOpenExisting={(existingP) => {
+            setDuplicateWarning({ show: false, patient: null, reasons: [] });
+            onClose();
+            if (onOpenExistingPatient) {
+              onOpenExistingPatient(existingP);
+            }
+          }}
+          onProceedAnyway={() => {
+            setDuplicateWarning({ show: false, patient: null, reasons: [] });
+            saveAndFinish();
+          }}
+        />
+      )}
     </div>
   );
 };

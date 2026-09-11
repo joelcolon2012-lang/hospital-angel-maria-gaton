@@ -198,10 +198,10 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
           <span>Constantes Vitales de Ingreso</span>
         </h3>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
           {/* PAS */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               PA Sistólica (mmHg)
             </label>
             <input
@@ -209,17 +209,33 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
               value={vitals.systolicBP || ''}
               onChange={(e) => handleChange('systolicBP', e.target.value)}
               placeholder="120"
-              className={`w-full border rounded-xl px-3 py-2 text-sm font-bold ${
+              className={`w-full border rounded-lg px-2.5 py-1.5 text-sm font-bold ${
                 vitals.systolicBP && (vitals.systolicBP < 90 || vitals.systolicBP > 140)
                   ? 'border-red-500 bg-red-50 text-red-900'
-                  : 'border-slate-300 bg-slate-50 text-slate-800'
+                  : 'border-slate-300 bg-white text-slate-800'
               }`}
             />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {[90, 110, 120, 130, 140, 160, 180].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => handleChange('systolicBP', v)}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
+                    vitals.systolicBP === v
+                      ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* PAD */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               PA Diastólica (mmHg)
             </label>
             <input
@@ -227,30 +243,49 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
               value={vitals.diastolicBP || ''}
               onChange={(e) => handleChange('diastolicBP', e.target.value)}
               placeholder="80"
-              className={`w-full border rounded-xl px-3 py-2 text-sm font-bold ${
+              className={`w-full border rounded-lg px-2.5 py-1.5 text-sm font-bold ${
                 vitals.diastolicBP && (vitals.diastolicBP < 60 || vitals.diastolicBP > 90)
                   ? 'border-red-500 bg-red-50 text-red-900'
-                  : 'border-slate-300 bg-slate-50 text-slate-800'
+                  : 'border-slate-300 bg-white text-slate-800'
               }`}
             />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {[60, 70, 80, 90, 100, 110].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => handleChange('diastolicBP', v)}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
+                    vitals.diastolicBP === v
+                      ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* PAM */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               PAM Calc. (mmHg)
             </label>
             <input
               type="number"
               readOnly
               value={vitals.map || ''}
-              className="w-full bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-petrol-900 cursor-not-allowed"
+              className="w-full bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-bold text-petrol-900 cursor-not-allowed"
             />
+            <span className="text-[10px] text-slate-500 block mt-2">
+              (2×PAD + PAS) / 3
+            </span>
           </div>
 
           {/* FC */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               Frecuencia Cardiaca (lpm)
             </label>
             <input
@@ -258,17 +293,33 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
               value={vitals.heartRate || ''}
               onChange={(e) => handleChange('heartRate', e.target.value)}
               placeholder="75"
-              className={`w-full border rounded-xl px-3 py-2 text-sm font-bold ${
+              className={`w-full border rounded-lg px-2.5 py-1.5 text-sm font-bold ${
                 vitals.heartRate && (vitals.heartRate < 60 || vitals.heartRate > 100)
                   ? 'border-red-500 bg-red-50 text-red-900'
-                  : 'border-slate-300 bg-slate-50 text-slate-800'
+                  : 'border-slate-300 bg-white text-slate-800'
               }`}
             />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {[50, 60, 72, 80, 90, 100, 115, 130].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => handleChange('heartRate', v)}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
+                    vitals.heartRate === v
+                      ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* FR */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               Frecuencia Respiratoria (rpm)
             </label>
             <input
@@ -276,17 +327,33 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
               value={vitals.respiratoryRate || ''}
               onChange={(e) => handleChange('respiratoryRate', e.target.value)}
               placeholder="16"
-              className={`w-full border rounded-xl px-3 py-2 text-sm font-bold ${
+              className={`w-full border rounded-lg px-2.5 py-1.5 text-sm font-bold ${
                 vitals.respiratoryRate && (vitals.respiratoryRate < 12 || vitals.respiratoryRate > 20)
                   ? 'border-red-500 bg-red-50 text-red-900'
-                  : 'border-slate-300 bg-slate-50 text-slate-800'
+                  : 'border-slate-300 bg-white text-slate-800'
               }`}
             />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {[14, 16, 18, 20, 22, 26, 30].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => handleChange('respiratoryRate', v)}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
+                    vitals.respiratoryRate === v
+                      ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Temp */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               Temperatura (°C)
             </label>
             <input
@@ -295,17 +362,33 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
               value={vitals.temperature || ''}
               onChange={(e) => handleChange('temperature', e.target.value)}
               placeholder="36.5"
-              className={`w-full border rounded-xl px-3 py-2 text-sm font-bold ${
+              className={`w-full border rounded-lg px-2.5 py-1.5 text-sm font-bold ${
                 vitals.temperature && (vitals.temperature < 36.0 || vitals.temperature >= 38.0)
                   ? 'border-red-500 bg-red-50 text-red-900'
-                  : 'border-slate-300 bg-slate-50 text-slate-800'
+                  : 'border-slate-300 bg-white text-slate-800'
               }`}
             />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {[36.0, 36.5, 37.0, 37.5, 38.0, 38.5, 39.0].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => handleChange('temperature', v)}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
+                    vitals.temperature === v
+                      ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* SpO2 */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               Saturación O2 (%)
             </label>
             <input
@@ -313,17 +396,33 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
               value={vitals.oxygenSaturation || ''}
               onChange={(e) => handleChange('oxygenSaturation', e.target.value)}
               placeholder="98"
-              className={`w-full border rounded-xl px-3 py-2 text-sm font-bold ${
+              className={`w-full border rounded-lg px-2.5 py-1.5 text-sm font-bold ${
                 vitals.oxygenSaturation && vitals.oxygenSaturation < 94
                   ? 'border-red-500 bg-red-50 text-red-900'
-                  : 'border-slate-300 bg-slate-50 text-slate-800'
+                  : 'border-slate-300 bg-white text-slate-800'
               }`}
             />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {[90, 92, 94, 96, 98, 100].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => handleChange('oxygenSaturation', v)}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
+                    vitals.oxygenSaturation === v
+                      ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {v}%
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Glucemia */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="block font-bold text-slate-700 mb-1">
               Glucemia Capilar (mg/dL)
             </label>
             <input
@@ -331,12 +430,28 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
               value={vitals.bloodGlucose || ''}
               onChange={(e) => handleChange('bloodGlucose', e.target.value)}
               placeholder="100"
-              className={`w-full border rounded-xl px-3 py-2 text-sm font-bold ${
+              className={`w-full border rounded-lg px-2.5 py-1.5 text-sm font-bold ${
                 vitals.bloodGlucose && (vitals.bloodGlucose < 70 || vitals.bloodGlucose > 180)
                   ? 'border-red-500 bg-red-50 text-red-900'
-                  : 'border-slate-300 bg-slate-50 text-slate-800'
+                  : 'border-slate-300 bg-white text-slate-800'
               }`}
             />
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {[80, 100, 120, 140, 180, 220, 300].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => handleChange('bloodGlucose', v)}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
+                    vitals.bloodGlucose === v
+                      ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

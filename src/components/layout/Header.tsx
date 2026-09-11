@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { User, Patient } from '../../types';
 import { googleDriveService } from '../../services/googleDriveService';
+import { SmartMedicalSearchBar } from './SmartMedicalSearchBar';
 
 interface Props {
   currentUser?: User;
@@ -126,27 +127,11 @@ export const Header: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Center: Global Search Bar */}
-      <div className="flex-1 max-w-md mx-2 hidden sm:block">
-        <div className="relative flex items-center">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Buscar por nombre, expediente, cubículo o diagnóstico..."
-            className="w-full bg-slate-100/80 hover:bg-slate-100 focus:bg-white text-slate-800 text-xs rounded-full pl-8 pr-4 py-1.5 border border-transparent focus:border-[#0F4C5C]/40 focus:ring-2 focus:ring-[#0F4C5C]/10 outline-none transition-all placeholder:text-slate-400"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => onSearchChange('')}
-              className="absolute right-2.5 text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Center: Smart Medical AI Search Bar & Patient Query (Sección 1) */}
+      <SmartMedicalSearchBar
+        patientSearchQuery={searchQuery}
+        onPatientSearchChange={onSearchChange}
+      />
 
       {/* Right: Actions, Autosave & User */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">

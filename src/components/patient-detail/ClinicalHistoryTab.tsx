@@ -14,6 +14,7 @@ import {
   CheckSquare,
   Square,
   AlertCircle,
+  Calculator,
 } from 'lucide-react';
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
 import { QuickChipsSelector } from '../common/QuickChipsSelector';
@@ -22,157 +23,14 @@ import { downloadFileToPC } from '../../services/hospitalNoteGenerator';
 import { exportClinicalHistoryToWord } from '../../services/wordExportService';
 import { CLINICAL_SCALES } from '../../services/clinicalCalculators';
 
-interface CephaloSystemDef {
-  id: keyof ClinicalHistory['physicalExam'];
-  name: string;
-  normalText: string;
-  chips: string[];
-}
-
-const CEPHALOCAUDAL_SYSTEMS: CephaloSystemDef[] = [
-  {
-    id: 'head',
-    name: '1. Cabeza',
-    normalText: 'Normocéfalo, sin hematomas ni hundimientos, adecuada implantación pilosa.',
-    chips: [
-      'Normocéfalo, sin deformidades óseas ni hematomas galeales',
-      'Hematoma subgaleal en región parietal izquierda',
-      'Herida contusa lineal en región frontal suturada',
-      'Alopecia difusa, implantación pilosa conservada',
-    ],
-  },
-  {
-    id: 'eyes',
-    name: '2. Ojos',
-    normalText: 'Pupilas isocóricas y fotorreactivas a la luz, escleras anictéricas, conjuntivas normocoloreadas.',
-    chips: [
-      'Pupilas isocóricas y fotorreactivas a la luz de 3 mm',
-      'Anisocoria: pupila derecha midriática arreactiva de 5 mm',
-      'Escleras ictéricas (+/++++), conjuntivas pálidas',
-      'Hemorragia subconjuntival traumática en ojo izquierdo',
-    ],
-  },
-  {
-    id: 'ears',
-    name: '3. Oídos',
-    normalText: 'Pabellones auriculares bien implantados, conductos auditivos externos permeables, sin otorragia ni otorrea.',
-    chips: [
-      'Pabellones auriculares normoimplantados, CAE permeables',
-      'Otorragia activa en oído derecho post-trauma craneal',
-      'Signo de Battle (equimosis retroauricular) ausente',
-      'Tapón de cerumen obstructivo bilateral',
-    ],
-  },
-  {
-    id: 'nose',
-    name: '4. Nariz',
-    normalText: 'Fosas nasales permeables, sin secreciones patológicas, mucosa normocoloreada, sin epistaxis.',
-    chips: [
-      'Fosas nasales permeables, sin secreciones ni sangrado',
-      'Epistaxis anterior activa bilateral autolimitada',
-      'Desviación septal derecha sin obstrucción significativa',
-      'Rinorrea serosa hialina bilateral',
-    ],
-  },
-  {
-    id: 'mouth',
-    name: '5. Boca',
-    normalText: 'Mucosa oral húmeda y normocoloreada, piezas dentales en regular estado, faringe no congestiva.',
-    chips: [
-      'Mucosa oral hidratada, lengua normoglosa centrada',
-      'Mucosa oral deshidratada (++), lengua saburral seca',
-      'Faringe congestiva con exudado purulento amigdalino',
-      'Edema de úvula y labios (angioedema)',
-      'Edéntulo parcial sin prótesis dental',
-    ],
-  },
-  {
-    id: 'neck',
-    name: '6. Cuello',
-    normalText: 'Simétrico, móvil, no doloroso, sin ingurgitación yugular a 45°, sin adenopatías palpables, pulsos carotídeos rítmicos.',
-    chips: [
-      'Simétrico, móvil, no ingurgitación yugular, no adenopatías',
-      'Ingurgitación yugular grado II a 45 grados, reflujo hepatoyugular (+)',
-      'Rigidez de nuca ausente, signos meníngeos negativos',
-      'Rigidez de nuca presente, signos de Brudzinski y Kernig positivos',
-      'Bocio difuso grado I, no doloroso a la palpación',
-    ],
-  },
-  {
-    id: 'thorax',
-    name: '7. Tórax (Cardiopulmonar)',
-    normalText: 'Tórax simétrico, normoexpansible. Murmullo vesicular conservado bilateralmente sin estertores ni sibilancias. R1 y R2 rítmicos, normofonéticos, sin soplos.',
-    chips: [
-      'Murmullo vesicular conservado bilateral, R1-R2 rítmicos sin soplos',
-      'Estertores crepitantes basales bilaterales con broncofonía',
-      'Sibilancias espiratorias bilaterales y tiraje intercostal leve',
-      'Soplo holosistólico en foco mitral III/VI irradiado a axila',
-      'Arritmia completa por fibrilación auricular, sin soplos',
-      'Hipofonesis y matidez en base pulmonar derecha compatible con derrame',
-    ],
-  },
-  {
-    id: 'abdominal',
-    name: '8. Abdomen',
-    normalText: 'Abdomen blando, depresible, no doloroso a la palpación superficial ni profunda, RHA normoactivos, sin visceromegalias ni irritación peritoneal.',
-    chips: [
-      'Blando, depresible, no doloroso, RHA presentes, sin megalias',
-      'Doloroso a la palpación en fosa ilíaca derecha con Blumberg (+)',
-      'Dolor en hipocondrio derecho con signo de Murphy (+)',
-      'Dolor epigástrico en faja con irradiación a dorso (pancreatitis)',
-      'Abdomen distendido, timpánico, RHA metálicos de lucha',
-      'Abdomen en tabla, defensa involuntaria generalizada (peritonitis)',
-    ],
-  },
-  {
-    id: 'upperExtremities',
-    name: '9. Extremidades Superiores',
-    normalText: 'Simétricas, móviles, tono y fuerza muscular 5/5, pulsos radiales y braquiales simétricos, sin edema ni deformidades.',
-    chips: [
-      'Simétricas, móviles, fuerza 5/5, pulsos radiales presentes',
-      'Hemiparesia braquial izquierda fuerza 2/5 (EVC isquémico)',
-      'Temblor de reposo distal en extremidad superior derecha',
-      'Deformidad y dolor exquisito en tercio distal de antebrazo derecho',
-    ],
-  },
-  {
-    id: 'lowerExtremities',
-    name: '10. Extremidades Inferiores',
-    normalText: 'Simétricas, móviles, pulsos femorales y pedios palpables y simétricos, sin edema periférico, signo de Homans negativo.',
-    chips: [
-      'Simétricas, sin edemas periféricos, pulsos distales palpables',
-      'Edema bilateral con fóvea (godet ++) hasta tercio medio pretibial',
-      'Hemiplejía en miembro inferior izquierdo fuerza 0/5',
-      'Aumento de volumen en pantorrilla derecha con empastamiento y Homans (+)',
-      'Úlceras neuropáticas indoloras en talón y zona plantar (pie diabético)',
-    ],
-  },
-  {
-    id: 'genitourinaryRectal',
-    name: '11. Genitales & Tacto Rectal (si aplica)',
-    normalText: 'Genitales externos acordes a sexo y edad, sin lesiones visibles ni secreciones patológicas. Tacto rectal diferido o sin alteraciones.',
-    chips: [
-      'Genitales externos sin lesiones patológicas ni secreciones',
-      'Tacto rectal: esfínter normotónico, ampolla vacía, guante sin restos hemáticos',
-      'Tacto rectal: melena franca / heces con sangre fresca evidente',
-      'Sonda vesical Foley permeable con diuresis clara',
-      'Tacto rectal diferido por consentimiento del paciente',
-    ],
-  },
-  {
-    id: 'neurological',
-    name: '12. Neurológico',
-    normalText: 'Glasgow 15/15, consciente, orientado en tiempo, espacio y persona, pares craneales íntegros, sin déficit motor o sensitivo focal, sin signos meníngeos.',
-    chips: [
-      'Glasgow 15/15, orientado en tres esferas, sin déficit focal',
-      'Glasgow 13/15 (O:3, V:4, M:6), somnoliento, responde a la voz',
-      'Hemiparesia facio-braquio-crural izquierda (EVC agudo)',
-      'Afasia de expresión (Broca), comprensión preservada',
-      'Signos meníngeos positivos (rigidez de nuca, Kerning y Brudzinski)',
-      'Babinski positivo unilateral en pie izquierdo',
-    ],
-  },
-];
+import {
+  OFFICIAL_16_SYSTEMS,
+  getCustomNormalPhysicalExam,
+  Cephalo16System,
+} from '../../services/clinicalNormalTemplateService';
+import { CustomNormalExamModal } from '../settings/CustomNormalExamModal';
+import { IntegratedScalesCalculator } from '../scales/IntegratedScalesCalculator';
+import { Settings } from 'lucide-react';
 
 interface Props {
   patient: Patient;
@@ -218,6 +76,8 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
   );
 
   const [savedFeedback, setSavedFeedback] = useState(false);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [showIntegratedScales, setShowIntegratedScales] = useState(false);
   const [activeScaleTab, setActiveScaleTab] = useState<'none' | 'nihss' | 'rankin'>('none');
   const [nihssChecked, setNihssChecked] = useState<Record<string, boolean>>({});
   const [rankinSelected, setRankinSelected] = useState<number | null>(null);
@@ -367,29 +227,34 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
     }
   };
 
-  // Cargar Examen Físico Normal como Base (12 Acápites Cefalocaudales Oficiales)
-  const handleLoadNormalExam = () => {
-    const normalExam = {
-      head: 'Normocéfalo, sin hematomas ni hundimientos, adecuada implantación pilosa.',
-      eyes: 'Pupilas isocóricas y fotorreactivas a la luz, escleras anictéricas, conjuntivas normocoloreadas.',
-      ears: 'Pabellones auriculares bien implantados, conductos auditivos externos permeables, sin otorragia ni otorrea.',
-      nose: 'Fosas nasales permeables, sin secreciones patológicas, mucosa normocoloreada, sin epistaxis.',
-      mouth: 'Mucosa oral húmeda y normocoloreada, piezas dentales en regular estado, faringe no congestiva.',
-      neck: 'Simétrico, móvil, no doloroso, sin ingurgitación yugular a 45°, sin adenopatías palpables, pulsos carotídeos rítmicos.',
-      thorax: 'Tórax simétrico, normoexpansible. Murmullo vesicular conservado bilateralmente sin estertores ni sibilancias. R1 y R2 rítmicos y regulares, normofonéticos, sin soplos.',
-      abdominal: 'Abdomen blando, depresible, no doloroso a la palpación superficial ni profunda, RHA normoactivos, sin visceromegalias ni signos de irritación peritoneal.',
-      upperExtremities: 'Simétricas, móviles, tono y fuerza muscular 5/5, pulsos radiales y braquiales simétricos, sin edema ni deformidades.',
-      lowerExtremities: 'Simétricas, móviles, pulsos femorales y pedios palpables y simétricos, sin edema periférico, signo de Homans negativo.',
-      genitourinaryRectal: 'Genitales externos acordes a sexo y edad, sin lesiones visibles ni secreciones patológicas. Tacto rectal diferido o sin alteraciones.',
-      neurological: 'Glasgow 15/15, consciente, orientado en tiempo, espacio y persona, pares craneales íntegros, sin déficit motor o sensitivo focal, sin signos meníngeos ni reflejos patológicos.',
-      general: 'Consciente, orientado en tres esferas, eupneico, normocoloreado, hidratado y afebril, biotipo normolíneo.',
-      cardiovascular: 'R1 y R2 rítmicos, regulares, normofonéticos, sin soplos audibles ni galope, pulsos periféricos presentes y simétricos.',
-      respiratory: 'Tórax simétrico, normoexpansible, murmullo vesicular universalmente conservado en ambos campos pulmonares, sin estertores.',
-      extremities: 'Simétricas, eutróficas, sin edemas periféricos, pulsos periféricos palpables y simétricos, llenado capilar distal < 2 segundos.',
-      skin: 'Turgencia y elasticidad conservadas, adecuada coloración para etnia y edad, sin lesiones activas.',
+  // Cargar Examen Físico Normal Personalizado del Hospital (16 Sistemas Oficiales)
+  const handleLoadNormalExam = async () => {
+    const customNormal = await getCustomNormalPhysicalExam();
+    const loadedExam = {
+      ...history.physicalExam,
+      general: customNormal.general || 'Paciente en aceptables condiciones generales, alerta, consciente, orientado en tiempo, espacio y persona, cooperador, normocoloreado, hidratado, eupneico.',
+      head: customNormal.head || 'Normocéfalo, sin hematomas ni hundimientos, adecuada implantación pilosa.',
+      eyes: customNormal.eyes || 'Pupilas isocóricas y fotorreactivas a la luz de 3 mm bilateral, escleras anictéricas, conjuntivas normocoloreadas.',
+      ears: customNormal.ears || 'Pabellones auriculares bien implantados, conductos auditivos externos permeables, sin otorragia ni otorrea.',
+      nose: customNormal.nose || 'Fosas nasales permeables, sin secreciones patológicas, mucosa normocoloreada, sin epistaxis.',
+      mouth: customNormal.mouth || 'Mucosa oral húmeda y normocoloreada, lengua móvil y centrada, piezas dentales en regular estado, faringe no congestiva.',
+      neck: customNormal.neck || 'Simétrico, móvil, no doloroso, sin ingurgitación yugular a 45°, sin adenopatías palpables, pulsos carotídeos rítmicos.',
+      thorax: customNormal.thorax || 'Tórax simétrico, normoexpansible, sin deformidades torácicas ni dolor costal.',
+      lungs: customNormal.lungs || 'Campos pulmonares normoventilados bilateralmente, murmullo vesicular conservado sin estertores ni sibilancias.',
+      heart: customNormal.heart || 'Ruidos cardíacos rítmicos y regulares, R1 y R2 normofonéticos en los 4 focos, sin soplos ni galopes.',
+      abdominal: customNormal.abdominal || 'Abdomen blando, depresible, no doloroso a la palpación superficial ni profunda, RHA normoactivos, sin visceromegalias ni irritación peritoneal.',
+      genitals: customNormal.genitals || 'Genitales externos acordes a edad y sexo, sin lesiones evidentes ni secreciones patológicas.',
+      skin: customNormal.skin || 'Piel normotérmica, elástica, turgencia conservada, llenado capilar menor de 2 segundos, sin lesiones activas, rash ni petequias.',
+      upperExtremities: customNormal.upperExtremities || 'Simétricas, móviles, tono y fuerza muscular 5/5, pulsos radiales presentes y simétricos, sin edema ni deformidades.',
+      lowerExtremities: customNormal.lowerExtremities || 'Simétricas, sin deformidades, arcos de movilidad conservados, fuerza 5/5 bilateral, pulsos pedios palpables, sin edema periférico.',
+      neurological: customNormal.neurological || 'Alerta, consciente, Glasgow 15/15, orientado en 3 esferas, pares craneales íntegros sin déficit motor focal, marcha estable.',
+      // Compatibilidad previa
+      cardiovascular: customNormal.heart || '',
+      respiratory: customNormal.lungs || customNormal.thorax || '',
+      extremities: [customNormal.upperExtremities, customNormal.lowerExtremities].filter(Boolean).join(' | '),
       otherFindings: '',
     };
-    const updated = { ...history, physicalExam: normalExam };
+    const updated = { ...history, physicalExam: loadedExam };
     setHistory(updated);
     onUpdateHistory(updated);
   };
@@ -400,6 +265,7 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
       const updated = {
         ...history,
         physicalExam: {
+          general: '',
           head: '',
           eyes: '',
           ears: '',
@@ -407,16 +273,17 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
           mouth: '',
           neck: '',
           thorax: '',
+          lungs: '',
+          heart: '',
           abdominal: '',
+          genitals: '',
+          skin: '',
           upperExtremities: '',
           lowerExtremities: '',
-          genitourinaryRectal: '',
           neurological: '',
-          general: '',
           cardiovascular: '',
           respiratory: '',
           extremities: '',
-          skin: '',
           otherFindings: '',
         },
       };
@@ -768,45 +635,71 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
 
         {openSections.examen && (
           <div className="p-4 space-y-4">
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleLoadNormalExam}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-teal-800 bg-teal-50 hover:bg-teal-700 hover:text-white border border-teal-300 px-3 py-1 rounded-lg transition-all shadow-xs"
-                title="Cargar examen físico estándar normal para editar solo hallazgos alterados"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-teal-600 group-hover:text-white" />
-                <span>Cargar Examen Normal como Base</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleClearExam}
-                className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 hover:border-red-600 px-2.5 py-1 rounded-lg transition-all shadow-xs"
-                title="Limpiar examen físico"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Limpiar Examen Físico</span>
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 mb-2">
+              <div className="flex items-center gap-1.5 text-xs text-slate-700 font-bold">
+                <span className="bg-[#0F4C5C] text-white px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider font-black">
+                  16 Sistemas
+                </span>
+                <span>Exploración Cefalocaudal Oficial</span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleLoadNormalExam}
+                  className="inline-flex items-center gap-1.5 text-xs font-black text-white bg-teal-700 hover:bg-teal-800 px-3.5 py-1.5 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
+                  title="Cargar examen físico normal predeterminado en 1 clic para editar solo hallazgos patológicos"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>CARGAR EXAMEN FÍSICO NORMAL</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-xl transition-all shadow-2xs active:scale-95 cursor-pointer"
+                  title="Personalizar los 16 textos normales de tu examen físico estándar"
+                >
+                  <Settings className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Configurar Mi Examen Normal</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearExam}
+                  className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 px-2.5 py-1.5 rounded-xl transition-all shadow-2xs active:scale-95 cursor-pointer"
+                  title="Limpiar examen físico"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Limpiar</span>
+                </button>
+              </div>
             </div>
-            {/* 12 Acápites Cefalocaudales Oficiales */}
+
+            {/* 16 Acápites Cefalocaudales Oficiales */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {CEPHALOCAUDAL_SYSTEMS.map((sys) => {
-                const curVal = history.physicalExam[sys.id] || '';
-                const isNormal = curVal.trim() === sys.normalText.trim();
+              {OFFICIAL_16_SYSTEMS.map((sys) => {
+                const curVal = (history.physicalExam as any)[sys.id] || '';
+                const isNormal = curVal.trim() === sys.defaultNormal.trim();
                 const isAltered = curVal.includes('[Alterado]') || (curVal.trim().length > 0 && !isNormal);
 
                 return (
                   <div
                     key={sys.id}
-                    className="bg-slate-50/90 border border-slate-200 rounded-xl p-3 space-y-2 hover:border-slate-300 transition-colors"
+                    className="bg-slate-50/90 border border-slate-200 rounded-xl p-3 space-y-2 hover:border-slate-300 transition-colors shadow-2xs"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-1.5">
-                      <span className="text-xs font-bold text-slate-800">{sys.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-900">{sys.name}</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">
+                          {sys.category}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => handleExamChange(sys.id, sys.normalText)}
-                          className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors border ${
+                          onClick={() => handleExamChange(sys.id as any, sys.defaultNormal)}
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors border cursor-pointer ${
                             isNormal
                               ? 'bg-teal-700 text-white border-teal-700'
                               : 'bg-white text-teal-800 border-teal-300 hover:bg-teal-50'
@@ -819,10 +712,10 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
                           type="button"
                           onClick={() => {
                             if (!curVal.startsWith('[Alterado]')) {
-                              handleExamChange(sys.id, `[Alterado]: ${curVal}`);
+                              handleExamChange(sys.id as any, `[Alterado]: ${curVal}`);
                             }
                           }}
-                          className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors border ${
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors border cursor-pointer ${
                             isAltered && !isNormal
                               ? 'bg-amber-600 text-white border-amber-600'
                               : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
@@ -834,23 +727,43 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
                         <VoiceDictationButton
                           onTranscript={(text) => {
                             const updated = curVal ? `${curVal} ${text}` : text;
-                            handleExamChange(sys.id, updated);
+                            handleExamChange(sys.id as any, updated);
                           }}
                         />
                       </div>
                     </div>
 
+                    {/* Menú Desplegable de Hallazgos Frecuentes */}
+                    <div className="flex items-center gap-1">
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            appendToExam(sys.id as any, e.target.value);
+                          }
+                        }}
+                        className="text-[11px] font-semibold bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-700 outline-none w-full cursor-pointer hover:border-[#0F4C5C]"
+                      >
+                        <option value="">Opciones rápidas frecuentes de {sys.name}...</option>
+                        {sys.quickOptions.map((opt, i) => (
+                          <option key={i} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <QuickChipsSelector
-                      chips={sys.chips}
-                      onSelectChip={(chip) => appendToExam(sys.id, chip)}
+                      chips={sys.quickOptions.slice(0, 3)}
+                      onSelectChip={(chip) => appendToExam(sys.id as any, chip)}
                     />
 
                     <textarea
                       rows={2}
                       value={curVal}
-                      onChange={(e) => handleExamChange(sys.id, e.target.value)}
+                      onChange={(e) => handleExamChange(sys.id as any, e.target.value)}
                       placeholder={`Hallazgos clínicos de ${sys.name.toLowerCase()}...`}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-800 focus:border-teal-600 focus:bg-white transition-colors"
+                      className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-800 focus:border-[#0F4C5C] focus:bg-white transition-colors"
                     />
                   </div>
                 );
@@ -959,7 +872,19 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
 
             {/* Botones de activación manual de escalas */}
             <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
-              <span className="text-xs font-bold text-slate-500">Calculadoras de EVC:</span>
+              <span className="text-xs font-bold text-slate-500">Escalas Clínicas:</span>
+              <button
+                type="button"
+                onClick={() => setShowIntegratedScales(!showIntegratedScales)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  showIntegratedScales
+                    ? 'bg-[#0F4C5C] text-white border-teal-900 shadow-sm'
+                    : 'bg-teal-50 text-teal-900 border-teal-300 hover:bg-teal-100'
+                }`}
+              >
+                <Calculator className="w-3.5 h-3.5" />
+                <span>Estratificación & Escalas (CURB-65, PSI, SOFA, qSOFA, NEWS2, Blatchford, NIHSS)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setActiveScaleTab(activeScaleTab === 'nihss' ? 'none' : 'nihss')}
@@ -970,7 +895,7 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
                 }`}
               >
                 <Brain className="w-3.5 h-3.5" />
-                <span>Escala NIHSS (0 - 42 pts)</span>
+                <span>NIHSS Rápido</span>
               </button>
               <button
                 type="button"
@@ -982,9 +907,24 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
                 }`}
               >
                 <Activity className="w-3.5 h-3.5" />
-                <span>Escala Rankin Modificada (mRS)</span>
+                <span>Rankin (mRS)</span>
               </button>
             </div>
+
+            {/* Módulo Calculadoras Integradas Completo (Sección 25 & 26) */}
+            {showIntegratedScales && (
+              <div className="pt-2 animate-fade-in">
+                <IntegratedScalesCalculator
+                  patient={patient}
+                  onAddScaleResultToImpression={(text) => {
+                    const current = history.clinicalImpression || '';
+                    const updated = current ? `${current}\n\n${text}` : text;
+                    handleFieldChange('clinicalImpression', updated);
+                  }}
+                  onClose={() => setShowIntegratedScales(false)}
+                />
+              </div>
+            )}
 
             {/* Módulo Interactivo: Escala NIHSS */}
             {activeScaleTab === 'nihss' && (
@@ -1144,6 +1084,17 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
           {savedFeedback ? '¡Historia Guardada y Descargada!' : 'Guardar y Descargar Historia Clínica en PC'}
         </button>
       </div>
+
+      {/* Modal de Configuración: Mi Examen Físico Normal */}
+      {isConfigModalOpen && (
+        <CustomNormalExamModal
+          isOpen={isConfigModalOpen}
+          onClose={() => setIsConfigModalOpen(false)}
+          onSaved={() => {
+            handleLoadNormalExam();
+          }}
+        />
+      )}
     </div>
   );
 };

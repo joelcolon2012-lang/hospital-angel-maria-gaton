@@ -19,9 +19,12 @@ import {
   RefreshCw,
   Pencil,
   Sparkles,
+  Copy,
 } from 'lucide-react';
 import { downloadFileToPC, generateIndividualMedicalOrder } from '../../services/hospitalNoteGenerator';
 import { MedicalOrderPrintModal } from '../documents/MedicalOrderPrintModal';
+import { DuplicateOrderModal } from '../orders/DuplicateOrderModal';
+import { TherapeuticDiscussionModal } from '../orders/TherapeuticDiscussionModal';
 
 export interface PreloadedMedication {
   name: string;
@@ -119,6 +122,8 @@ export const MedicalOrdersTab: React.FC<Props> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [isTherapeuticDiscussionModalOpen, setIsTherapeuticDiscussionModalOpen] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [expandedDiscussion, setExpandedDiscussion] = useState<Record<string, boolean>>({});
 
@@ -354,6 +359,28 @@ export const MedicalOrdersTab: React.FC<Props> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* DUPLICAR ORDEN ANTERIOR */}
+          <button
+            type="button"
+            onClick={() => setIsDuplicateModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-black rounded-xl bg-teal-700 hover:bg-teal-800 text-white shadow-sm transition-all active:scale-95 cursor-pointer"
+            title="Copia y duplica la orden anterior en una nueva orden con incremento automático de días de tratamiento y antibióticos"
+          >
+            <Copy className="w-3.5 h-3.5 text-emerald-300" />
+            <span>DUPLICAR ORDEN ANTERIOR</span>
+          </button>
+
+          {/* DISCUSIÓN TERAPÉUTICA CON IA (Sección 30, 31, 32, 33) */}
+          <button
+            type="button"
+            onClick={() => setIsTherapeuticDiscussionModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 shadow-xs transition-all active:scale-95 cursor-pointer"
+            title="Genera discusión terapéutica oficial anclada en el Diagnóstico #1 y las órdenes activas"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-teal-700" />
+            <span>Discusión Terapéutica IA</span>
+          </button>
+
           {/* Cargar / Actualizar con Orden Anterior */}
           <button
             type="button"
@@ -362,7 +389,7 @@ export const MedicalOrdersTab: React.FC<Props> = ({
             title="Carga la pauta de orden diaria hospitalaria para modificar, agregar o eliminar rápidamente"
           >
             <RefreshCw className="w-3.5 h-3.5 text-sky-700" />
-            <span>Actualizar con Orden Anterior</span>
+            <span>Actualizar Rápido</span>
           </button>
 
           {/* Eliminar Todas las Órdenes */}
@@ -800,6 +827,27 @@ export const MedicalOrdersTab: React.FC<Props> = ({
         orders={orders}
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
+      />
+
+      {/* Modal de Duplicar Orden Anterior */}
+      {isDuplicateModalOpen && (
+        <DuplicateOrderModal
+          isOpen={isDuplicateModalOpen}
+          onClose={() => setIsDuplicateModalOpen(false)}
+          patient={patient}
+          existingOrders={orders}
+          onSaveNewOrders={(newOrders) => {
+            newOrders.forEach((ord) => onAddOrder(ord));
+          }}
+        />
+      )}
+
+      {/* Modal de Discusión Terapéutica Basada en Guías (Sección 30, 31, 32, 33) */}
+      <TherapeuticDiscussionModal
+        isOpen={isTherapeuticDiscussionModalOpen}
+        onClose={() => setIsTherapeuticDiscussionModalOpen(false)}
+        patient={patient}
+        orders={orders}
       />
     </div>
   );

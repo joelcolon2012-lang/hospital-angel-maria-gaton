@@ -36,6 +36,7 @@ import {
   generateWardTransferNoteDocx, 
   generateMedicalOrderDocx 
 } from '../../services/docxTemplateService';
+import { MandatoryNotePreviewModal, NoteType } from './MandatoryNotePreviewModal';
 
 export type HospitalDocType = 'emergencia' | 'sala' | 'orden' | 'historia';
 
@@ -66,6 +67,7 @@ export const HospitalNotesModal: React.FC<Props> = ({
     return localStorage.getItem('hospital_custom_logo') || '/hospital_logo.jpg';
   });
   const [logoFeedback, setLogoFeedback] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
 
   const handleUploadLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -163,17 +165,9 @@ export const HospitalNotesModal: React.FC<Props> = ({
     }
   };
 
-  // Descargar Word (.DOCX Oficial de Plantilla Real)
+  // Descargar Word (.DOCX Oficial con Previsualización Obligatoria - Sección 37)
   const handleDownloadDocx = () => {
-    if (docType === 'emergencia') {
-      generateEmergencyNoteDocx(patient, orders, labs);
-    } else if (docType === 'sala') {
-      generateWardTransferNoteDocx(patient, orders, labs);
-    } else if (docType === 'orden') {
-      generateMedicalOrderDocx(patient, orders);
-    } else {
-      exportClinicalHistoryToWord(patient);
-    }
+    setIsPreviewModalOpen(true);
   };
 
   // Descargar Word (.DOC alternativo)
@@ -429,6 +423,19 @@ export const HospitalNotesModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
+
+      {/* Modal de Previsualización Obligatoria (Sección 37) */}
+      {isPreviewModalOpen && (
+        <MandatoryNotePreviewModal
+          isOpen={isPreviewModalOpen}
+          onClose={() => setIsPreviewModalOpen(false)}
+          patient={patient}
+          orders={orders}
+          labs={labs}
+          studies={studies}
+          initialDocType={docType === 'historia' ? 'emergencia' : (docType as NoteType)}
+        />
+      )}
     </div>
   );
 };

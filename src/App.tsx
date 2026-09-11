@@ -11,6 +11,7 @@ import {
   Vitals,
   ClinicalHistory,
   FinalDisposition,
+  AuditLogEntry,
 } from './types';
 
 // Layout
@@ -263,6 +264,56 @@ export default function App() {
     setActivePatient(newP);
 
     // 4. Empujar inmediatamente a la nube para que esté en todas las computadoras
+    await cloudSyncService.triggerPushSync();
+  };
+
+  const handleEditPatient = async (
+    updatedPatientData: Partial<Patient>,
+    changes: { field: string; oldVal: any; newVal: any }[]
+  ) => {
+    if (!activePatient) return;
+    const nowIso = new Date().toISOString();
+
+    const updated: Patient = {
+      ...activePatient,
+      ...updatedPatientData,
+      id: activePatient.id, // ASEGURAR QUE PRESERVA EXACTAMENTE EL MISMO ID
+      internalCode: activePatient.internalCode,
+      updatedAt: nowIso,
+      updatedBy: 'Dr. Joel Colón',
+    };
+
+    // 1. Guardar en Dexie DB
+    await db.patients.put(updated);
+
+    // 2. Registrar en Auditoría si hubo cambios
+    if (changes && changes.length > 0) {
+      try {
+        const auditEntry: AuditLogEntry = {
+          id: `audit-${Date.now()}`,
+          timestamp: nowIso,
+          userId: 'dr-colon',
+          userName: 'Dr. Joel Colón',
+          userRole: 'ADMINISTRADOR',
+          action: 'MODIFICAR',
+          patientId: activePatient.id,
+          fieldPath: 'datos_demograficos',
+          oldValue: changes.map((c) => ({ [c.field]: c.oldVal })),
+          newValue: changes.map((c) => ({ [c.field]: c.newVal })),
+          details: `Modificación de datos del paciente: ${changes.map((c) => c.field).join(', ')}`,
+        };
+        await db.auditLogs.add(auditEntry);
+      } catch (err) {
+        console.warn('Error registrando auditoría:', err);
+      }
+    }
+
+    // 3. Actualizar estado en memoria
+    setActivePatient(updated);
+    setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    await saveLocalBackup();
+
+    // 4. Empujar inmediatamente a la nube central
     await cloudSyncService.triggerPushSync();
   };
 
@@ -574,6 +625,7 @@ export default function App() {
             {/* Header del Paciente */}
             <PatientHeader
               patient={activePatient}
+              existingPatients={patients}
               onBack={() => setActivePatient(null)}
               onOpenDocumentExport={() => setIsDocumentExportModalOpen(true)}
               onOpenHospitalNotes={() => {
@@ -586,6 +638,8 @@ export default function App() {
               }}
               onLoadPreviousHistory={handleLoadPreviousHistory}
               onStatusChange={handleStatusChange}
+              onEditPatient={handleEditPatient}
+              onSelectPatient={setActivePatient}
             />
 
             {/* Dossier Tabs Navigation */}
@@ -643,6 +697,8 @@ export default function App() {
                 <LabsTab
                   patientId={activePatient.id}
                   patientName={activePatient.fullName}
+                  patientAge={activePatient.age}
+                  patientSex={activePatient.sex}
                   labs={currentPatientLabs}
                   onAddLab={handleAddLab}
                   onDeleteLab={handleDeleteLab}
@@ -847,6 +903,10 @@ export default function App() {
         onClose={() => setIsRegisterModalOpen(false)}
         onSavePatient={handleSaveNewPatient}
         existingPatients={patients}
+        onOpenExistingPatient={(p) => {
+          setActivePatient(p);
+          setIsRegisterModalOpen(false);
+        }}
       />
 
       {activePatient && (

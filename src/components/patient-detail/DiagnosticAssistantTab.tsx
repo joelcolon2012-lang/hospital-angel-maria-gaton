@@ -19,6 +19,10 @@ import {
   Trash2,
 } from 'lucide-react';
 import { downloadFileToPC } from '../../services/hospitalNoteGenerator';
+import { DifferentialDiagnosisModal } from '../diagnostics/DifferentialDiagnosisModal';
+import { TherapeuticDiscussionModal } from '../orders/TherapeuticDiscussionModal';
+import { MedicalSpellCheckModal } from '../common/MedicalSpellCheckModal';
+import { IntegratedScalesCalculator } from '../scales/IntegratedScalesCalculator';
 
 interface Props {
   patient: Patient;
@@ -43,6 +47,10 @@ export const DiagnosticAssistantTab: React.FC<Props> = ({
   const [enteredDiagnosis, setEnteredDiagnosis] = useState(initialDiag);
   const [selectedScaleItems, setSelectedScaleItems] = useState<Record<string, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState(false);
+  const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
+  const [isTherapeuticModalOpen, setIsTherapeuticModalOpen] = useState(false);
+  const [isSpellModalOpen, setIsSpellModalOpen] = useState(false);
+  const [showIntegratedScales, setShowIntegratedScales] = useState(false);
 
   // Escalas coincidentes con el diagnóstico escrito o de la historia
   const matchingScales = findMatchingScales(enteredDiagnosis);
@@ -182,6 +190,65 @@ export const DiagnosticAssistantTab: React.FC<Props> = ({
           ))}
         </div>
       </div>
+
+      {/* Barra de Herramientas de IA Clínica y Calculadoras (Secciones 18, 25, 27, 30) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setIsDiffModalOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 transition-all active:scale-95 shadow-xs"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+          <span>Diagnósticos Diferenciales con IA</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setIsTherapeuticModalOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-300 transition-all active:scale-95 shadow-xs"
+        >
+          <BookOpen className="w-3.5 h-3.5 text-sky-700" />
+          <span>Discusión Terapéutica Guías Oficiales</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setIsSpellModalOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-all active:scale-95 shadow-xs"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+          <span>Corrector Ortográfico & Duplicados</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowIntegratedScales(!showIntegratedScales)}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all active:scale-95 shadow-xs border ${
+            showIntegratedScales
+              ? 'bg-[#0F4C5C] text-white border-teal-900'
+              : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+          }`}
+        >
+          <Calculator className="w-3.5 h-3.5 text-teal-600" />
+          <span>8 Calculadoras Integradas (CURB-65, PSI, SOFA, NEWS2...)</span>
+        </button>
+      </div>
+
+      {/* Despliegue de Calculadoras Integradas */}
+      {showIntegratedScales && (
+        <div className="pt-1 animate-fade-in">
+          <IntegratedScalesCalculator
+            patient={patient}
+            labs={labs}
+            onAddScaleResultToImpression={(text) => {
+              const updated = enteredDiagnosis ? `${enteredDiagnosis}\n\n${text}` : text;
+              setEnteredDiagnosis(updated);
+              if (onUpdateDiagnoses) onUpdateDiagnoses(updated);
+            }}
+            onClose={() => setShowIntegratedScales(false)}
+          />
+        </div>
+      )}
 
       {/* SECCIÓN DE ESCALAS AUTOMÁTICAS DESPLEGADAS */}
       {matchingScales.length > 0 ? (
@@ -374,6 +441,45 @@ export const DiagnosticAssistantTab: React.FC<Props> = ({
           {savedFeedback ? '¡Diagnósticos y Escalas Guardados!' : 'Guardar y Descargar Diagnósticos en PC'}
         </button>
       </div>
+
+      {/* Modal Diagnósticos Diferenciales Razonados con IA (Sección 27 & 28) */}
+      <DifferentialDiagnosisModal
+        isOpen={isDiffModalOpen}
+        onClose={() => setIsDiffModalOpen(false)}
+        patient={patient}
+        labs={labs}
+        studies={studies}
+        onAddDiagnosisToImpression={(text) => {
+          const updated = enteredDiagnosis ? `${enteredDiagnosis}\n\n• ${text}` : text;
+          setEnteredDiagnosis(updated);
+          if (onUpdateDiagnoses) onUpdateDiagnoses(updated);
+        }}
+      />
+
+      {/* Modal Discusión Terapéutica con Guías Oficiales (Sección 30 & 31) */}
+      <TherapeuticDiscussionModal
+        isOpen={isTherapeuticModalOpen}
+        onClose={() => setIsTherapeuticModalOpen(false)}
+        patient={patient}
+        labs={labs}
+        onInsertDiscussionToNote={(text) => {
+          const updated = enteredDiagnosis ? `${enteredDiagnosis}\n\n${text}` : text;
+          setEnteredDiagnosis(updated);
+          if (onUpdateDiagnoses) onUpdateDiagnoses(updated);
+        }}
+      />
+
+      {/* Modal Corrector Ortográfico Médico & Duplicados (Sección 18 & 20) */}
+      <MedicalSpellCheckModal
+        isOpen={isSpellModalOpen}
+        onClose={() => setIsSpellModalOpen(false)}
+        originalText={enteredDiagnosis}
+        onApplyCleanedText={(newText) => {
+          setEnteredDiagnosis(newText);
+          if (onUpdateDiagnoses) onUpdateDiagnoses(newText);
+        }}
+        fieldLabel="Diagnósticos e Impresión Clínica"
+      />
     </div>
   );
 };

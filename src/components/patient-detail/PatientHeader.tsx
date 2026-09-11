@@ -14,26 +14,35 @@ import {
 import { TriageBadge } from '../common/TriageBadge';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { EditPatientModal } from '../patient/EditPatientModal';
+import { Edit3 } from 'lucide-react';
 
 interface Props {
   patient: Patient;
+  existingPatients?: Patient[];
   onBack: () => void;
   onOpenDocumentExport: () => void;
   onOpenHospitalNotes?: () => void;
   onOpenMedicalOrder?: () => void;
   onLoadPreviousHistory?: () => void;
   onStatusChange: (status: PatientStatus) => void;
+  onEditPatient?: (updatedData: Partial<Patient>, changes: { field: string; oldVal: any; newVal: any }[]) => void;
+  onSelectPatient?: (patient: Patient) => void;
 }
 
 export const PatientHeader: React.FC<Props> = ({
   patient,
+  existingPatients = [],
   onBack,
   onOpenDocumentExport,
   onOpenHospitalNotes,
   onOpenMedicalOrder,
   onLoadPreviousHistory,
   onStatusChange,
+  onEditPatient,
+  onSelectPatient,
 }) => {
+  const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const vitals = patient.vitals;
   const allergies = vitals?.allergies || [];
   const hasAllergies = allergies.length > 0;
@@ -56,6 +65,16 @@ export const PatientHeader: React.FC<Props> = ({
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          {/* Editar Datos del Paciente */}
+          <button
+            onClick={() => setIsEditModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs"
+            title="Modificar datos demográficos, servicio, cubículo o ingreso"
+          >
+            <Edit3 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Editar Datos</span>
+          </button>
+
           {/* Cargar Historia Previa */}
           {onLoadPreviousHistory && (
             <button
@@ -128,9 +147,18 @@ export const PatientHeader: React.FC<Props> = ({
 
             <div className="space-y-0.5">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-tight">
-                  {patient.fullName}
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-tight">
+                    {patient.fullName}
+                  </h2>
+                  <button
+                    onClick={() => setIsEditModalOpen(true)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-[#0F4C5C] hover:bg-slate-100 transition-all cursor-pointer"
+                    title="Editar datos del paciente"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
                   {patient.internalCode}
                 </span>
@@ -193,6 +221,22 @@ export const PatientHeader: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {/* Modal para Editar Datos del Paciente */}
+      {isEditModalOpen && (
+        <EditPatientModal
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          patient={patient}
+          existingPatients={existingPatients}
+          onSave={(updatedData, changes) => {
+            if (onEditPatient) {
+              onEditPatient(updatedData, changes);
+            }
+          }}
+          onOpenExistingPatient={onSelectPatient}
+        />
+      )}
     </div>
   );
 };

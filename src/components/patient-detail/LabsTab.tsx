@@ -4,9 +4,14 @@ import { Plus, TestTube2, Save, Download, Check, Camera, Sparkles, X, FileText, 
 import { downloadFileToPC } from '../../services/hospitalNoteGenerator';
 import { parseParaclinicalText, ExtractedLabItem } from '../../services/ocrService';
 
+import { HemogramPhotoModal } from '../labs/HemogramPhotoModal';
+import { ChemistryPhotoModal } from '../labs/ChemistryPhotoModal';
+
 interface Props {
   patientId: string;
   patientName?: string;
+  patientAge?: number;
+  patientSex?: string;
   labs: LabResult[];
   onAddLab: (lab: Partial<LabResult>) => void;
   onDeleteLab: (labId: string) => void;
@@ -15,6 +20,8 @@ interface Props {
 export const LabsTab: React.FC<Props> = ({
   patientId,
   patientName = 'Paciente',
+  patientAge = 45,
+  patientSex = 'M',
   labs,
   onAddLab,
   onDeleteLab,
@@ -22,6 +29,8 @@ export const LabsTab: React.FC<Props> = ({
   const [selectedPanel, setSelectedPanel] = useState<LabPanel | 'Todos'>('Todos');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
+  const [isHemogramModalOpen, setIsHemogramModalOpen] = useState(false);
+  const [isChemistryModalOpen, setIsChemistryModalOpen] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
 
   // Manual Add Form
@@ -126,6 +135,10 @@ export const LabsTab: React.FC<Props> = ({
     setExtractedItems([]);
   };
 
+  const handleSaveBatchLabs = (newLabs: Partial<LabResult>[]) => {
+    newLabs.forEach((l) => onAddLab(l));
+  };
+
   const handleSaveAndDownload = () => {
     let content = `PARACLÍNICOS Y RESULTADOS DE LABORATORIO\n`;
     content += `Hospital Regional Ángel María Gatón — Dr. Colón\n`;
@@ -177,14 +190,36 @@ export const LabsTab: React.FC<Props> = ({
             </button>
           )}
 
+          {/* Photo Hemogram Button (FASE 7) */}
+          <button
+            type="button"
+            onClick={() => setIsHemogramModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 transition-all active:scale-95 shadow-xs"
+            title="Cargar foto del hemograma y lectura automática multimodal"
+          >
+            <Camera className="w-3.5 h-3.5 text-teal-700" />
+            <span>Foto Hemograma</span>
+          </button>
+
+          {/* Photo Chemistry Button (FASE 8) */}
+          <button
+            type="button"
+            onClick={() => setIsChemistryModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 transition-all active:scale-95 shadow-xs"
+            title="Cargar foto de químicas y electrolitos sanguíneos"
+          >
+            <Camera className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Foto Químicas</span>
+          </button>
+
           {/* Smart OCR / Transcribe Button */}
           <button
             type="button"
             onClick={() => setIsOcrModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 transition-all active:scale-95 shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-200 transition-all active:scale-95 shadow-xs"
           >
-            <Camera className="w-3.5 h-3.5 text-teal-700" />
-            <span>Extraer de Imagen / OCR</span>
+            <FileText className="w-3.5 h-3.5 text-slate-600" />
+            <span>Texto / OCR</span>
           </button>
 
           {/* Quick Save & Auto-Download */}
@@ -532,6 +567,26 @@ export const LabsTab: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Hemogram Multimodal Photo Modal (FASE 7) */}
+      <HemogramPhotoModal
+        isOpen={isHemogramModalOpen}
+        onClose={() => setIsHemogramModalOpen(false)}
+        patientId={patientId}
+        patientAge={patientAge}
+        patientSex={patientSex}
+        onSaveLabs={handleSaveBatchLabs}
+      />
+
+      {/* Blood Chemistry Photo Modal (FASE 8) */}
+      <ChemistryPhotoModal
+        isOpen={isChemistryModalOpen}
+        onClose={() => setIsChemistryModalOpen(false)}
+        patientId={patientId}
+        patientAge={patientAge}
+        patientSex={patientSex}
+        onSaveLabs={handleSaveBatchLabs}
+      />
     </div>
   );
 };
