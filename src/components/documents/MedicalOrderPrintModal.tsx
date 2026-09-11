@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Pill, Copy, Download, Check, X, Building2, FileText, Printer } from 'lucide-react';
+import { Pill, Copy, Download, Check, X, Building2, FileText, Printer, Sparkles } from 'lucide-react';
 import { Patient, MedicalOrder } from '../../types';
 import { generateIndividualMedicalOrder, downloadFileToPC } from '../../services/hospitalNoteGenerator';
-import { exportOfficialMedicalOrderPdf } from '../../services/pdfHospitalDocumentService';
+import { exportOfficialMedicalOrderPdf, exportOfficialCombinedNoteAndOrderPdf } from '../../services/pdfHospitalDocumentService';
 import { exportMedicalOrderToWord } from '../../services/wordExportService';
-import { generateMedicalOrderDocx } from '../../services/docxTemplateService';
+import { generateMedicalOrderDocx, generateCombinedNoteAndOrderDocx } from '../../services/docxTemplateService';
 
 interface Props {
   patient: Patient;
@@ -103,17 +103,35 @@ export const MedicalOrderPrintModal: React.FC<Props> = ({
               <Download className="w-3.5 h-3.5" />
               Descargar TXT
             </button>
+            {/* Descarga Combinada NOTA + ORDEN DOCX */}
+            <button
+              onClick={() => generateCombinedNoteAndOrderDocx(patient, orders)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold rounded-lg border border-teal-500 bg-teal-600 text-white hover:bg-teal-700 transition-colors shadow-xs active:scale-95 cursor-pointer"
+              title="Descargar NOTA + ORDEN MÉDICA en un solo documento continuo de Word (.DOCX)"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-teal-200" />
+              <span>NOTA + ORDEN (.DOCX)</span>
+            </button>
+            {/* Descarga Combinada NOTA + ORDEN PDF */}
+            <button
+              onClick={() => exportOfficialCombinedNoteAndOrderPdf(patient, orders)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-extrabold rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-900 transition-colors shadow-xs active:scale-95 cursor-pointer"
+              title="Descargar NOTA + ORDEN MÉDICA en un solo archivo PDF oficial"
+            >
+              <Printer className="w-3.5 h-3.5 text-teal-300" />
+              <span>NOTA + ORDEN (PDF)</span>
+            </button>
             <button
               onClick={() => generateMedicalOrderDocx(patient, orders)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-teal-600 bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-xs active:scale-95"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-teal-600 bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-xs active:scale-95 cursor-pointer"
               title="Descargar en formato DOCX real basado en la plantilla oficial de órdenes del hospital"
             >
               <FileText className="w-3.5 h-3.5 text-teal-200" />
-              <span>Plantilla Word (.DOCX)</span>
+              <span>Orden (.DOCX)</span>
             </button>
             <button
               onClick={() => exportMedicalOrderToWord(patient, orders)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 transition-colors shadow-xs active:scale-95"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 transition-colors shadow-xs active:scale-95 cursor-pointer hidden sm:inline-flex"
               title="Descargar en formato editable (.DOC)"
             >
               <Download className="w-3.5 h-3.5 text-slate-500" />
@@ -121,11 +139,11 @@ export const MedicalOrderPrintModal: React.FC<Props> = ({
             </button>
             <button
               onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-1 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-[#0F4C5C] text-white hover:bg-teal-800 transition-colors shadow-sm active:scale-95"
+              className="inline-flex items-center gap-1 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-[#0F4C5C] text-white hover:bg-teal-800 transition-colors shadow-sm active:scale-95 cursor-pointer"
               title="Descargar en PDF oficial idéntico al formato del hospital"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Descargar PDF</span>
+              <span>Orden (PDF)</span>
             </button>
           </div>
         </div>
@@ -134,17 +152,16 @@ export const MedicalOrderPrintModal: React.FC<Props> = ({
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/70">
           {viewMode === 'sheet' ? (
             <div className="bg-white max-w-2xl mx-auto p-6 sm:p-8 rounded-xl shadow-md border border-slate-200 text-slate-900 text-xs sm:text-sm font-sans space-y-4">
-              {/* Hospital Official Logo */}
-              <div className="flex items-center justify-center gap-3 pb-2 border-b border-slate-100">
-                <div className="w-8 h-8 rounded-lg bg-[#0284C7] flex items-center justify-center text-white font-black text-lg shadow-sm">
-                  H
-                </div>
-                <div>
-                  <div className="text-[10px] tracking-widest text-[#0e7490] font-bold uppercase">:HOSPITAL</div>
-                  <div className="text-sm sm:text-base font-black text-[#0284C7] tracking-wider uppercase">
-                    DR. ÁNGEL MARÍA GATÓN
-                  </div>
-                </div>
+              {/* Membrete Oficial con Logo Real */}
+              <div className="flex flex-col items-center justify-center pb-2 border-b border-slate-200">
+                <img
+                  src="./hospital_logo.jpg"
+                  alt="Hospital Regional Dr. Ángel María Gatón"
+                  className="max-h-14 w-auto object-contain"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/hospital_logo.jpg';
+                  }}
+                />
               </div>
 
               <h4 className="text-center font-black text-sm uppercase tracking-wider text-slate-800">

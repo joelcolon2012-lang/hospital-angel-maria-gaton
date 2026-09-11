@@ -79,15 +79,15 @@ export const Header: React.FC<Props> = ({
         <button
           type="button"
           onClick={onOpenSettings}
-          className="relative group w-8 h-8 rounded-full bg-white border border-slate-200 overflow-hidden shadow-2xs shrink-0 flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+          className="relative group h-8 w-auto max-w-[130px] sm:max-w-[170px] rounded-lg bg-white border border-slate-200 px-1 py-0.5 shadow-2xs shrink-0 flex items-center justify-center cursor-pointer active:scale-95 transition-transform overflow-hidden"
           title="Clic para cargar o modificar el logo del hospital"
         >
           <img
             src={currentLogo}
             alt="Logo Hospital"
-            className="w-full h-full object-cover rounded-full"
+            className="h-full w-auto object-contain"
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = '/hospital_logo.jpg';
+              (e.currentTarget as HTMLImageElement).src = './hospital_logo.jpg';
             }}
           />
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">

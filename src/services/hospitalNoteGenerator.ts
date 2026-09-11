@@ -109,12 +109,17 @@ export function generateIndividualMedicalOrder(patient: Patient, orders: Medical
   out += `PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, HIV, VDRL, HEP B, HEP C, ELECTROLITOS SÉRICOS.\n\n`;
   out += `IMÁGENES: RADIOGRAFÍA DE TÓRAX, TAC CRANEO, ELECTROCARDIOGRAMA\n\n`;
 
-  // NOTAS FARMACOLÓGICAS BASADAS EN GUÍAS
+  // NOTAS FARMACOLÓGICAS BASADAS EN GUÍAS (DEDUPLICADAS ESTRICTAMENTE)
   const notesList: string[] = [];
+  const seenGuides = new Set<string>();
   medicationOrders.forEach((m) => {
     const disc = getTherapeuticDiscussion(m.name);
     if (disc) {
-      notesList.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+      const guideKey = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
+      if (!seenGuides.has(guideKey)) {
+        seenGuides.add(guideKey);
+        notesList.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+      }
     }
   });
 
@@ -233,11 +238,29 @@ export function cleanAndDeduplicateNarrative(text: string): string {
       dedupedLines.push(line);
       continue;
     }
-    if (seenLines.has(trimmed.toUpperCase())) {
+    const upper = trimmed.toUpperCase();
+    if (seenLines.has(upper)) {
       continue; // Omitir línea idéntica repetida
     }
-    seenLines.add(trimmed.toUpperCase());
-    dedupedLines.push(line);
+    seenLines.add(upper);
+
+    // Deduplicar oraciones idénticas dentro de la misma línea
+    if (line.includes('.')) {
+      const sentences = line.split(/(?<=\.)\s+/);
+      const seenSentences = new Set<string>();
+      const dedupedSentences: string[] = [];
+      for (const s of sentences) {
+        const sNorm = s.trim().toUpperCase();
+        if (!sNorm) continue;
+        if (!seenSentences.has(sNorm)) {
+          seenSentences.add(sNorm);
+          dedupedSentences.push(s.trim());
+        }
+      }
+      dedupedLines.push(dedupedSentences.join(' '));
+    } else {
+      dedupedLines.push(line);
+    }
   }
 
   let result = dedupedLines.join('\n');

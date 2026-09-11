@@ -18,8 +18,9 @@ import {
   ClinicalHistory,
   FinalDisposition 
 } from '../types';
-import { generateTherapeuticDiscussionForOrders } from './therapeuticDiscussionService';
+import { generateTherapeuticDiscussionForOrders, getTherapeuticDiscussion } from './therapeuticDiscussionService';
 import { extractScalesAndDiagnoses } from './hospitalNoteGenerator';
+import { FALLBACK_LOGO_BASE64, FALLBACK_TEMPLATES, base64ToArrayBuffer } from './templatesFallback';
 
 export interface DocxExportOptions {
   doctorName?: string;
@@ -33,20 +34,40 @@ export interface DocxExportOptions {
  */
 async function injectOfficialLogoIfPresent(zip: PizZip): Promise<void> {
   try {
-    let logoUrl = '/hospital_logo.jpg';
+    let logoBuffer: ArrayBuffer | null = null;
+    const baseUrl = (import.meta as any).env?.BASE_URL || './';
+    const candidates = [
+      './hospital_logo.jpg',
+      `${baseUrl}hospital_logo.jpg`,
+      'hospital_logo.jpg',
+      '/hospital_logo.jpg'
+    ];
+
     try {
       const identitySetting = await db.settings.get('hospital_identity_settings');
       if (identitySetting && identitySetting.value && identitySetting.value.logoUrl) {
-        logoUrl = identitySetting.value.logoUrl;
+        candidates.unshift(identitySetting.value.logoUrl);
       } else if (typeof localStorage !== 'undefined') {
         const stored = localStorage.getItem('hospital_custom_logo');
-        if (stored) logoUrl = stored;
+        if (stored) candidates.unshift(stored);
       }
     } catch {}
 
-    const res = await fetch(logoUrl);
-    if (res.ok) {
-      const logoBuffer = await res.arrayBuffer();
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          logoBuffer = await res.arrayBuffer();
+          if (logoBuffer && logoBuffer.byteLength > 500) break;
+        }
+      } catch {}
+    }
+
+    if (!logoBuffer && FALLBACK_LOGO_BASE64) {
+      logoBuffer = base64ToArrayBuffer(FALLBACK_LOGO_BASE64);
+    }
+
+    if (logoBuffer) {
       if (zip.file('word/media/image1.jpg')) {
         zip.file('word/media/image1.jpg', logoBuffer);
       }
@@ -120,15 +141,50 @@ function createDocxParagraphXml(text: string, isBold: boolean = false, isCentere
 }
 
 /**
- * Carga el archivo de plantilla (.docx) desde public/templates/
+ * Genera el XML de un salto de página oficial en Word
+ */
+function createDocxPageBreakXml(): string {
+  return `
+    <w:p>
+      <w:pPr>
+        <w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>
+      </w:pPr>
+      <w:r>
+        <w:br w:type="page"/>
+      </w:r>
+    </w:p>
+  `;
+}
+
+/**
+ * Carga el archivo de plantilla (.docx) resolviendo URLs relativas de Vite / GitHub Pages
+ * y utilizando plantilla en memoria Base64 como garantía absoluta de disponibilidad.
  */
 async function loadTemplateBuffer(templateFilename: string): Promise<ArrayBuffer> {
-  const url = `/templates/${encodeURIComponent(templateFilename)}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`No se pudo cargar la plantilla maestra "${templateFilename}" (HTTP ${response.status})`);
+  const cleanName = templateFilename.trim();
+  const encName = encodeURIComponent(cleanName);
+  const baseUrl = (import.meta as any).env?.BASE_URL || './';
+  const urls = [
+    `${baseUrl}templates/${encName}`,
+    `./templates/${encName}`,
+    `templates/${encName}`,
+    `/templates/${encName}`
+  ];
+
+  for (const u of urls) {
+    try {
+      const resp = await fetch(u);
+      if (resp.ok) {
+        const buf = await resp.arrayBuffer();
+        if (buf && buf.byteLength > 1000) return buf;
+      }
+    } catch {}
   }
-  return await response.arrayBuffer();
+
+  if (FALLBACK_TEMPLATES[cleanName]) {
+    return base64ToArrayBuffer(FALLBACK_TEMPLATES[cleanName]);
+  }
+  throw new Error(`No se pudo cargar la plantilla maestra "${templateFilename}"`);
 }
 
 /**
@@ -458,14 +514,21 @@ export async function generateMedicalOrderDocx(
 
     if (solutions.length > 0) {
       solutions.forEach(s => {
-        newParagraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${s.dose.toUpperCase()} ${s.route.toUpperCase()} ${s.frequency.toUpperCase()}`, false, false, 60));
+        const d = (s.dose || '').toUpperCase();
+        const r = (s.route || '').toUpperCase();
+        const f = (s.frequency || '').toUpperCase();
+        newParagraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
       });
     }
 
     if (medications.length > 0) {
       medications.forEach(m => {
         const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
-        newParagraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${m.presentation ? `(${m.presentation.toUpperCase()}) ` : ''}${m.dose.toUpperCase()} ${m.route.toUpperCase()} ${m.frequency.toUpperCase()}${dayText}`, false, false, 60));
+        const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
+        const d = (m.dose || '').toUpperCase();
+        const r = (m.route || 'EV').toUpperCase();
+        const f = (m.frequency || '').toUpperCase();
+        newParagraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
       });
     } else if (solutions.length === 0) {
       newParagraphs.push(createDocxParagraphXml('• SOLUCIÓN SALINA AL 0.9% 1000 ML C/24 HORAS EV A 42 GOTAS/MINUTO', false, false, 60));
@@ -474,8 +537,27 @@ export async function generateMedicalOrderDocx(
     if (paraclinics.length > 0) {
       newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS Y ESTUDIOS SOLICITADOS:', true, false, 100));
       paraclinics.forEach(p => {
-        newParagraphs.push(createDocxParagraphXml(`• ${p.name.toUpperCase()} (${p.type.toUpperCase()})`, false, false, 60));
+        newParagraphs.push(createDocxParagraphXml(`• ${p.name.toUpperCase()} (${(p.type || 'ESTUDIO').toUpperCase()})`, false, false, 60));
       });
+    }
+
+    // Directrices farmacológicas basadas en guías (estrictamente deduplicadas)
+    const seenGuides = new Set<string>();
+    const noteLines: string[] = [];
+    medications.forEach(m => {
+      const disc = getTherapeuticDiscussion(m.name);
+      if (disc) {
+        const key = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
+        if (!seenGuides.has(key)) {
+          seenGuides.add(key);
+          noteLines.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+        }
+      }
+    });
+
+    if (noteLines.length > 0) {
+      newParagraphs.push(createDocxParagraphXml('DIRECTRICES Y JUSTIFICACIONES DE GUÍAS:', true, false, 80));
+      noteLines.forEach(nl => newParagraphs.push(createDocxParagraphXml(nl, false, false, 60)));
     }
 
     newParagraphs.push(createDocxParagraphXml('', false, false, 200));
@@ -503,6 +585,217 @@ export async function generateMedicalOrderDocx(
   } catch (error: any) {
     console.error('Error generando DOCX de Orden Médica:', error);
     alert('Error al generar la orden médica DOCX: ' + error.message);
+  }
+}
+
+/**
+ * 3B. GENERAR DOCUMENTO COMBINADO: NOTA DE INGRESO + ORDEN MÉDICA (.DOCX)
+ * Genera en un solo archivo Word la Nota de Ingreso y la Hoja de Órdenes Médicas
+ * separadas por un salto de página oficial con membrete y firmas independientes.
+ */
+export async function generateCombinedNoteAndOrderDocx(
+  patient: Patient,
+  orders: MedicalOrder[] = [],
+  labs: LabResult[] = [],
+  studies: MedicalStudy[] = [],
+  options: DocxExportOptions = {}
+): Promise<void> {
+  try {
+    const isSala = patient.status === 'ingresados' || (Boolean(patient.cubicle) && !patient.cubicle.toLowerCase().includes('emerg') && !patient.cubicle.toLowerCase().includes('cub'));
+    const templateName = isSala ? 'NOTA DE RECIBIMIENTO EN SALA.docx' : 'NOTA DE INGRESO EMERGENCIA.docx';
+    const arrayBuffer = await loadTemplateBuffer(templateName);
+    const zip = new PizZip(arrayBuffer);
+    await injectOfficialLogoIfPresent(zip);
+
+    const { date, time } = getFormattedDateTime(patient.arrivalDateTime || patient.createdAt);
+    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
+    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+
+    const paragraphs: string[] = [];
+
+    // ==========================================
+    // SECCIÓN 1: NOTA CLÍNICA DE INGRESO / SALA
+    // ==========================================
+    paragraphs.push(createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40));
+    paragraphs.push(createDocxParagraphXml(isSala ? 'SERVICIO DE MEDICINA INTERNA — SALA CLÍNICA' : 'SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80));
+    paragraphs.push(createDocxParagraphXml(isSala ? 'NOTA DE RECIBIMIENTO EN SALA' : 'NOTA DE INGRESO EMERGENCIA', true, true, 180));
+
+    const sexText = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
+    const ageText = patient.age ? `${patient.age} AÑOS` : 'EDAD NO DOCUMENTADA';
+    const headerLineNote = `NOMBRE: ${patient.fullName.toUpperCase()}. EDAD: ${ageText}, ${isSala ? 'SALA' : 'EMERG'}: ${patient.cubicle.toUpperCase()}, FECHA: ${date} HORA: ${time}`;
+    paragraphs.push(createDocxParagraphXml(headerLineNote, true, false, 160));
+
+    // Narrativa de antecedentes
+    const morbidText = patient.clinicalHistory?.pathologicalHistory?.toUpperCase() || 'NEGADOS';
+    const surgicalText = patient.clinicalHistory?.surgicalHistory?.toUpperCase() || 'NEGADOS';
+    const toxicText = patient.clinicalHistory?.toxicHabits?.toUpperCase() || 'NEGADOS';
+    let allergicText = 'NEGADAS';
+    if (patient.clinicalHistory?.allergicHistory) {
+      allergicText = patient.clinicalHistory.allergicHistory.toUpperCase();
+    } else if (patient.vitals?.allergies && patient.vitals.allergies.length > 0) {
+      allergicText = patient.vitals.allergies.join(', ').toUpperCase();
+    }
+    const hdaText = patient.clinicalHistory?.currentIllnessHistory?.toUpperCase() || 
+                    patient.chiefComplaint?.toUpperCase() || 
+                    'CUADRO CLÍNICO DE EVALUACIÓN MÉDICA';
+
+    const historyNarrative = `SE TRATA DE PACIENTE ${sexText} DE ${ageText} DE EDAD, CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${morbidText}, ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, HÁBITOS TÓXICOS ${toxicText}, ALERGIAS ${allergicText}. REFIERE ${hdaText}, MOTIVO POR EL CUAL ES INGRESADO EN NUESTRO CENTRO DE SALUD TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.`;
+    paragraphs.push(createDocxParagraphXml(historyNarrative, false, false, 160));
+
+    // Examen físico y paraclínicos
+    const v = patient.vitals || {};
+    const bpText = (v.systolicBP && v.diastolicBP) ? `${v.systolicBP}/${v.diastolicBP} MMHG` : '120/80 MMHG';
+    const hrText = v.heartRate ? `${v.heartRate} LPM` : '80 LPM';
+    const rrText = v.respiratoryRate ? `${v.respiratoryRate} RPM` : '18 RPM';
+    const satText = v.oxygenSaturation ? `${v.oxygenSaturation}% AA` : '98% AA';
+    const tempText = v.temperature ? `${v.temperature} °C` : '36.8 °C';
+    const gluText = v.bloodGlucose ? `${v.bloodGlucose} MG/DL` : '95 MG/DL';
+
+    const pe: any = patient.clinicalHistory?.physicalExam || {};
+    const peNarrative = `ACTUALMENTE PACIENTE ${(pe.general || 'ALERTA Y CONSCIENTE').toUpperCase()}, MANEJANDO UNOS SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, SPO2: ${satText}, TEMP: ${tempText}, GLICEMIA: ${gluText}. EXAMEN FÍSICO: CABEZA/CUELLO: ${(pe.head || 'SIMÉTRICO, PUPILAS ISOCÓRICAS, CUELLO MÓVIL').toUpperCase()}. TÓRAX: ${(pe.chest || 'SIMÉTRICO, NORMOEXPANSIBLE').toUpperCase()}. PULMONES: ${(pe.respiratory || 'MURMULLO VESICULAR CONSERVADO').toUpperCase()}. CORAZÓN: ${(pe.cardiovascular || 'R1-R2 RÍTMICOS, NO SOPLOS').toUpperCase()}. ABDOMEN: ${(pe.abdominal || 'BLANDO, DEPRESIBLE, PERISTALSIS PRESENTE').toUpperCase()}. EXTREMIDADES: ${(pe.extremities || 'SIMÉTRICAS, SIN EDEMAS').toUpperCase()}. NEUROLÓGICO: ${(pe.neurological || 'GLASGOW 15/15, SIN DÉFICIT FOCAL').toUpperCase()}.`;
+    
+    let labsText = 'PARACLÍNICAS REPORTAN DENTRO DE LÍMITES FISIOLÓGICOS A SU LLEGADA.';
+    if (labs.length > 0) {
+      labsText = 'PARACLÍNICAS REPORTAN: ' + labs.map(l => `${l.parameter.toUpperCase()}: ${l.value} ${l.unit ? l.unit.toUpperCase() : ''}`).join(', ') + '.';
+    }
+    paragraphs.push(createDocxParagraphXml(`${peNarrative} ${labsText}`, false, false, 160));
+
+    // Escalas y Diagnósticos
+    const rawDiag = (patient.diagnosesList && patient.diagnosesList.length > 0)
+      ? patient.diagnosesList.map(d => d.name).join('\n')
+      : (patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'SÍNDROME CLÍNICO EN ESTUDIO');
+    const { scales, diagnoses } = extractScalesAndDiagnoses(rawDiag);
+
+    if (scales.length > 0) {
+      paragraphs.push(createDocxParagraphXml('PLANTEAMIENTO CLÍNICO & ESCALAS PRONÓSTICAS (EVC / CRÍTICO):', true, false, 60));
+      scales.forEach(s => paragraphs.push(createDocxParagraphXml(`• ${s.toUpperCase()}`, true, false, 50)));
+    }
+
+    paragraphs.push(createDocxParagraphXml('POR LO QUE LA MISMA CUENTA CON DIAGNÓSTICOS DE:', true, false, 80));
+    const pureDiags = diagnoses.length > 0 ? diagnoses : ['SÍNDROME CLÍNICO EN PROTOCOLO DIAGNÓSTICO'];
+    pureDiags.forEach((d, idx) => paragraphs.push(createDocxParagraphXml(`${idx + 1}. ${d.toUpperCase()}`, true, false, 60)));
+
+    // Discusión terapéutica
+    let managementText = generateTherapeuticDiscussionForOrders(orders);
+    if (!managementText) {
+      managementText = 'EN CUANTO AL MANEJO: SE INDICA SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV CON FINES DE HIDRATACIÓN Y VÍA VENOSA PERMEABLE, MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES Y REEVALUACIÓN CLÍNICA PERIÓDICA.';
+    } else {
+      managementText = `EN CUANTO AL MANEJO: ${managementText.toUpperCase()}`;
+    }
+    paragraphs.push(createDocxParagraphXml(managementText, false, false, 200));
+
+    // Firma Nota
+    paragraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
+    paragraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
+    paragraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 160));
+
+    // ==========================================
+    // SALTO DE PÁGINA OFICIAL
+    // ==========================================
+    paragraphs.push(createDocxPageBreakXml());
+
+    // ==========================================
+    // SECCIÓN 2: HOJA DE ÓRDENES MÉDICAS OFICIAL
+    // ==========================================
+    paragraphs.push(createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40));
+    paragraphs.push(createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80));
+    paragraphs.push(createDocxParagraphXml('ORDEN MEDICA', true, true, 180));
+
+    const bed = options.hospitalWard || patient.cubicle || 'EMERGENCIA';
+    const headerLineOrder = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${ageText}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
+    paragraphs.push(createDocxParagraphXml(headerLineOrder, true, false, 140));
+
+    const vitalsLine = `SIGNOS VITALES: TA: ${bpText} | FC: ${hrText} | FR: ${rrText} | SAT: ${satText} | TEMP: ${tempText} | GLICEMIA: ${gluText}`;
+    paragraphs.push(createDocxParagraphXml('MEDIDAS GENERALES: DIETA ADECUADA SEGÚN CONDICIÓN, CABECERA A 30°, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.', false, false, 120));
+
+    let diagnosesLines = 'DIAGNÓSTICOS ACTIVOS:\n' + pureDiags.map((d, i) => `${i + 1}. ${d.toUpperCase()}`).join('\n');
+    paragraphs.push(createDocxParagraphXml(diagnosesLines, true, false, 140));
+    paragraphs.push(createDocxParagraphXml(vitalsLine, true, false, 160));
+
+    paragraphs.push(createDocxParagraphXml('MEDICACIÓN Y SOLUCIONES:', true, false, 80));
+
+    const solutions = orders.filter(o => o.type === 'Solución');
+    const medications = orders.filter(o => o.type === 'Medicamento');
+    const paraclinics = orders.filter(o => o.type === 'Estudio' || o.type === 'Procedimiento' || o.type === 'Interconsulta');
+
+    if (solutions.length > 0) {
+      solutions.forEach(s => {
+        const d = (s.dose || '').toUpperCase();
+        const r = (s.route || '').toUpperCase();
+        const f = (s.frequency || '').toUpperCase();
+        paragraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
+      });
+    } else {
+      paragraphs.push(createDocxParagraphXml('• SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV CON FINES DE HIDRATACIÓN', false, false, 60));
+    }
+
+    if (medications.length > 0) {
+      medications.forEach(m => {
+        const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
+        const d = (m.dose || '').toUpperCase();
+        const r = (m.route || 'EV').toUpperCase();
+        const f = (m.frequency || '').toUpperCase();
+        const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
+        paragraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
+      });
+    } else {
+      paragraphs.push(createDocxParagraphXml('• OMEPRAZOL 40 MG C/24 HORAS EV GASTROPROTECCIÓN', false, false, 60));
+    }
+
+    if (paraclinics.length > 0) {
+      paragraphs.push(createDocxParagraphXml('PARACLÍNICOS Y ESTUDIOS SOLICITADOS:', true, false, 80));
+      paraclinics.forEach(p => {
+        paragraphs.push(createDocxParagraphXml(`• ${p.name.toUpperCase()} (${(p.type || 'ESTUDIO').toUpperCase()})`, false, false, 60));
+      });
+    }
+
+    // Directrices farmacológicas deduplicadas
+    const seenGuidesCombined = new Set<string>();
+    const noteLinesCombined: string[] = [];
+    medications.forEach(m => {
+      const disc = getTherapeuticDiscussion(m.name);
+      if (disc) {
+        const key = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
+        if (!seenGuidesCombined.has(key)) {
+          seenGuidesCombined.add(key);
+          noteLinesCombined.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+        }
+      }
+    });
+
+    if (noteLinesCombined.length > 0) {
+      paragraphs.push(createDocxParagraphXml('DIRECTRICES Y JUSTIFICACIONES DE GUÍAS:', true, false, 80));
+      noteLinesCombined.forEach(nl => paragraphs.push(createDocxParagraphXml(nl, false, false, 60)));
+    }
+
+    // Firma Orden
+    paragraphs.push(createDocxParagraphXml('', false, false, 160));
+    paragraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
+    paragraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
+    paragraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
+
+    // Ensamblar en XML
+    let xml = zip.file('word/document.xml')?.asText() || '';
+    const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
+    if (bodyMatch) {
+      const sectPrMatch = xml.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
+      const sectPr = sectPrMatch ? sectPrMatch[0] : '';
+      xml = xml.replace(/<w:body>[\s\S]*?<\/w:body>/, `<w:body>${paragraphs.join('')}${sectPr}</w:body>`);
+      zip.file('word/document.xml', xml);
+    }
+
+    const outBlob = zip.generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE'
+    });
+
+    const safeName = patient.fullName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+    const safeDate = date.replace(/\//g, '-');
+    triggerBrowserDownload(outBlob, `NOTA_MAS_ORDEN_MEDICA_${safeName}_${safeDate}.docx`);
+  } catch (error: any) {
+    console.error('Error generando DOCX combinado Nota + Orden:', error);
+    alert('Error al generar documento combinado DOCX: ' + error.message);
   }
 }
 

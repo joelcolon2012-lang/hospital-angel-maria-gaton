@@ -30,7 +30,8 @@ import {
   generateEmergencyNoteDocx, 
   generateWardTransferNoteDocx, 
   generateMedicalOrderDocx,
-  generateEvolutionDocx
+  generateEvolutionDocx,
+  generateCombinedNoteAndOrderDocx
 } from '../../services/docxTemplateService';
 import { 
   exportOfficialAdmissionNotePdf, 
@@ -402,13 +403,17 @@ export const MandatoryNotePreviewModal: React.FC<Props> = ({
                 />
               ) : (
                 <div className="bg-white border border-slate-300 rounded-xl p-5 shadow-xs">
-                  {/* Membrete Simulado */}
-                  <div className="border-b border-slate-200 pb-3 mb-4 text-center">
-                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">HOSPITAL REGIONAL</p>
-                    <h2 className="text-sm sm:text-base font-black text-[#0F4C5C] uppercase tracking-wide">
-                      DR. ÁNGEL MARÍA GATÓN
-                    </h2>
-                    <p className="text-xs font-bold text-slate-700 uppercase mt-1">
+                  {/* Membrete Oficial con Logo Real */}
+                  <div className="border-b border-slate-200 pb-3 mb-4 flex flex-col items-center justify-center text-center">
+                    <img
+                      src="./hospital_logo.jpg"
+                      alt="Hospital Regional Dr. Ángel María Gatón"
+                      className="max-h-12 sm:max-h-14 w-auto object-contain"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = '/hospital_logo.jpg';
+                      }}
+                    />
+                    <p className="text-xs font-bold text-slate-700 uppercase mt-2">
                       {docTitleMap[docType]}
                     </p>
                   </div>
@@ -510,10 +515,20 @@ export const MandatoryNotePreviewModal: React.FC<Props> = ({
             <button
               type="button"
               onClick={handleDownloadPdf}
-              className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs"
+              className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               <span>Exportar PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => generateCombinedNoteAndOrderDocx(patient, orders, labs, studies)}
+              className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all border border-teal-500 cursor-pointer"
+              title="Descargar Nota + Hoja de Orden Médica en un solo documento continuo de Word (.DOCX)"
+            >
+              <FileText className="w-3.5 h-3.5 text-teal-200" />
+              <span>NOTA + ORDEN (.DOCX)</span>
             </button>
           </div>
 

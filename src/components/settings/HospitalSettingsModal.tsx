@@ -406,13 +406,13 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                  <div className="w-24 h-24 rounded-2xl bg-white p-2 shadow-sm border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">
+                  <div className="w-48 h-18 rounded-2xl bg-white p-2 shadow-sm border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">
                     <img
                       src={settings.logoUrl}
                       alt="Logo Oficial"
                       className="w-full h-full object-contain rounded-xl"
                       onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src = '/hospital_logo.jpg';
+                        (e.currentTarget as HTMLImageElement).src = './hospital_logo.jpg';
                       }}
                     />
                   </div>

@@ -24,7 +24,8 @@ import {
 } from '../../services/hospitalNoteGenerator';
 import { 
   exportOfficialAdmissionNotePdf, 
-  exportOfficialMedicalOrderPdf 
+  exportOfficialMedicalOrderPdf,
+  exportOfficialCombinedNoteAndOrderPdf
 } from '../../services/pdfHospitalDocumentService';
 import { 
   exportAdmissionNoteToWord, 
@@ -34,11 +35,12 @@ import {
 import { 
   generateEmergencyNoteDocx, 
   generateWardTransferNoteDocx, 
-  generateMedicalOrderDocx 
+  generateMedicalOrderDocx,
+  generateCombinedNoteAndOrderDocx
 } from '../../services/docxTemplateService';
 import { MandatoryNotePreviewModal, NoteType } from './MandatoryNotePreviewModal';
 
-export type HospitalDocType = 'emergencia' | 'sala' | 'orden' | 'historia';
+export type HospitalDocType = 'emergencia' | 'sala' | 'orden' | 'historia' | 'combinada';
 
 interface Props {
   patient: Patient;
@@ -102,6 +104,18 @@ export const HospitalNotesModal: React.FC<Props> = ({
         return generateInternalMedicineWardAdmissionNote(patient, orders, labs, studies);
       case 'orden':
         return generateIndividualMedicalOrder(patient, orders);
+      case 'combinada': {
+        const isSala = patient.status === 'ingresados' || (Boolean(patient.cubicle) && !patient.cubicle.toLowerCase().includes('emerg') && !patient.cubicle.toLowerCase().includes('cub'));
+        const note = isSala
+          ? generateInternalMedicineWardAdmissionNote(patient, orders, labs, studies)
+          : generateEmergencyAdmissionNote(patient, orders, labs, studies);
+        const order = generateIndividualMedicalOrder(patient, orders);
+        return `${note}\n\n` +
+          `======================================================================\n` +
+          `           [SALTO DE PÁGINA: HOJA DE ÓRDENES MÉDICAS OFICIAL]\n` +
+          `======================================================================\n\n` +
+          `${order}`;
+      }
       case 'historia':
         return `HISTORIA CLÍNICA Y EXAMEN FÍSICO COMPLETO\nHOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN\n\n` +
           `NOMBRE: ${patient.fullName.toUpperCase()}  EDAD: ${patient.age || '--'} AÑOS  CUBÍCULO: ${patient.cubicle}\n\n` +
@@ -149,6 +163,7 @@ export const HospitalNotesModal: React.FC<Props> = ({
       emergencia: `Nota_Ingreso_Emergencia_${safeName}_${safeDate}.txt`,
       sala: `Nota_Recibimiento_Sala_${safeName}_${safeDate}.txt`,
       orden: `Orden_Medica_${safeName}_${safeDate}.txt`,
+      combinada: `Nota_Mas_Orden_Medica_${safeName}_${safeDate}.txt`,
       historia: `Historia_Clinica_${safeName}_${safeDate}.txt`,
     };
     downloadFileToPC(filenames[docType], currentContent);
@@ -156,7 +171,9 @@ export const HospitalNotesModal: React.FC<Props> = ({
 
   // Descargar PDF Oficial con formato del hospital
   const handleDownloadPdf = () => {
-    if (docType === 'emergencia' || docType === 'sala') {
+    if (docType === 'combinada') {
+      exportOfficialCombinedNoteAndOrderPdf(patient, orders, labs, studies);
+    } else if (docType === 'emergencia' || docType === 'sala') {
       exportOfficialAdmissionNotePdf(patient, orders, labs, studies, docType);
     } else if (docType === 'orden') {
       exportOfficialMedicalOrderPdf(patient, orders);
@@ -166,8 +183,19 @@ export const HospitalNotesModal: React.FC<Props> = ({
   };
 
   // Descargar Word (.DOCX Oficial con Previsualización Obligatoria - Sección 37)
-  const handleDownloadDocx = () => {
-    setIsPreviewModalOpen(true);
+  const handleDownloadDocx = async () => {
+    if (docType === 'combinada') {
+      await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies);
+    } else if (docType === 'orden') {
+      await generateMedicalOrderDocx(patient, orders);
+    } else {
+      setIsPreviewModalOpen(true);
+    }
+  };
+
+  // Descarga directa combinada Nota + Orden
+  const handleDownloadCombinedDocx = async () => {
+    await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies);
   };
 
   // Descargar Word (.DOC alternativo)
@@ -177,13 +205,15 @@ export const HospitalNotesModal: React.FC<Props> = ({
     } else if (docType === 'historia') {
       exportClinicalHistoryToWord(patient);
     } else {
-      exportAdmissionNoteToWord(patient, orders, labs, studies, docType);
+      exportAdmissionNoteToWord(patient, orders, labs, studies, docType === 'combinada' ? 'emergencia' : docType);
     }
   };
 
   // Título e información de cabecera según el tipo
   const getDocHeaderTitle = () => {
     switch (docType) {
+      case 'combinada':
+        return 'NOTA DE INGRESO + ORDEN MÉDICA OFICIAL';
       case 'emergencia':
         return 'NOTA DE INGRESO EMERGENCIA';
       case 'sala':
@@ -248,6 +278,7 @@ export const HospitalNotesModal: React.FC<Props> = ({
                 onChange={(e) => setDocType(e.target.value as HospitalDocType)}
                 className="w-full bg-white text-slate-900 font-bold text-xs sm:text-sm py-2 px-3 pr-8 rounded-xl border border-slate-300 shadow-xs focus:ring-2 focus:ring-teal-600 focus:border-teal-600 appearance-none cursor-pointer"
               >
+                <option value="combinada">📑 NOTA + ORDEN MÉDICA (DOCUMENTO COMPLETO)</option>
                 <option value="emergencia">🚨 NOTA DE INGRESO EMERGENCIA</option>
                 <option value="sala">🏥 NOTA DE RECIBIMIENTO EN SALA (MEDICINA INTERNA)</option>
                 <option value="orden">💊 HOJA DE ORDEN MÉDICA OFICIAL (INDIVIDUAL)</option>
@@ -285,28 +316,45 @@ export const HospitalNotesModal: React.FC<Props> = ({
 
         {/* Barra de Acciones de Descarga Oficial */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-2.5 bg-white border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider hidden sm:inline">
-              Descargas Oficiales:
-            </span>
-            {/* Descargar PDF Oficial */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Descargar NOTA + ORDEN DOCX Combinado (Destacado Principal) */}
             <button
-              onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-teal-800 hover:bg-teal-900 text-white transition-all shadow-sm active:scale-95"
-              title="Descargar en PDF idéntico al formato oficial del Hospital Ángel María Gatón"
+              onClick={handleDownloadCombinedDocx}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-extrabold rounded-xl bg-teal-600 hover:bg-teal-700 text-white transition-all shadow-xs active:scale-95 border border-teal-500 cursor-pointer"
+              title="Descargar Nota + Hoja de Orden Médica en un solo archivo Word (.DOCX) continuo con membrete y firmas independientes"
             >
-              <Printer className="w-3.5 h-3.5 text-teal-200" />
-              <span>Descargar PDF</span>
+              <Sparkles className="w-3.5 h-3.5 text-teal-200" />
+              <span>📄 NOTA + ORDEN (.DOCX)</span>
             </button>
 
-            {/* Descargar Word (.DOCX Oficial) */}
+            {/* Descargar NOTA + ORDEN PDF Combinado */}
+            <button
+              onClick={() => exportOfficialCombinedNoteAndOrderPdf(patient, orders, labs, studies)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-extrabold rounded-xl bg-slate-800 hover:bg-slate-900 text-white transition-all shadow-xs active:scale-95 cursor-pointer"
+              title="Descargar Nota + Hoja de Orden Médica en un solo archivo PDF multipágina con membrete oficial"
+            >
+              <Printer className="w-3.5 h-3.5 text-teal-300" />
+              <span>🖨️ NOTA + ORDEN (PDF)</span>
+            </button>
+
+            {/* Descargar PDF de la sección actual */}
+            <button
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-teal-800 hover:bg-teal-900 text-white transition-all shadow-sm active:scale-95 cursor-pointer"
+              title="Descargar en PDF individual del formato seleccionado"
+            >
+              <Printer className="w-3.5 h-3.5 text-teal-200" />
+              <span>PDF Actual</span>
+            </button>
+
+            {/* Descargar Word (.DOCX de la sección actual) */}
             <button
               onClick={handleDownloadDocx}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-[#0F4C5C] hover:bg-petrol-800 text-white transition-all shadow-sm active:scale-95"
-              title="Descargar plantilla real de Microsoft Word (.DOCX) conservando fuentes, márgenes y membrete"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-[#0F4C5C] hover:bg-petrol-800 text-white transition-all shadow-sm active:scale-95 cursor-pointer"
+              title="Descargar plantilla real de Microsoft Word (.DOCX) individual"
             >
               <FileText className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Plantilla Word (.DOCX)</span>
+              <span>Word (.DOCX)</span>
             </button>
 
             {/* Descargar Word (.DOC) */}

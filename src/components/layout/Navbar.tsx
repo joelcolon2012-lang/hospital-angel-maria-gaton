@@ -33,11 +33,14 @@ export const Navbar: React.FC<Props> = ({
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Left: Hospital Logo & Title */}
         <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-full bg-white p-0.5 flex items-center justify-center shadow-md overflow-hidden border border-teal-300/40 shrink-0">
+          <div className="h-9 sm:h-10 w-auto max-w-[160px] sm:max-w-[200px] rounded-lg bg-white p-1 flex items-center justify-center shadow-md overflow-hidden border border-teal-300/40 shrink-0">
             <img
-              src="/hospital_logo.jpg"
+              src="./hospital_logo.jpg"
               alt="Logo Hospital Regional Ángel María Gatón"
-              className="w-full h-full object-cover rounded-full"
+              className="h-full w-auto object-contain"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = '/hospital_logo.jpg';
+              }}
             />
           </div>
           <div>
