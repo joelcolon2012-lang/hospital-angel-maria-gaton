@@ -10,6 +10,7 @@ import {
   FileText,
   Pill,
   ShieldAlert,
+  Sparkles,
 } from 'lucide-react';
 import { TriageBadge } from '../common/TriageBadge';
 import { Badge } from '../ui/Badge';
@@ -24,6 +25,7 @@ interface Props {
   onOpenDocumentExport: () => void;
   onOpenHospitalNotes?: () => void;
   onOpenMedicalOrder?: () => void;
+  onOpenAiSuite?: () => void;
   onLoadPreviousHistory?: () => void;
   onStatusChange: (status: PatientStatus) => void;
   onEditPatient?: (updatedData: Partial<Patient>, changes: { field: string; oldVal: any; newVal: any }[]) => void;
@@ -37,6 +39,7 @@ export const PatientHeader: React.FC<Props> = ({
   onOpenDocumentExport,
   onOpenHospitalNotes,
   onOpenMedicalOrder,
+  onOpenAiSuite,
   onLoadPreviousHistory,
   onStatusChange,
   onEditPatient,
@@ -108,6 +111,18 @@ export const PatientHeader: React.FC<Props> = ({
             >
               <Pill className="w-3.5 h-3.5 text-indigo-700" />
               <span>Orden Médica</span>
+            </button>
+          )}
+
+          {/* Asistente IA Multimodal */}
+          {onOpenAiSuite && (
+            <button
+              onClick={onOpenAiSuite}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[10px] bg-emerald-50 hover:bg-emerald-100/80 text-emerald-900 border border-emerald-200 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs"
+              title="Asistente IA Multimodal (RX, TAC, Gases Arteriales, ECG, Redacción Clínica Dr. Colón)"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="hidden sm:inline">IA Clínica</span>
             </button>
           )}
 

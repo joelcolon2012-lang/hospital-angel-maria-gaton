@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Stethoscope,
+  BarChart3,
 } from 'lucide-react';
 
 export type SidebarNavId =
@@ -21,6 +22,7 @@ export type SidebarNavId =
   | 'patients'
   | 'emergencies'
   | 'ward'
+  | 'epidemiology'
   | 'labs'
   | 'studies'
   | 'notes'
@@ -72,6 +74,11 @@ export const Sidebar: React.FC<Props> = ({
       label: 'Sala / Internamiento',
       icon: Building2,
       badge: patientCounts?.ward,
+    },
+    {
+      id: 'epidemiology' as SidebarNavId,
+      label: 'Epidemiología & Patologías',
+      icon: BarChart3,
     },
     {
       id: 'labs' as SidebarNavId,

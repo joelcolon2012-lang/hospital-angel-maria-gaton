@@ -1,9 +1,9 @@
-﻿import React from 'react';
+import React from 'react';
 import { Users, UserPlus, Search, BarChart3, Cloud } from 'lucide-react';
 
 interface Props {
-  activeTab: 'dashboard' | 'search' | 'stats' | 'drive';
-  onChangeTab: (tab: 'dashboard' | 'search' | 'stats' | 'drive') => void;
+  activeTab: 'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia';
+  onChangeTab: (tab: 'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia') => void;
   onOpenRegister: () => void;
 }
 

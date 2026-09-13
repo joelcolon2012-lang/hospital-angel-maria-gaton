@@ -21,12 +21,21 @@ import {
 import { generateTherapeuticDiscussionForOrders, getTherapeuticDiscussion } from './therapeuticDiscussionService';
 import { extractScalesAndDiagnoses } from './hospitalNoteGenerator';
 import { FALLBACK_LOGO_BASE64, FALLBACK_TEMPLATES, base64ToArrayBuffer } from './templatesFallback';
+import { authService } from './authService';
 
 export interface DocxExportOptions {
   doctorName?: string;
   exequatur?: string;
   hospitalWard?: string;
   includeTherapeuticDiscussion?: boolean;
+}
+
+export function resolveDoctorSignature(patient?: Patient, options?: DocxExportOptions): { docName: string; exequatur: string } {
+  const active = authService.getActiveDoctorSignature(patient?.attendingDoctor);
+  return {
+    docName: (options?.doctorName || active.name).toUpperCase(),
+    exequatur: (options?.exequatur || active.exequatur).toUpperCase(),
+  };
 }
 
 /**
@@ -216,8 +225,7 @@ export async function generateEmergencyNoteDocx(
     await injectOfficialLogoIfPresent(zip);
 
     const { date, time } = getFormattedDateTime(patient.arrivalDateTime || patient.createdAt);
-    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
-    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+    const { docName, exequatur } = resolveDoctorSignature(patient, options);
 
     // Construir texto de narrativa de antecedentes y HDA
     const sexText = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
@@ -360,8 +368,7 @@ export async function generateWardTransferNoteDocx(
     await injectOfficialLogoIfPresent(zip);
 
     const { date, time } = getFormattedDateTime();
-    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
-    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+    const { docName, exequatur } = resolveDoctorSignature(patient, options);
     const ward = options.hospitalWard || patient.cubicle || 'SALA CLÍNICA 315';
 
     const sexText = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
@@ -477,8 +484,7 @@ export async function generateMedicalOrderDocx(
     await injectOfficialLogoIfPresent(zip);
 
     const { date, time } = getFormattedDateTime();
-    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
-    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+    const { docName, exequatur } = resolveDoctorSignature(patient, options);
     const bed = options.hospitalWard || patient.cubicle || 'EMERGENCIA';
 
     const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS` : 'N/D'}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
@@ -608,8 +614,7 @@ export async function generateCombinedNoteAndOrderDocx(
     await injectOfficialLogoIfPresent(zip);
 
     const { date, time } = getFormattedDateTime(patient.arrivalDateTime || patient.createdAt);
-    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
-    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+    const { docName, exequatur } = resolveDoctorSignature(patient, options);
 
     const paragraphs: string[] = [];
 
@@ -813,8 +818,7 @@ export async function generateFinalDispositionDocx(
     await injectOfficialLogoIfPresent(zip);
 
     const { date, time } = getFormattedDateTime(disposition.timestamp);
-    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
-    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+    const { docName, exequatur } = resolveDoctorSignature(patient, options);
 
     const sexText = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
     const ageText = patient.age ? `${patient.age} AÑOS` : 'N/D';
@@ -892,8 +896,7 @@ export async function generateEvolutionDocx(
     await injectOfficialLogoIfPresent(zip);
 
     const { date, time } = getFormattedDateTime();
-    const docName = options.doctorName || patient.attendingDoctor || 'DR. COLÓN';
-    const exequatur = options.exequatur || 'EXEQ. 45892-01';
+    const { docName, exequatur } = resolveDoctorSignature(patient, options);
     const bed = options.hospitalWard || patient.cubicle || 'SALA 3';
 
     const lastEvo = evolutions[0];

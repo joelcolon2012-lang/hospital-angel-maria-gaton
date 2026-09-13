@@ -31,6 +31,10 @@ export interface User {
   specialty?: string;
   exequatur?: string;
   avatarUrl?: string;
+  isSuperAdmin?: boolean; // Dr. Joel Colón como Administrador Máximo exclusivo
+  pin?: string;
+  password?: string;
+  isActive?: boolean;
 }
 
 export interface AuditLogEntry {
@@ -195,6 +199,19 @@ export interface ClinicalHistory {
   diagnosticAndTherapeuticPlan: string;
 }
 
+export interface HeaderLayoutConfig {
+  showHospitalLogo: boolean;
+  showHospitalName: boolean;
+  showSubtitle: boolean;
+  showAreaBadge: boolean;
+  showActivePatientPill: boolean;
+  showClockTurno: boolean;
+  showQuickCalculator: boolean;
+  showEpidemiologyButton: boolean;
+  showAiAssistantButton: boolean;
+  showCloudSyncStatus: boolean;
+}
+
 export interface HospitalSettings {
   hospitalName: string;
   serviceSubtitle: string;
@@ -203,11 +220,51 @@ export interface HospitalSettings {
   defaultExequatur: string;
   themeColor: string;
   isDarkMode: boolean;
+  headerLayout?: HeaderLayoutConfig;
+  geminiApiKey?: string;
+  geminiModel?: 'gemini-1.5-flash' | 'gemini-1.5-pro';
   normalPhysicalExam?: Record<string, string>; // MI EXAMEN FÍSICO NORMAL PERSONALIZABLE
   customFormOptions?: Record<string, string[]>;
   activeTemplates?: Record<string, OfficialHospitalTemplate>;
   preferredGuidelines?: string[];
   activeScales?: string[];
+}
+
+export type PathologyCategory = 
+  | 'Cardiovascular'
+  | 'Respiratorio'
+  | 'Infeccioso'
+  | 'Gastrointestinal'
+  | 'Metabólico'
+  | 'Nefrológico'
+  | 'Neurológico'
+  | 'Trauma'
+  | 'Gineco-Obstétrico'
+  | 'Otros';
+
+export interface PathologyGroupInfo {
+  category: PathologyCategory;
+  title: string;
+  color: string; // Hex color
+  bgLight: string;
+  borderColor: string;
+  iconName: string;
+  description: string;
+}
+
+export interface PatientEpidemiologyRecord {
+  patientId: string;
+  fullName: string;
+  age?: number;
+  sex: string;
+  cubicle: string;
+  admissionDate: string;
+  admissionYear: number;
+  admissionMonth: number; // 1-12
+  primaryDiagnosis: string;
+  category: PathologyCategory;
+  triageLevel: TriageLevel;
+  status: PatientStatus;
 }
 
 export type OfficialTemplateId = 'nota_emergencia' | 'nota_recibimiento' | 'evolucion' | 'orden_medica';

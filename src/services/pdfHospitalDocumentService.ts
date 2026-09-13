@@ -3,6 +3,33 @@ import { Patient, MedicalOrder, LabResult, MedicalStudy, ClinicalHistory } from 
 import { getTherapeuticDiscussion } from './therapeuticDiscussionService';
 import { normalizeMedicalText } from './medicalSpellingService';
 import { FALLBACK_LOGO_BASE64 } from './templatesFallback';
+import { authService } from './authService';
+
+/**
+ * Estampa la firma institucional dinámica del médico en sesión al pie del documento PDF
+ */
+function drawDoctorSignatureFooter(doc: jsPDF, y: number, patient?: Patient): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  if (y > pageHeight - 25) {
+    doc.addPage();
+    y = 18;
+  }
+  const sig = authService.getActiveDoctorSignature(patient?.attendingDoctor);
+  y += 4;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('____________________________________', pageWidth / 2, y, { align: 'center' });
+  y += 4.5;
+  doc.text(sig.name.toUpperCase(), pageWidth / 2, y, { align: 'center' });
+  y += 4;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`${sig.exequatur.toUpperCase()} • ${sig.specialty.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, pageWidth / 2, y, { align: 'center' });
+  return y + 6;
+}
 
 /**
  * Dibuja el logo oficial hospitalario:
@@ -243,6 +270,9 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
   } else {
     printWrapped('NOTA:', 'VIGILANCIA ESTRICTA DE SIGNOS VITALES Y CONTROL DE GLICEMIAS CAPILARES CADA TURNO.');
   }
+
+  // Firma institucional del médico en turno
+  y = drawDoctorSignatureFooter(doc, y + 4, patient);
 
   // Guardar archivo
   const filename = `Orden_Medica_${patient.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -515,18 +545,8 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   p2 += `EN CONCLUSIÓN, EL PACIENTE PERMANECE BAJO MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES Y SEGUIMIENTO EVOLUTIVO ESTRICTO.`;
   printBlock(normalizeMedicalText(p2));
 
-  // Firma Nota
-  if (y > pageHeight - 25) { doc.addPage(); y = 15; }
-  y += 4;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.text('____________________________________', pageWidth / 2, y, { align: 'center' });
-  y += 4;
-  doc.text((patient.attendingDoctor || 'DR. COLÓN').toUpperCase(), pageWidth / 2, y, { align: 'center' });
-  y += 4;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text('MÉDICO TRATANTE • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', pageWidth / 2, y, { align: 'center' });
+  // Firma Nota Oficial
+  y = drawDoctorSignatureFooter(doc, y, patient);
 
   // ========================================================
   // PÁGINA 2: HOJA DE ÓRDENES MÉDICAS OFICIAL
@@ -625,18 +645,8 @@ export function exportOfficialCombinedNoteAndOrderPdf(
     printBlock('NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y PATRÓN CLÍNICO.', false, 8);
   }
 
-  // Firma Orden
-  if (y > pageHeight - 25) { doc.addPage(); y = 15; }
-  y += 4;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.text('____________________________________', pageWidth / 2, y, { align: 'center' });
-  y += 4;
-  doc.text((patient.attendingDoctor || 'DR. COLÓN').toUpperCase(), pageWidth / 2, y, { align: 'center' });
-  y += 4;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text('MÉDICO TRATANTE • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', pageWidth / 2, y, { align: 'center' });
+  // Firma Orden Oficial
+  y = drawDoctorSignatureFooter(doc, y, patient);
 
   // Descarga
   const filename = `Nota_Mas_Orden_Medica_${patient.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;

@@ -17,6 +17,7 @@ import {
   interpretChemistry,
   LabInterpretationResult,
 } from '../../services/ai/ClinicalLabInterpreter';
+import { VisionLabOcrEngine } from '../../services/ai/VisionLabOcrEngine';
 import { LabResult } from '../../types';
 
 interface Props {
@@ -50,28 +51,28 @@ export const ChemistryPhotoModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFileName(file.name);
     setIsProcessing(true);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const simulatedSample = `QUÍMICA CLÍNICA Y ELECTROLITOS\nGLUCOSA: 185 mg/dL\nUREA: 64 mg/dL\nBUN: 30 mg/dL\nCREATININA: 2.1 mg/dL\nSODIO: 133 mEq/L\nPOTASIO: 5.4 mEq/L\nCLORO: 101 mEq/L\nCALCIO: 8.6 mg/dL\nTGO: 58 U/L\nTGP: 72 U/L\nALP: 110 U/L\nBIL-T: 1.1 mg/dL\nBIL-D: 0.3 mg/dL\nBIL-IND: 0.8 mg/dL\nAMILASA: 55 U/L\nLIPASA: 42 U/L\nALBÚMINA: 3.2 g/dL\nPROTEÍNAS TOTALES: 6.8 g/dL\nGLOBULINA: 3.6 g/dL\nCOLESTEROL: 215 mg/dL\nTRIGLICÉRIDOS: 195 mg/dL\nHDL: 38 mg/dL\nLDL: 138 mg/dL\nVLDL: 39 mg/dL`;
-
-      setTimeout(() => {
-        setInputText(simulatedSample);
-        const res = parseChemistryFromText(simulatedSample);
-        setExtractedResult(res);
-        setEditableParams(res.parameters);
-        const interp = interpretChemistry(res.parameters, { age: patientAge, sex: patientSex });
-        setInterpretation(interp);
-        setIsProcessing(false);
-      }, 600);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const res = await VisionLabOcrEngine.extractChemistryFromImageOrFile(file, {
+        age: patientAge,
+        sex: patientSex
+      });
+      setInputText(res.rawRecognizedText || '');
+      setExtractedResult(res);
+      setEditableParams(res.parameters);
+      const interp = interpretChemistry(res.parameters, { age: patientAge, sex: patientSex });
+      setInterpretation(interp);
+    } catch (err) {
+      console.error('Error procesando imagen de química:', err);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleTextChange = (text: string) => {

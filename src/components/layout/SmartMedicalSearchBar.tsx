@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { ClinicalAIService } from '../../services/ai/ClinicalAIService';
 import { ClinicalSearchResponse } from '../../services/ai/ClinicalSearchService';
+import { GeminiClinicalService } from '../../services/ai/GeminiClinicalService';
 
 interface Props {
   patientSearchQuery: string;
@@ -31,6 +32,7 @@ export const SmartMedicalSearchBar: React.FC<Props> = ({
   const [searchResult, setSearchResult] = useState<ClinicalSearchResponse | null>(null);
   const [showFullExplanation, setShowFullExplanation] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -71,7 +73,8 @@ export const SmartMedicalSearchBar: React.FC<Props> = ({
   }, [isOpenModal]);
 
   // Búsqueda en vivo al escribir o seleccionar
-  const handleExecuteSearch = (qToSearch: string) => {
+  // Búsqueda en vivo al escribir o seleccionar
+  const handleExecuteSearch = async (qToSearch: string) => {
     const clean = qToSearch.trim();
     if (!clean) {
       setSearchResult(null);
@@ -83,9 +86,39 @@ export const SmartMedicalSearchBar: React.FC<Props> = ({
       return;
     }
 
-    const res = ClinicalAIService.searchKnowledge(clean);
-    setSearchResult(res);
+    // Respuesta instantánea con conocimiento verificado local
+    const local = ClinicalAIService.searchKnowledge(clean);
+    setSearchResult(local);
     setShowFullExplanation(false);
+
+    // Enriquecimiento con Gemini AI si hay clave API
+    if (GeminiClinicalService.isConfigured()) {
+      setIsSearching(true);
+      try {
+        const gem = await GeminiClinicalService.queryClinicalKnowledge(clean);
+        if (gem && gem.clinicalAnswer) {
+          setSearchResult({
+            query: clean,
+            directAnswer: gem.clinicalAnswer,
+            briefAnswer: gem.clinicalAnswer,
+            fullExplanation: gem.rawExplanation || gem.clinicalAnswer,
+            guidelineName: gem.officialGuideline,
+            officialGuideline: gem.officialGuideline,
+            sourceSociety: gem.scientificSociety,
+            publicationYear: gem.year,
+            recommendationClass: gem.recommendationClass,
+            evidenceLevel: gem.evidenceLevel,
+            verifiedSourceUrl: gem.sourceUrl,
+            confidence: gem.confidence,
+            isFromGemini: gem.isFromGemini
+          } as any);
+        }
+      } catch (e) {
+        console.warn('Gemini enrichment error:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }
   };
 
   const handleCopyAnswer = () => {
@@ -273,9 +306,24 @@ export const SmartMedicalSearchBar: React.FC<Props> = ({
                     {/* Tarjeta de Fuente y Nivel de Evidencia */}
                     <div className="bg-slate-900 text-white p-3.5 rounded-xl border border-slate-800 space-y-1.5">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold text-teal-300 uppercase tracking-wider">
-                          Consenso Clínico Oficial:
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {(searchResult as any).isFromGemini ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/40 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-blue-300" />
+                              ⚡ Potenciado por Gemini AI
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-400/40 flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3 text-teal-300" />
+                              🛡️ Consenso Clínico Oficial
+                            </span>
+                          )}
+                          {isSearching && (
+                            <span className="text-[10px] text-teal-200 animate-pulse font-mono">
+                              (Actualizando...)
+                            </span>
+                          )}
+                        </div>
                         {searchResult.evidenceLevel && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                             {searchResult.evidenceLevel}

@@ -19,6 +19,7 @@ import {
   interpretHemogram,
   LabInterpretationResult,
 } from '../../services/ai/ClinicalLabInterpreter';
+import { VisionLabOcrEngine } from '../../services/ai/VisionLabOcrEngine';
 import { LabResult } from '../../types';
 
 interface Props {
@@ -51,29 +52,28 @@ export const HemogramPhotoModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFileName(file.name);
     setIsProcessing(true);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      // Prompt orientativo o extracción
-      const simulatedOcrSample = `HEMOGRAMA COMPLETO AUTOMATIZADO\nWBC: 14.8 x10^3/uL\nRBC: 3.42 x10^6/uL\nHGB: 9.8 g/dL\nHCT: 30.1 %\nMCV: 88.0 fL\nMCH: 28.6 pg\nMCHC: 32.5 g/dL\nPLT: 110 x10^3/uL\nMPV: 9.2 fL\nNEUT%: 78.4 %\nLYM%: 14.2 %\nMON%: 5.8 %\nEOS%: 1.2 %\nBAS%: 0.4 %`;
-
-      setTimeout(() => {
-        setInputText(simulatedOcrSample);
-        const res = parseHemogramFromText(simulatedOcrSample);
-        setExtractedResult(res);
-        setEditableParams(res.parameters);
-        const interp = interpretHemogram(res.parameters, { age: patientAge, sex: patientSex });
-        setInterpretation(interp);
-        setIsProcessing(false);
-      }, 600);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const res = await VisionLabOcrEngine.extractHemogramFromImageOrFile(file, {
+        age: patientAge,
+        sex: patientSex
+      });
+      setInputText(res.rawRecognizedText || '');
+      setExtractedResult(res);
+      setEditableParams(res.parameters);
+      const interp = interpretHemogram(res.parameters, { age: patientAge, sex: patientSex });
+      setInterpretation(interp);
+    } catch (err) {
+      console.error('Error procesando imagen de hemograma:', err);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleTextChange = (text: string) => {

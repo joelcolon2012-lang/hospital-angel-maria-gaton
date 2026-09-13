@@ -32,6 +32,8 @@ import { EmergencyStatsView } from './components/dashboard/EmergencyStatsView';
 import { AttentionRequiredSection } from './components/dashboard/AttentionRequiredSection';
 import { Sidebar, SidebarNavId } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
+import { EpidemiologyView } from './components/epidemiology/EpidemiologyView';
+import { PatientAIAnalysisModal } from './components/ai/PatientAIAnalysisModal';
 
 // Registration
 import { QuickRegisterModal } from './components/registration/QuickRegisterModal';
@@ -79,11 +81,15 @@ export default function App() {
   const [evolutions, setEvolutions] = useState<PatientEvolution[]>([]);
 
   // Navigation & Dossier
-  const [activeNavTab, setActiveNavTab] = useState<'dashboard' | 'search' | 'stats' | 'drive'>('dashboard');
+  const [activeNavTab, setActiveNavTab] = useState<'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia'>('dashboard');
   const [activePatient, setActivePatient] = useState<Patient | null>(null);
   const [activeDossierTab, setActiveDossierTab] = useState<
     'vitals' | 'history' | 'studies' | 'labs' | 'diagnostics' | 'orders' | 'evolutions' | 'disposition'
   >('vitals');
+
+  // AI Multimodal Suite
+  const [isAiAnalysisModalOpen, setIsAiAnalysisModalOpen] = useState(false);
+  const [aiSuiteInitialTab, setAiSuiteInitialTab] = useState<'notas' | 'rx' | 'tac' | 'gases' | 'ecg'>('notas');
 
   // Filters & Sorting
   const [selectedStatus, setSelectedStatus] = useState<PatientStatus | 'todos'>('todos');
@@ -514,6 +520,8 @@ export default function App() {
     ? 'Estudios Pendientes'
     : activeNavTab === 'stats'
     ? 'Estadísticas Clínicas'
+    : activeNavTab === 'epidemiologia'
+    ? 'Epidemiología & Patologías'
     : activeNavTab === 'search'
     ? 'Búsqueda de Pacientes'
     : 'Tablero General';
@@ -531,6 +539,9 @@ export default function App() {
     } else if (id === 'ward') {
       setActiveNavTab('dashboard');
       setSelectedStatus('ingresados');
+      setActivePatient(null);
+    } else if (id === 'epidemiology') {
+      setActiveNavTab('epidemiologia');
       setActivePatient(null);
     } else if (id === 'labs') {
       if (activePatient) {
@@ -613,6 +624,13 @@ export default function App() {
           onOpenCloudSyncModal={() => setIsCloudSyncOpen(true)}
           onOpenGoogleDriveModal={() => setIsGoogleDriveModalOpen(true)}
           onOpenSettings={() => setIsHospitalSettingsOpen(true)}
+          onOpenEpidemiology={() => {
+            setActivePatient(null);
+            setActiveNavTab('epidemiologia');
+          }}
+          onOpenAiSuite={() => {
+            setIsAiAnalysisModalOpen(true);
+          }}
           onTogglePrivacyShield={() => setIsPrivacyActive((p) => !p)}
           isPrivacyActive={isPrivacyActive}
         />
@@ -635,6 +653,9 @@ export default function App() {
               onOpenMedicalOrder={() => {
                 setHospitalDocType('orden');
                 setIsHospitalNotesOpen(true);
+              }}
+              onOpenAiSuite={() => {
+                setIsAiAnalysisModalOpen(true);
               }}
               onLoadPreviousHistory={handleLoadPreviousHistory}
               onStatusChange={handleStatusChange}
@@ -839,6 +860,13 @@ export default function App() {
               />
             )}
 
+            {activeNavTab === 'epidemiologia' && (
+              <EpidemiologyView
+                patients={patients}
+                onSelectPatient={(p) => setActivePatient(p)}
+              />
+            )}
+
             {activeNavTab === 'stats' && (
               <EmergencyStatsView
                 patients={patients}
@@ -996,6 +1024,53 @@ export default function App() {
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         onUserChanged={(u) => setCurrentUser(u)}
+      />
+
+      <PatientAIAnalysisModal
+        isOpen={isAiAnalysisModalOpen}
+        onClose={() => setIsAiAnalysisModalOpen(false)}
+        patient={activePatient}
+        initialTab={aiSuiteInitialTab}
+        onInsertToEvolution={activePatient ? (noteText) => {
+          handleAddEvolution({
+            patientId: activePatient.id,
+            timestamp: new Date().toISOString(),
+            doctorName: currentUser.name || 'Dr. Joel Colón',
+            vitalSignsSummary: '',
+            clinicalChanges: noteText,
+            newResults: '',
+            problemReevaluation: '',
+            updatedDiagnoses: activePatient.clinicalHistory?.clinicalImpression || activePatient.chiefComplaint || '',
+            conduct: '',
+          });
+        } : undefined}
+        onInsertToNote={activePatient ? (fullNote) => {
+          const currentHist = activePatient.clinicalHistory || {
+            reasonForConsultation: activePatient.chiefComplaint || '',
+            currentIllnessHistory: '',
+            pathologicalHistory: '',
+            surgicalHistory: '',
+            allergicHistory: '',
+            habitualMedications: '',
+            toxicHabits: '',
+            familyHistory: '',
+            obGynHistory: '',
+            systemsReview: '',
+            physicalExam: {
+              general: '',
+              cardiovascular: '',
+              respiratory: '',
+              abdominal: '',
+              neurological: '',
+              extremities: '',
+              skin: '',
+              otherFindings: '',
+            },
+            clinicalImpression: '',
+            diagnosticAndTherapeuticPlan: '',
+          };
+          handleUpdateHistory({ ...currentHist, clinicalImpression: fullNote });
+        } : undefined}
       />
     </div>
   );
