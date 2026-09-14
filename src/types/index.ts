@@ -332,6 +332,8 @@ export interface MedicalStudy {
   sourceFileName?: string;
   createdAt: string;
   createdBy: string;
+  registeredBy?: string;
+  doctorName?: string;
 }
 
 export type LabPanel = 
@@ -361,6 +363,8 @@ export interface LabResult {
   flag: LabFlag;
   timestamp: string;
   source: 'manual' | 'adjunto' | 'foto_vision';
+  registeredBy?: string;
+  doctorName?: string;
 }
 
 export interface ClinicalProblem {
@@ -374,9 +378,9 @@ export interface ClinicalProblem {
   cie10Code?: string;
   evidencesInFavor?: string;
   evidencesAgainst?: string;
-  pendingStudies?: string;
-  status: 'activo' | 'resuelto' | 'descartado';
+  status: 'Activo' | 'Resuelto' | 'Descartado';
   createdAt: string;
+  updatedAt: string;
 }
 
 export type OrderType = 'Solución' | 'Medicamento' | 'Procedimiento' | 'Interconsulta' | 'Estudio';
@@ -403,6 +407,8 @@ export interface MedicalOrder {
   allergyOverrideReason?: string;
   createdAt: string;
   createdBy?: string;
+  prescribedBy?: string;
+  doctorName?: string;
 }
 
 export interface PatientEvolution {

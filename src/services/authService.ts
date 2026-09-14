@@ -53,9 +53,11 @@ export const DEFAULT_USERS: User[] = [
 ];
 
 const STORAGE_KEY = 'hr_angel_gaton_current_user';
+const SESSION_ACTIVE_KEY = 'hr_angel_gaton_session_active';
 
 export class AuthService {
   private currentUser: User = DEFAULT_USERS[0]; // Por defecto Dr. Colón
+  private sessionActive: boolean = false;
 
   constructor() {
     this.initUser();
@@ -63,12 +65,22 @@ export class AuthService {
 
   private async initUser() {
     try {
+      const isSessionStored = localStorage.getItem(SESSION_ACTIVE_KEY) === 'true';
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
+      if (saved && isSessionStored) {
         this.currentUser = JSON.parse(saved);
+        this.sessionActive = true;
       } else {
-        this.currentUser = DEFAULT_USERS[0];
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.currentUser));
+        this.sessionActive = false;
+        if (saved) {
+          try {
+            this.currentUser = JSON.parse(saved);
+          } catch {
+            this.currentUser = DEFAULT_USERS[0];
+          }
+        } else {
+          this.currentUser = DEFAULT_USERS[0];
+        }
       }
 
       const count = await db.users.count();
@@ -77,7 +89,16 @@ export class AuthService {
       }
     } catch {
       this.currentUser = DEFAULT_USERS[0];
+      this.sessionActive = false;
     }
+  }
+
+  public isAuthenticated(): boolean {
+    return this.sessionActive;
+  }
+
+  public hasActiveSession(): boolean {
+    return this.sessionActive;
   }
 
   public getCurrentUser(): User {
@@ -88,6 +109,70 @@ export class AuthService {
     this.currentUser = user;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
     window.dispatchEvent(new CustomEvent('hospital_user_changed', { detail: user }));
+  }
+
+  public login(user: User): void {
+    this.currentUser = user;
+    this.sessionActive = true;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+    localStorage.setItem(SESSION_ACTIVE_KEY, 'true');
+    window.dispatchEvent(new CustomEvent('hospital_user_changed', { detail: user }));
+    window.dispatchEvent(new CustomEvent('hospital_auth_state_changed', { detail: { isAuthenticated: true, user } }));
+  }
+
+  public logout(): void {
+    this.sessionActive = false;
+    localStorage.removeItem(SESSION_ACTIVE_KEY);
+    window.dispatchEvent(new CustomEvent('hospital_auth_state_changed', { detail: { isAuthenticated: false } }));
+  }
+
+  public async registerNewUser(data: {
+    name: string;
+    role: UserRole;
+    specialty: string;
+    exequatur: string;
+    email?: string;
+    pin: string;
+    avatarUrl?: string;
+  }): Promise<{ success: boolean; user?: User; error?: string }> {
+    try {
+      const all = await this.getAllUsers();
+      const cleanName = data.name.trim();
+      const cleanExeq = data.exequatur.trim();
+
+      // Verificar si ya existe usuario con el mismo exequátur o nombre
+      const existing = all.find(u => 
+        (u.exequatur && u.exequatur.trim().toLowerCase() === cleanExeq.toLowerCase()) ||
+        u.name.trim().toLowerCase() === cleanName.toLowerCase()
+      );
+
+      if (existing) {
+        return { 
+          success: false, 
+          error: `Ya existe un médico registrado con el nombre o exequátur: ${cleanName} (${cleanExeq}). Por favor inicie sesión o utilice sus credenciales.` 
+        };
+      }
+
+      const newUser: User = {
+        id: 'usr-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+        name: cleanName,
+        email: data.email?.trim() || `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}@hospitalangelgaton.gob.do`,
+        role: data.role,
+        isSuperAdmin: false,
+        specialty: data.specialty.trim() || 'Médico Especialista',
+        exequatur: cleanExeq,
+        pin: data.pin.trim(),
+        password: data.pin.trim(),
+        isActive: true,
+        avatarUrl: data.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80',
+      };
+
+      await this.saveUser(newUser);
+      this.login(newUser);
+      return { success: true, user: newUser };
+    } catch (err: any) {
+      return { success: false, error: 'Error registrando nuevo médico: ' + err.message };
+    }
   }
 
   public async getAllUsers(): Promise<User[]> {
@@ -118,7 +203,7 @@ export class AuthService {
     const all = await this.getAllUsers();
     const found = all.find(u => u.id === id) || DEFAULT_USERS.find(u => u.id === id);
     if (found) {
-      this.setCurrentUser(found);
+      this.login(found);
       return found;
     }
     return this.currentUser;
@@ -134,14 +219,14 @@ export class AuthService {
     );
 
     if (!user) {
-      return { success: false, error: 'Usuario no encontrado en el sistema hospitalario' };
+      return { success: false, error: 'Usuario o médico no encontrado en el sistema hospitalario' };
     }
 
     if (secret && user.pin && user.pin !== secret && user.password !== secret) {
       return { success: false, error: 'Código PIN o contraseña incorrecta' };
     }
 
-    this.setCurrentUser(user);
+    this.login(user);
     return { success: true, user };
   }
 

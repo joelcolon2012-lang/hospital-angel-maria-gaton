@@ -97,6 +97,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modals & Privacy
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(authService.isAuthenticated());
   const [currentUser, setCurrentUser] = useState<User>(authService.getCurrentUser());
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isPreviousHistoryModalOpen, setIsPreviousHistoryModalOpen] = useState(false);
@@ -178,6 +179,25 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Escuchar cambios de estado de autenticación y de usuario activo
+  useEffect(() => {
+    const handleAuthChange = () => {
+      setIsAuthenticated(authService.isAuthenticated());
+      setCurrentUser(authService.getCurrentUser());
+    };
+    window.addEventListener('hospital_auth_state_changed', handleAuthChange);
+    window.addEventListener('hospital_user_changed', handleAuthChange);
+    return () => {
+      window.removeEventListener('hospital_auth_state_changed', handleAuthChange);
+      window.removeEventListener('hospital_user_changed', handleAuthChange);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    authService.logout();
+    setIsAuthenticated(false);
+  };
+
   // Filter & Sort Logic
   const filteredPatients = patients
     .filter((p) => {
@@ -224,7 +244,8 @@ export default function App() {
       triageLevel: newPatientData.triageLevel || 3,
       chiefComplaint: newPatientData.chiefComplaint || '',
       status: 'activos',
-      attendingDoctor: newPatientData.attendingDoctor || 'Dr. Colón',
+      attendingDoctor: newPatientData.attendingDoctor || currentUser.name || 'Dr. Joel Colón',
+      createdBy: currentUser.name || 'Dr. Joel Colón',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       age: newPatientData.age,
@@ -286,7 +307,7 @@ export default function App() {
       id: activePatient.id, // ASEGURAR QUE PRESERVA EXACTAMENTE EL MISMO ID
       internalCode: activePatient.internalCode,
       updatedAt: nowIso,
-      updatedBy: 'Dr. Joel Colón',
+      updatedBy: currentUser.name || 'Dr. Joel Colón',
     };
 
     // 1. Guardar en Dexie DB
@@ -298,9 +319,9 @@ export default function App() {
         const auditEntry: AuditLogEntry = {
           id: `audit-${Date.now()}`,
           timestamp: nowIso,
-          userId: 'dr-colon',
-          userName: 'Dr. Joel Colón',
-          userRole: 'ADMINISTRADOR',
+          userId: currentUser.id || 'usr-admin-colon',
+          userName: currentUser.name || 'Dr. Joel Colón',
+          userRole: currentUser.role || 'ADMINISTRADOR',
           action: 'MODIFICAR',
           patientId: activePatient.id,
           fieldPath: 'datos_demograficos',
@@ -375,7 +396,12 @@ export default function App() {
   // Studies
   const handleAddStudy = async (study: Partial<MedicalStudy>) => {
     const id = `std-${Date.now()}`;
-    const fullStudy = { ...study, id } as MedicalStudy;
+    const fullStudy = {
+      ...study,
+      id,
+      registeredBy: currentUser.name || 'Dr. Joel Colón',
+      doctorName: currentUser.name || 'Dr. Joel Colón',
+    } as MedicalStudy;
     await db.studies.add(fullStudy);
     setStudies((prev) => [fullStudy, ...prev]);
     cloudSyncService.scheduleAutoSync();
@@ -390,7 +416,12 @@ export default function App() {
   // Labs
   const handleAddLab = async (lab: Partial<LabResult>) => {
     const id = `lab-${Date.now()}`;
-    const fullLab = { ...lab, id } as LabResult;
+    const fullLab = {
+      ...lab,
+      id,
+      registeredBy: currentUser.name || 'Dr. Joel Colón',
+      doctorName: currentUser.name || 'Dr. Joel Colón',
+    } as LabResult;
     await db.labs.add(fullLab);
     setLabs((prev) => [fullLab, ...prev]);
     cloudSyncService.scheduleAutoSync();
@@ -405,7 +436,12 @@ export default function App() {
   // Orders
   const handleAddOrder = async (ord: Partial<MedicalOrder>) => {
     const id = `ord-${Date.now()}`;
-    const fullOrder = { ...ord, id } as MedicalOrder;
+    const fullOrder = {
+      ...ord,
+      id,
+      doctorName: ord.doctorName || currentUser.name || 'Dr. Joel Colón',
+      prescribedBy: currentUser.name || 'Dr. Joel Colón',
+    } as MedicalOrder;
     await db.orders.add(fullOrder);
     setOrders((prev) => [fullOrder, ...prev]);
     cloudSyncService.scheduleAutoSync();
@@ -432,7 +468,11 @@ export default function App() {
   // Evolutions
   const handleAddEvolution = async (evo: Partial<PatientEvolution>) => {
     const id = `evo-${Date.now()}`;
-    const fullEvo = { ...evo, id } as PatientEvolution;
+    const fullEvo = {
+      ...evo,
+      id,
+      doctorName: evo.doctorName || currentUser.name || 'Dr. Joel Colón',
+    } as PatientEvolution;
     await db.evolutions.add(fullEvo);
     setEvolutions((prev) => [fullEvo, ...prev]);
     cloudSyncService.scheduleAutoSync();
@@ -603,6 +643,7 @@ export default function App() {
         onOpenNewPatient={() => setIsRegisterModalOpen(true)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+        onLogout={handleLogout}
         patientCounts={patientCounts}
       />
 
@@ -612,6 +653,7 @@ export default function App() {
         <Header
           currentUser={currentUser}
           onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          onLogout={handleLogout}
           syncStatus={syncStatus}
           activeAreaTitle={activeAreaTitle}
           activePatient={activePatient}
@@ -1020,11 +1062,28 @@ export default function App() {
         />
       )}
 
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onUserChanged={(u) => setCurrentUser(u)}
-      />
+      {/* Control de Acceso Obligatorio: Si no hay sesión activa, bloquea la pantalla completa */}
+      {!isAuthenticated && (
+        <LoginModal
+          isOpen={true}
+          canClose={false}
+          onClose={() => {}}
+          onUserChanged={(u) => {
+            setCurrentUser(u);
+            setIsAuthenticated(true);
+          }}
+        />
+      )}
+
+      {/* Modal para cambiar usuario o ver credenciales cuando ya está autenticado */}
+      {isAuthenticated && (
+        <LoginModal
+          isOpen={isLoginModalOpen}
+          canClose={true}
+          onClose={() => setIsLoginModalOpen(false)}
+          onUserChanged={(u) => setCurrentUser(u)}
+        />
+      )}
 
       <PatientAIAnalysisModal
         isOpen={isAiAnalysisModalOpen}

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Stethoscope,
   BarChart3,
+  LogOut,
 } from 'lucide-react';
 
 export type SidebarNavId =
@@ -36,6 +37,7 @@ interface Props {
   onOpenNewPatient: () => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onLogout?: () => void;
   patientCounts?: {
     active: number;
     emergency: number;
@@ -49,6 +51,7 @@ export const Sidebar: React.FC<Props> = ({
   onOpenNewPatient,
   isCollapsed,
   onToggleCollapse,
+  onLogout,
   patientCounts,
 }) => {
   const menuItems = [
@@ -202,8 +205,8 @@ export const Sidebar: React.FC<Props> = ({
         })}
       </nav>
 
-      {/* User Mini Badge at Bottom */}
-      <div className="p-2 border-t border-slate-100 shrink-0">
+      {/* User Mini Badge & Logout at Bottom */}
+      <div className="p-2 border-t border-slate-100 shrink-0 space-y-1">
         <div
           className={`flex items-center gap-2 px-2 py-1.5 rounded-xl bg-slate-50/80 border border-slate-100 ${
             isCollapsed ? 'justify-center' : ''
@@ -216,6 +219,20 @@ export const Sidebar: React.FC<Props> = ({
             </div>
           )}
         </div>
+
+        {onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer ${
+              isCollapsed ? 'justify-center' : ''
+            }`}
+            title="Cerrar sesión"
+          >
+            <LogOut className="w-4 h-4 shrink-0" />
+            {!isCollapsed && <span>Cerrar Sesión</span>}
+          </button>
+        )}
       </div>
     </aside>
   );

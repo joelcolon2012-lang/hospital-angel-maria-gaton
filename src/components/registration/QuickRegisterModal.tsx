@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Patient, TriageLevel } from '../../types';
 import { X, UserPlus, AlertTriangle, Mic } from 'lucide-react';
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
 import { checkPatientDuplicates } from '../../services/patientDuplicateDetector';
 import { DuplicateWarningModal } from '../patient/DuplicateWarningModal';
+import { authService } from '../../services/authService';
 
 interface Props {
   isOpen: boolean;
@@ -23,21 +24,24 @@ export const QuickRegisterModal: React.FC<Props> = ({
   const defaultCode = `EMG-${new Date().getFullYear()}-${String(existingPatients.length + 1).padStart(3, '0')}`;
   const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
-  const [formData, setFormData] = useState({
-    internalCode: defaultCode,
-    medicalRecordNumber: '',
-    fullName: '',
-    idDocument: '',
-    age: '',
-    sex: 'M' as 'M' | 'F' | 'Otro',
-    phone: '',
-    emergencyContact: '',
-    arrivalDateTime: nowStr,
-    provenance: 'Domicilio',
-    cubicle: 'Cubículo 1',
-    triageLevel: 3 as TriageLevel,
-    chiefComplaint: '',
-    attendingDoctor: 'Dr. Colón',
+  const [formData, setFormData] = useState(() => {
+    const active = authService.getCurrentUser();
+    return {
+      internalCode: defaultCode,
+      medicalRecordNumber: '',
+      fullName: '',
+      idDocument: '',
+      age: '',
+      sex: 'M' as 'M' | 'F' | 'Otro',
+      phone: '',
+      emergencyContact: '',
+      arrivalDateTime: nowStr,
+      provenance: 'Domicilio',
+      cubicle: 'Cubículo 1',
+      triageLevel: 3 as TriageLevel,
+      chiefComplaint: '',
+      attendingDoctor: active?.name || 'Dr. Joel Colón',
+    };
   });
 
   const [duplicateWarning, setDuplicateWarning] = useState<{
@@ -45,6 +49,16 @@ export const QuickRegisterModal: React.FC<Props> = ({
     patient: Patient | null;
     reasons: string[];
   }>({ show: false, patient: null, reasons: [] });
+
+  useEffect(() => {
+    if (isOpen) {
+      const active = authService.getCurrentUser();
+      setFormData((prev) => ({
+        ...prev,
+        attendingDoctor: active?.name || 'Dr. Joel Colón',
+      }));
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

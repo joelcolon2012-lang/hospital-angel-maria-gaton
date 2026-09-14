@@ -4,6 +4,7 @@ import { Plus, Clock, FileText, Save, Download, Check, Trash2, Copy, Sparkles, S
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
 import { downloadFileToPC } from '../../services/hospitalNoteGenerator';
 import { MandatoryNotePreviewModal } from '../documents/MandatoryNotePreviewModal';
+import { authService } from '../../services/authService';
 
 interface Props {
   patient: Patient;
@@ -19,6 +20,8 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
   const [isPreviewWordOpen, setIsPreviewWordOpen] = useState(false);
   const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
+  const activeDocName = authService.getCurrentUser()?.name || patient.attendingDoctor || 'Dr. Joel Colón';
+
   const v = patient.vitals;
   const currentVitalsSummary = v
     ? `PA: ${v.systolicBP || '--'}/${v.diastolicBP || '--'} mmHg, FC: ${v.heartRate || '--'} lpm, FR: ${v.respiratoryRate || '--'} rpm, SpO2: ${v.oxygenSaturation || '--'}%, Dolor: ${v.painScale ?? '--'}/10`
@@ -26,7 +29,7 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
 
   const [formData, setFormData] = useState({
     timestamp: nowStr,
-    doctorName: patient.attendingDoctor || 'Dr. Colón',
+    doctorName: activeDocName,
     vitalSignsSummary: currentVitalsSummary,
     clinicalChanges: '',
     newResults: '',
@@ -45,7 +48,7 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
     const dayNumber = evolutions.length + 1;
     setFormData({
       timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
-      doctorName: patient.attendingDoctor || 'Dr. Colón',
+      doctorName: activeDocName,
       vitalSignsSummary: currentVitalsSummary,
       clinicalChanges: `[Día ${dayNumber} de Hospitalización]: ${lastEvo.clinicalChanges}`,
       newResults: lastEvo.newResults || '',
@@ -141,7 +144,7 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
     setIsModalOpen(false);
     setFormData({
       timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
-      doctorName: patient.attendingDoctor || 'Dr. Colón',
+      doctorName: activeDocName,
       vitalSignsSummary: currentVitalsSummary,
       clinicalChanges: '',
       newResults: '',
@@ -227,7 +230,7 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
               setIsDraftFromPrevious(false);
               setFormData({
                 timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                doctorName: patient.attendingDoctor || 'Dr. Colón',
+                doctorName: activeDocName,
                 vitalSignsSummary: currentVitalsSummary,
                 clinicalChanges: '',
                 newResults: '',

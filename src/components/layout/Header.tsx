@@ -16,7 +16,8 @@ import {
   Settings,
   BarChart3,
   Sparkles,
-  Clock
+  Clock,
+  LogOut
 } from 'lucide-react';
 import { User, Patient, HospitalSettings, HeaderLayoutConfig } from '../../types';
 import { googleDriveService } from '../../services/googleDriveService';
@@ -27,6 +28,7 @@ import { SmartMedicalSearchBar } from './SmartMedicalSearchBar';
 interface Props {
   currentUser?: User;
   onOpenLoginModal?: () => void;
+  onLogout?: () => void;
   syncStatus?: 'saving' | 'saved' | 'offline';
   activeAreaTitle: string;
   activePatient: Patient | null;
@@ -62,6 +64,7 @@ const DEFAULT_HEADER_LAYOUT: HeaderLayoutConfig = {
 export const Header: React.FC<Props> = ({
   currentUser,
   onOpenLoginModal,
+  onLogout,
   syncStatus = 'saved',
   activeAreaTitle,
   activePatient,
@@ -349,27 +352,40 @@ export const Header: React.FC<Props> = ({
           </button>
         )}
 
-        {/* User RBAC Avatar */}
+        {/* User RBAC Avatar & Logout */}
         {currentUser && (
-          <button
-            onClick={onOpenLoginModal}
-            className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-full hover:bg-slate-100 border border-slate-200 transition-all select-none cursor-pointer"
-            title={`Usuario activo: ${currentUser.name} (${currentUser.role}) — Clic para cambiar médico`}
-          >
-            <img
-              src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-              alt={currentUser.name}
-              className="w-6 h-6 rounded-full object-cover border border-slate-300 shadow-2xs"
-            />
-            <div className="hidden sm:flex flex-col text-left">
-              <span className="text-[11px] font-bold text-slate-800 max-w-[80px] truncate leading-none">
-                {currentUser.name.split(' ')[0]}
-              </span>
-              <span className="text-[9px] text-teal-700 font-semibold uppercase leading-none mt-0.5">
-                {currentUser.isSuperAdmin ? 'Admin' : currentUser.role}
-              </span>
-            </div>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onOpenLoginModal}
+              className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-full hover:bg-slate-100 border border-slate-200 transition-all select-none cursor-pointer"
+              title={`Médico activo: ${currentUser.name} (${currentUser.role}) — Clic para cambiar médico`}
+            >
+              <img
+                src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
+                alt={currentUser.name}
+                className="w-6 h-6 rounded-full object-cover border border-slate-300 shadow-2xs"
+              />
+              <div className="hidden sm:flex flex-col text-left">
+                <span className="text-[11px] font-bold text-slate-800 max-w-[80px] truncate leading-none">
+                  {currentUser.name.split(' ')[0]}
+                </span>
+                <span className="text-[9px] text-teal-700 font-semibold uppercase leading-none mt-0.5">
+                  {currentUser.isSuperAdmin ? 'Admin' : currentUser.role}
+                </span>
+              </div>
+            </button>
+
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                title="Cerrar sesión / Bloquear acceso"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </header>

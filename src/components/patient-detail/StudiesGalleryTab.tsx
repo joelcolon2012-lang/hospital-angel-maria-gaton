@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MedicalStudy, StudyCategory, StudyStatus } from '../../types';
 import { Plus, Image as ImageIcon, ZoomIn, RotateCw, Columns, Trash2, Download, Eye } from 'lucide-react';
+import { authService } from '../../services/authService';
 
 interface Props {
   patientId: string;
@@ -81,7 +82,7 @@ export const StudiesGalleryTab: React.FC<Props> = ({
       tags: [newStudyForm.category],
       imageDataUrl: newStudyForm.imageDataUrl,
       createdAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
-      createdBy: 'Dr. Colón',
+      createdBy: authService.getCurrentUser()?.name || 'Dr. Joel Colón',
     });
 
     setIsAddModalOpen(false);
