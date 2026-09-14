@@ -59,6 +59,8 @@ import { MedicalOrderPrintModal } from './components/documents/MedicalOrderPrint
 import { CloudSyncModal } from './components/documents/CloudSyncModal';
 import { ShareAppModal } from './components/documents/ShareAppModal';
 import { HospitalSettingsModal } from './components/settings/HospitalSettingsModal';
+import { SendToGuardiaModal } from './components/guardia/SendToGuardiaModal';
+import { guardiaAppService } from './services/guardiaAppService';
 import { cloudSyncService } from './services/cloudSyncService';
 
 import {
@@ -114,6 +116,8 @@ export default function App() {
   const [isMedicalOrderPrintOpen, setIsMedicalOrderPrintOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isHospitalSettingsOpen, setIsHospitalSettingsOpen] = useState(false);
+  const [isSendToGuardiaOpen, setIsSendToGuardiaOpen] = useState(false);
+  const [patientForGuardia, setPatientForGuardia] = useState<Patient | null>(null);
   const [sidebarNav, setSidebarNav] = useState<SidebarNavId>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -503,6 +507,36 @@ export default function App() {
     setTimeout(() => setSyncStatus('saved'), 800);
   };
 
+  // Transferencia & Admisión a Guardia Clínica (Medicina Interna)
+  const handleOpenGuardiaForPatient = (p: Patient) => {
+    setPatientForGuardia(p);
+    setIsSendToGuardiaOpen(true);
+  };
+
+  const handleGuardiaAdmitSuccess = async (targetBedCode: string) => {
+    if (!patientForGuardia) return;
+    const nowIso = new Date().toISOString();
+    const updated: Patient = {
+      ...patientForGuardia,
+      cubicle: targetBedCode,
+      status: 'ingresados',
+      updatedAt: nowIso,
+      updatedBy: currentUser.name || 'Dr. Joel Colón',
+    };
+    await db.patients.put(updated);
+    if (activePatient?.id === updated.id) {
+      setActivePatient(updated);
+    }
+    setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    await recordAuditLog({
+      action: 'MODIFICAR',
+      patientId: updated.id,
+      details: `Ingresado en Sala: Cama ${targetBedCode} y transferido a Guardia Clínica por ${currentUser.name}`,
+    });
+    await saveLocalBackup();
+    await cloudSyncService.triggerPushSync();
+  };
+
   const handleRestorePatient = async (patientId: string) => {
     if (currentUser.role !== 'ADMINISTRADOR') {
       alert('Solo el Administrador tiene permiso para restaurar expedientes.');
@@ -673,6 +707,13 @@ export default function App() {
           onOpenAiSuite={() => {
             setIsAiAnalysisModalOpen(true);
           }}
+          onOpenGuardiaApp={() => {
+            if (activePatient) {
+              handleOpenGuardiaForPatient(activePatient);
+            } else {
+              guardiaAppService.redirectToGuardia();
+            }
+          }}
           onTogglePrivacyShield={() => setIsPrivacyActive((p) => !p)}
           isPrivacyActive={isPrivacyActive}
         />
@@ -699,6 +740,7 @@ export default function App() {
               onOpenAiSuite={() => {
                 setIsAiAnalysisModalOpen(true);
               }}
+              onOpenGuardiaModal={() => handleOpenGuardiaForPatient(activePatient)}
               onLoadPreviousHistory={handleLoadPreviousHistory}
               onStatusChange={handleStatusChange}
               onEditPatient={handleEditPatient}
@@ -823,6 +865,7 @@ export default function App() {
                 <FinalDispositionTab
                   patient={activePatient}
                   onSaveDisposition={handleSaveDisposition}
+                  onOpenGuardiaModal={() => handleOpenGuardiaForPatient(activePatient)}
                 />
               )}
             </div>
@@ -888,6 +931,7 @@ export default function App() {
                         patient={patient}
                         onSelect={(p) => setActivePatient(p)}
                         onDelete={handleDeletePatient}
+                        onOpenGuardia={handleOpenGuardiaForPatient}
                       />
                     ))}
                   </div>
@@ -1131,6 +1175,22 @@ export default function App() {
           handleUpdateHistory({ ...currentHist, clinicalImpression: fullNote });
         } : undefined}
       />
+
+      {patientForGuardia && (
+        <SendToGuardiaModal
+          isOpen={isSendToGuardiaOpen}
+          onClose={() => {
+            setIsSendToGuardiaOpen(false);
+            setPatientForGuardia(null);
+          }}
+          patient={patientForGuardia}
+          orders={orders.filter((o) => o.patientId === patientForGuardia.id)}
+          labs={labs.filter((l) => l.patientId === patientForGuardia.id)}
+          evolutions={evolutions.filter((e) => e.patientId === patientForGuardia.id)}
+          currentUser={currentUser}
+          onAdmitSuccess={handleGuardiaAdmitSuccess}
+        />
+      )}
     </div>
   );
 }

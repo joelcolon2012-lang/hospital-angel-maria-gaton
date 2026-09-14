@@ -17,7 +17,8 @@ import {
   BarChart3,
   Sparkles,
   Clock,
-  LogOut
+  LogOut,
+  ShieldCheck,
 } from 'lucide-react';
 import { User, Patient, HospitalSettings, HeaderLayoutConfig } from '../../types';
 import { googleDriveService } from '../../services/googleDriveService';
@@ -29,6 +30,7 @@ interface Props {
   currentUser?: User;
   onOpenLoginModal?: () => void;
   onLogout?: () => void;
+  onOpenGuardiaApp?: () => void;
   syncStatus?: 'saving' | 'saved' | 'offline';
   activeAreaTitle: string;
   activePatient: Patient | null;
@@ -65,6 +67,7 @@ export const Header: React.FC<Props> = ({
   currentUser,
   onOpenLoginModal,
   onLogout,
+  onOpenGuardiaApp,
   syncStatus = 'saved',
   activeAreaTitle,
   activePatient,
@@ -339,6 +342,18 @@ export const Header: React.FC<Props> = ({
         >
           {isPrivacyActive ? <Lock className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
         </button>
+
+        {/* Guardia Clínica App Button */}
+        {onOpenGuardiaApp && (
+          <button
+            onClick={onOpenGuardiaApp}
+            className="p-1.5 sm:px-2.5 sm:py-1 rounded-xl bg-[#0F4C5C] text-white hover:bg-teal-800 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs border border-teal-600"
+            title="Abrir la Clínica Guard App (Medicina Interna I y II - Salas 301 a 316)"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-300" />
+            <span className="hidden xl:inline">Guardia Clínica</span>
+          </button>
+        )}
 
         {/* Settings Button: Visible ÚNICAMENTE para SuperAdmin Dr. Joel Colón */}
         {isSuperAdmin && onOpenSettings && (

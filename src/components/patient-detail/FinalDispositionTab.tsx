@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { Patient, FinalDisposition, FinalOutcome, PatientStatus } from '../../types';
-import { LogOut, CheckCircle2, Ambulance, Home, AlertCircle, Save, Download, Check, FileText } from 'lucide-react';
+import { LogOut, CheckCircle2, Ambulance, Home, AlertCircle, Save, Download, Check, FileText, ShieldCheck } from 'lucide-react';
 import { generateFinalDispositionDocx } from '../../services/docxTemplateService';
 
 interface Props {
   patient: Patient;
   onSaveDisposition: (disp: FinalDisposition, newStatus: PatientStatus) => void;
+  onOpenGuardiaModal?: () => void;
 }
 
-export const FinalDispositionTab: React.FC<Props> = ({ patient, onSaveDisposition }) => {
+export const FinalDispositionTab: React.FC<Props> = ({ patient, onSaveDisposition, onOpenGuardiaModal }) => {
   const existing = patient.disposition;
   const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
   const [savedFeedback, setSavedFeedback] = useState(false);
@@ -82,12 +83,25 @@ export const FinalDispositionTab: React.FC<Props> = ({ patient, onSaveDispositio
           <button
             type="button"
             onClick={handleDownloadWordAndSign}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-[#0F4C5C] hover:bg-petrol-800 text-white transition-all active:scale-95 shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 transition-all active:scale-95 shadow-sm border border-slate-300"
             title="Genera y descarga el documento oficial en formato Microsoft Word (.DOCX) listo para firmar en PC"
           >
-            <FileText className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Descargar y Firmar en PC (Word .DOCX)</span>
+            <FileText className="w-3.5 h-3.5 text-teal-700" />
+            <span>Descargar y Firmar en PC (Word)</span>
           </button>
+
+          {/* Botón 3: Ingresar a Sala y Redirigir a Guardia App */}
+          {onOpenGuardiaModal && (
+            <button
+              type="button"
+              onClick={onOpenGuardiaModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-xl bg-[#0F4C5C] hover:bg-teal-800 text-white transition-all active:scale-95 shadow-sm border border-teal-600 cursor-pointer"
+              title="Asignar cama en sala y abrir automáticamente en la Clínica Guard App"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Ingresar a Sala en Guardia App</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -130,6 +144,34 @@ export const FinalDispositionTab: React.FC<Props> = ({ patient, onSaveDispositio
                 );
               })}
             </div>
+
+            {/* Banner de Acceso Directo a Guardia Clínica si la decisión es Ingreso */}
+            {formData.outcome === 'Ingreso' && onOpenGuardiaModal && (
+              <div className="mt-2.5 bg-teal-50 border border-teal-200 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[#0F4C5C] text-white flex items-center justify-center font-bold shrink-0">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-800 text-xs block">
+                      Decisión: Ingreso Hospitalario a Medicina Interna
+                    </span>
+                    <span className="text-[11px] text-slate-600">
+                      Asigna la sala/cama (Salas 301 - 316) y transfiere automáticamente el expediente a la Clínica Guard App.
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onOpenGuardiaModal}
+                  className="px-3.5 py-1.5 bg-[#0F4C5C] hover:bg-teal-800 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap active:scale-95"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>Asignar Cama & Abrir en Guardia</span>
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

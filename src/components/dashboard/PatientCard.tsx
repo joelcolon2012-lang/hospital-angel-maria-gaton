@@ -1,15 +1,16 @@
 import React from 'react';
 import { Patient } from '../../types';
 import { TriageBadge } from '../common/TriageBadge';
-import { Clock, MapPin, AlertTriangle, FileText, ChevronRight, HeartPulse, FileSpreadsheet, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Clock, MapPin, AlertTriangle, FileText, ChevronRight, HeartPulse, FileSpreadsheet, Image as ImageIcon, Trash2, ShieldCheck } from 'lucide-react';
 
 interface Props {
   patient: Patient;
   onSelect: (patient: Patient) => void;
   onDelete?: (patientId: string) => void;
+  onOpenGuardia?: (patient: Patient) => void;
 }
 
-export const PatientCard: React.FC<Props> = ({ patient, onSelect, onDelete }) => {
+export const PatientCard: React.FC<Props> = ({ patient, onSelect, onDelete, onOpenGuardia }) => {
   const vitals = patient.vitals;
   const hasAllergies = vitals?.allergies && vitals.allergies.length > 0;
 
@@ -53,6 +54,19 @@ export const PatientCard: React.FC<Props> = ({ patient, onSelect, onDelete }) =>
             <MapPin className="w-3.5 h-3.5 text-petrol-800" />
             <span>{patient.cubicle || 'Triaje'}</span>
           </div>
+          {onOpenGuardia && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenGuardia(patient);
+              }}
+              title="Transferir o abrir en Guardia Clínica (Medicina Interna)"
+              className="p-1 rounded-md text-[#0F4C5C] hover:bg-teal-50 border border-teal-200 transition-colors cursor-pointer"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-700" />
+            </button>
+          )}
           {onDelete && (
             <button
               type="button"

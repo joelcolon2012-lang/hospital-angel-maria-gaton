@@ -11,6 +11,7 @@ import {
   Pill,
   ShieldAlert,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import { TriageBadge } from '../common/TriageBadge';
 import { Badge } from '../ui/Badge';
@@ -26,6 +27,7 @@ interface Props {
   onOpenHospitalNotes?: () => void;
   onOpenMedicalOrder?: () => void;
   onOpenAiSuite?: () => void;
+  onOpenGuardiaModal?: () => void;
   onLoadPreviousHistory?: () => void;
   onStatusChange: (status: PatientStatus) => void;
   onEditPatient?: (updatedData: Partial<Patient>, changes: { field: string; oldVal: any; newVal: any }[]) => void;
@@ -40,6 +42,7 @@ export const PatientHeader: React.FC<Props> = ({
   onOpenHospitalNotes,
   onOpenMedicalOrder,
   onOpenAiSuite,
+  onOpenGuardiaModal,
   onLoadPreviousHistory,
   onStatusChange,
   onEditPatient,
@@ -99,6 +102,18 @@ export const PatientHeader: React.FC<Props> = ({
             >
               <FileText className="w-3.5 h-3.5 text-teal-700" />
               <span>Notas de Ingreso</span>
+            </button>
+          )}
+
+          {/* Ingresar a Guardia Clínica App */}
+          {onOpenGuardiaModal && (
+            <button
+              onClick={onOpenGuardiaModal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] bg-[#0F4C5C] hover:bg-teal-800 text-white text-xs font-black transition-all active:scale-95 cursor-pointer shadow-xs border border-teal-600"
+              title="Vincular con la Clínica Guard App e ingresar a sala con redirección automática"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Ingresar a Guardia</span>
             </button>
           )}
 
