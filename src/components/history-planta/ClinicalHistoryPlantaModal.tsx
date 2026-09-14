@@ -23,6 +23,7 @@ import { SpellingReviewModal } from './SpellingReviewModal';
 import { ConsistencyReviewModal } from './ConsistencyReviewModal';
 import { HistoryVersionsModal } from './HistoryVersionsModal';
 import { WysiwygPreviewModal } from './WysiwygPreviewModal';
+import { NotaIngresoPlantaModal } from './NotaIngresoPlantaModal';
 
 interface ClinicalHistoryPlantaModalProps {
   isOpen: boolean;
@@ -52,6 +53,7 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
   const [showConsistencyModal, setShowConsistencyModal] = useState<boolean>(false);
   const [showVersionsModal, setShowVersionsModal] = useState<boolean>(false);
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
+  const [showNotaIngresoModal, setShowNotaIngresoModal] = useState<boolean>(false);
 
   // Listas de revisión
   const [pendingFields, setPendingFields] = useState<PendingFieldItem[]>([]);
@@ -318,6 +320,15 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
                 {pendingFields.length}
               </span>
             )}
+          </button>
+
+          <button
+            onClick={() => setShowNotaIngresoModal(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-indigo-950/40 ring-1 ring-white/10 hover:scale-[1.02] active:scale-[0.98]"
+            title="Generar Nota de Ingreso en Planta oficial a partir de esta Historia Clínica"
+          >
+            <FileText className="w-3.5 h-3.5 text-indigo-200" />
+            <span>Nota de Ingreso Planta</span>
           </button>
 
           <button
@@ -631,6 +642,27 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* BANNER ACCIÓN RÁPIDA: GENERAR NOTA DE INGRESO EN PLANTA */}
+            <div className="mt-6 p-4 bg-gradient-to-r from-indigo-950/40 via-slate-900 to-indigo-950/30 border border-indigo-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-indigo-400" />
+                  ¿Desea generar la Nota de Ingreso en Planta oficial?
+                </h4>
+                <p className="text-[11px] text-slate-300">
+                  Sintetiza automáticamente los datos, antecedentes, examen físico, escalas neurológicas y diagnósticos de esta historia en la nota oficial de recibimiento en sala.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNotaIngresoModal(true)}
+                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-900/30 transition-all hover:scale-105 whitespace-nowrap"
+              >
+                <FileText className="w-3.5 h-3.5 text-indigo-200" />
+                <span>Generar Nota de Ingreso en Planta</span>
+              </button>
             </div>
           </section>
 
@@ -1519,6 +1551,16 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
         onClose={() => setShowPreviewModal(false)}
         history={history}
       />
+
+      {showNotaIngresoModal && history && (
+        <NotaIngresoPlantaModal
+          isOpen={showNotaIngresoModal}
+          onClose={() => setShowNotaIngresoModal(false)}
+          history={history}
+          patient={patient}
+          onPatientUpdated={onPatientUpdated}
+        />
+      )}
 
     </div>
   );
