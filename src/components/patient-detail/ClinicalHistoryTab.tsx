@@ -35,9 +35,10 @@ import { Settings } from 'lucide-react';
 interface Props {
   patient: Patient;
   onUpdateHistory: (history: ClinicalHistory) => void;
+  onOpenHistoryPlanta?: () => void;
 }
 
-export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }) => {
+export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, onOpenHistoryPlanta }) => {
   const [history, setHistory] = useState<ClinicalHistory>(
     patient.clinicalHistory || {
       reasonForConsultation: patient.chiefComplaint || '',
@@ -371,6 +372,29 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory }
 
   return (
     <div className="space-y-4 pb-12">
+      {/* Banner de acceso a Historia Clínica Planta */}
+      {onOpenHistoryPlanta && (
+        <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-4 rounded-2xl border border-indigo-700/50 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 rounded-xl">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300">Módulo Oficial Independiente</h4>
+              <p className="text-sm font-bold text-white">Historia Clínica Planta &bull; Hospital Dr. Ángel María Gatón</p>
+              <p className="text-[11px] text-slate-300 mt-0.5">Examen neurológico estructurado, escala Daniels, checklist de campos pendientes y plantilla oficial DOCX/PDF.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenHistoryPlanta}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 flex-shrink-0 cursor-pointer"
+          >
+            <span>📋 Abrir Historia Planta</span>
+          </button>
+        </div>
+      )}
+
       {/* Action Header Bar */}
       <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">

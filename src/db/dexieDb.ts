@@ -29,6 +29,8 @@ export class EmergencyDatabase extends Dexie {
   users!: Table<User, string>;
   sourceDocuments!: Table<SourceDocument, string>;
   clinicalNotes!: Table<ClinicalNoteRecord, string>;
+  clinicalHistoriesPlanta!: Table<any, string>;
+  clinicalHistoryVersions!: Table<any, string>;
 
   constructor() {
     super('EmergenciaDrColonDB');
@@ -54,6 +56,22 @@ export class EmergencyDatabase extends Dexie {
       users: 'id, email, role',
       sourceDocuments: 'id, patientId, uploadedAt',
       clinicalNotes: 'id, patientId, noteType, status, createdAt'
+    });
+
+    this.version(3).stores({
+      patients: 'id, internalCode, fullName, idDocument, medicalRecordNumber, cubicle, status, triageLevel, arrivalDateTime, isDeleted, isArchived',
+      studies: 'id, patientId, category, status, createdAt',
+      labs: 'id, patientId, panel, flag, timestamp',
+      problems: 'id, patientId, status, createdAt',
+      orders: 'id, patientId, type, status, createdAt',
+      evolutions: 'id, patientId, timestamp',
+      settings: 'id',
+      auditLogs: 'id, timestamp, userId, patientId, action',
+      users: 'id, email, role',
+      sourceDocuments: 'id, patientId, uploadedAt',
+      clinicalNotes: 'id, patientId, noteType, status, createdAt',
+      clinicalHistoriesPlanta: 'id, patientId, admissionId, status, version, createdAt, updatedAt',
+      clinicalHistoryVersions: 'id, clinicalHistoryId, patientId, admissionId, version, createdAt'
     });
   }
 }

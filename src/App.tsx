@@ -60,6 +60,7 @@ import { CloudSyncModal } from './components/documents/CloudSyncModal';
 import { ShareAppModal } from './components/documents/ShareAppModal';
 import { HospitalSettingsModal } from './components/settings/HospitalSettingsModal';
 import { SendToGuardiaModal } from './components/guardia/SendToGuardiaModal';
+import { ClinicalHistoryPlantaModal } from './components/history-planta/ClinicalHistoryPlantaModal';
 import { guardiaAppService } from './services/guardiaAppService';
 import { cloudSyncService } from './services/cloudSyncService';
 
@@ -118,6 +119,8 @@ export default function App() {
   const [isHospitalSettingsOpen, setIsHospitalSettingsOpen] = useState(false);
   const [isSendToGuardiaOpen, setIsSendToGuardiaOpen] = useState(false);
   const [patientForGuardia, setPatientForGuardia] = useState<Patient | null>(null);
+  const [isHistoryPlantaOpen, setIsHistoryPlantaOpen] = useState(false);
+  const [patientForHistoryPlanta, setPatientForHistoryPlanta] = useState<Patient | null>(null);
   const [sidebarNav, setSidebarNav] = useState<SidebarNavId>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -513,6 +516,13 @@ export default function App() {
     setIsSendToGuardiaOpen(true);
   };
 
+  const handleOpenHistoryPlantaForPatient = (p?: Patient) => {
+    const target = p || activePatient;
+    if (!target) return;
+    setPatientForHistoryPlanta(target);
+    setIsHistoryPlantaOpen(true);
+  };
+
   const handleGuardiaAdmitSuccess = async (targetBedCode: string) => {
     if (!patientForGuardia) return;
     const nowIso = new Date().toISOString();
@@ -741,6 +751,7 @@ export default function App() {
                 setIsAiAnalysisModalOpen(true);
               }}
               onOpenGuardiaModal={() => handleOpenGuardiaForPatient(activePatient)}
+              onOpenHistoryPlanta={() => handleOpenHistoryPlantaForPatient(activePatient)}
               onLoadPreviousHistory={handleLoadPreviousHistory}
               onStatusChange={handleStatusChange}
               onEditPatient={handleEditPatient}
@@ -784,7 +795,11 @@ export default function App() {
                 <TriageVitalsTab patient={activePatient} onUpdateVitals={handleUpdateVitals} />
               )}
               {activeDossierTab === 'history' && (
-                <ClinicalHistoryTab patient={activePatient} onUpdateHistory={handleUpdateHistory} />
+                <ClinicalHistoryTab 
+                  patient={activePatient} 
+                  onUpdateHistory={handleUpdateHistory} 
+                  onOpenHistoryPlanta={() => handleOpenHistoryPlantaForPatient(activePatient)}
+                />
               )}
               {activeDossierTab === 'studies' && (
                 <StudiesGalleryTab
@@ -932,6 +947,7 @@ export default function App() {
                         onSelect={(p) => setActivePatient(p)}
                         onDelete={handleDeletePatient}
                         onOpenGuardia={handleOpenGuardiaForPatient}
+                        onOpenHistoryPlanta={handleOpenHistoryPlantaForPatient}
                       />
                     ))}
                   </div>
@@ -1189,6 +1205,21 @@ export default function App() {
           evolutions={evolutions.filter((e) => e.patientId === patientForGuardia.id)}
           currentUser={currentUser}
           onAdmitSuccess={handleGuardiaAdmitSuccess}
+        />
+      )}
+
+      {patientForHistoryPlanta && (
+        <ClinicalHistoryPlantaModal
+          isOpen={isHistoryPlantaOpen}
+          onClose={() => {
+            setIsHistoryPlantaOpen(false);
+            setPatientForHistoryPlanta(null);
+          }}
+          patient={patientForHistoryPlanta}
+          onPatientUpdated={(updated) => {
+            setActivePatient(updated);
+            setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          }}
         />
       )}
     </div>

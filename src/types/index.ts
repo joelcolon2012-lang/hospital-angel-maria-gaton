@@ -513,3 +513,5 @@ export interface Patient {
   notesHistory?: ClinicalNoteRecord[];
   sourceDocuments?: SourceDocument[];
 }
+
+export * from './clinicalHistoryPlanta';

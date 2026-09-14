@@ -8,9 +8,10 @@ interface Props {
   onSelect: (patient: Patient) => void;
   onDelete?: (patientId: string) => void;
   onOpenGuardia?: (patient: Patient) => void;
+  onOpenHistoryPlanta?: (patient: Patient) => void;
 }
 
-export const PatientCard: React.FC<Props> = ({ patient, onSelect, onDelete, onOpenGuardia }) => {
+export const PatientCard: React.FC<Props> = ({ patient, onSelect, onDelete, onOpenGuardia, onOpenHistoryPlanta }) => {
   const vitals = patient.vitals;
   const hasAllergies = vitals?.allergies && vitals.allergies.length > 0;
 
@@ -54,6 +55,19 @@ export const PatientCard: React.FC<Props> = ({ patient, onSelect, onDelete, onOp
             <MapPin className="w-3.5 h-3.5 text-petrol-800" />
             <span>{patient.cubicle || 'Triaje'}</span>
           </div>
+          {onOpenHistoryPlanta && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenHistoryPlanta(patient);
+              }}
+              title="Abrir Historia Clínica Planta"
+              className="p-1 rounded-md text-indigo-700 hover:bg-indigo-50 border border-indigo-200 transition-colors cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+            </button>
+          )}
           {onOpenGuardia && (
             <button
               type="button"

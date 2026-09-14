@@ -28,6 +28,7 @@ interface Props {
   onOpenMedicalOrder?: () => void;
   onOpenAiSuite?: () => void;
   onOpenGuardiaModal?: () => void;
+  onOpenHistoryPlanta?: () => void;
   onLoadPreviousHistory?: () => void;
   onStatusChange: (status: PatientStatus) => void;
   onEditPatient?: (updatedData: Partial<Patient>, changes: { field: string; oldVal: any; newVal: any }[]) => void;
@@ -43,6 +44,7 @@ export const PatientHeader: React.FC<Props> = ({
   onOpenMedicalOrder,
   onOpenAiSuite,
   onOpenGuardiaModal,
+  onOpenHistoryPlanta,
   onLoadPreviousHistory,
   onStatusChange,
   onEditPatient,
@@ -102,6 +104,18 @@ export const PatientHeader: React.FC<Props> = ({
             >
               <FileText className="w-3.5 h-3.5 text-teal-700" />
               <span>Notas de Ingreso</span>
+            </button>
+          )}
+
+          {/* HISTORIA CLÍNICA PLANTA */}
+          {onOpenHistoryPlanta && (
+            <button
+              onClick={onOpenHistoryPlanta}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-black transition-all active:scale-95 cursor-pointer shadow-xs border border-indigo-500"
+              title="Abrir y editar la Historia Clínica Planta oficial del Hospital Dr. Ángel María Gatón"
+            >
+              <FileText className="w-3.5 h-3.5 text-indigo-200" />
+              <span>📋 Historia Clínica Planta</span>
             </button>
           )}
 
