@@ -7,7 +7,7 @@
 
 import { Patient, MedicalOrder, LabResult, MedicalStudy, ClinicalHistory } from '../types';
 import { normalizeMedicalText } from './medicalSpellingService';
-import { getTherapeuticDiscussion } from './therapeuticDiscussionService';
+import { ClinicalDataNormalizer } from './clinicalDataNormalizer';
 
 /**
  * Función auxiliar para descargar inmediatamente cualquier archivo de texto o JSON en el PC
@@ -109,27 +109,7 @@ export function generateIndividualMedicalOrder(patient: Patient, orders: Medical
   out += `PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, HIV, VDRL, HEP B, HEP C, ELECTROLITOS SÉRICOS.\n\n`;
   out += `IMÁGENES: RADIOGRAFÍA DE TÓRAX, TAC CRANEO, ELECTROCARDIOGRAMA\n\n`;
 
-  // NOTAS FARMACOLÓGICAS BASADAS EN GUÍAS (DEDUPLICADAS ESTRICTAMENTE)
-  const notesList: string[] = [];
-  const seenGuides = new Set<string>();
-  medicationOrders.forEach((m) => {
-    const disc = getTherapeuticDiscussion(m.name);
-    if (disc) {
-      const guideKey = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
-      if (!seenGuides.has(guideKey)) {
-        seenGuides.add(guideKey);
-        notesList.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
-      }
-    }
-  });
-
-  if (notesList.length > 0) {
-    notesList.forEach((n) => {
-      out += `${n}\n`;
-    });
-  } else {
-    out += `NOTA: VIGILANCIA ESTRICTA DE SIGNOS VITALES Y CONTROL DE GLICEMIAS CAPILARES CADA TURNO.\n`;
-  }
+  out += `NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y CONTROL EVOLUTIVO EN CADA TURNO.\n`;
 
   return normalizeMedicalText(out);
 }
@@ -264,8 +244,25 @@ export function cleanAndDeduplicateNarrative(text: string): string {
   }
 
   let result = dedupedLines.join('\n');
+  result = result.replace(/\b(paciente)\s+\1\b/gi, '$1');
+  result = result.replace(/\b(masculino|femenina|femenino)\s+\1\b/gi, '$1');
+  result = result.replace(/\b(de)\s+\1\b/gi, '$1');
+  result = result.replace(/\|\s*/g, '');
   result = result.replace(/\.\s*\./g, '.');
+  result = result.replace(/,\s*,/g, ',');
+  result = result.replace(/\s+([.,;:])/g, '$1');
   result = result.replace(/[ ]{2,}/g, ' ');
+
+  // Eliminar cierre de ingreso si aparece duplicado en el texto
+  const admissionClause = /MOTIVO\s+POR\s+EL\s+CUAL\s+ES\s+TRA[IÍ]DO\s+A\s+NUESTRO\s+CENTRO\s+DE\s+SALUD\s+DONDE\s+TRAS\s+PREVIA\s+EVALUACI[OÓ]N\s+CL[IÍ]NICA\s+Y\s+PARACL[IÍ]NICA\s+SE\s+DECIDE\s+SU\s+INGRESO\s+CON\s+FINES\s+DIAGN[OÓ]STICOS\s+Y\s+TERAP[EÉ]UTICOS\.?/gi;
+  const matches = result.match(admissionClause);
+  if (matches && matches.length > 1) {
+    let count = 0;
+    result = result.replace(admissionClause, () => {
+      count++;
+      return count === 1 ? matches[0] : '';
+    });
+  }
 
   return result.toUpperCase();
 }
@@ -309,32 +306,37 @@ function generateNarrativeAdmissionNote(
   }
 
   // 1. Párrafo Narrativo Inicial
+  const morbidText = h.pathologicalHistory ? h.pathologicalHistory.toUpperCase() : 'NIEGA ENFERMEDADES CRÓNICAS';
+  const surgicalText = h.surgicalHistory ? h.surgicalHistory.toUpperCase() : 'QUIRÚRGICOS NEGADOS';
+  const toxicText = h.toxicHabits ? h.toxicHabits.toUpperCase() : 'NEGADOS';
+  const allergicText = h.allergicHistory ? h.allergicHistory.toUpperCase() : (v.allergies && v.allergies.length > 0 ? v.allergies.join(', ').toUpperCase() : 'NEGADAS');
+
+  // Extraer únicamente la evolución clínica pura para no duplicar presentación ni antecedentes
+  const pureHda = ClinicalDataNormalizer.extractPureIllnessHistory(h.currentIllnessHistory || patient.chiefComplaint || '');
+
   let p1 = `SE TRATA DE PACIENTE ${sexoStr} DE ${patient.age || '--'} AÑOS DE EDAD, `;
-  p1 += `CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${h.pathologicalHistory ? h.pathologicalHistory.toUpperCase() : 'NIEGA ENFERMEDADES CRÓNICAS'}, `;
-  p1 += `EN TRATAMIENTO ACTUAL CON ${h.habitualMedications ? h.habitualMedications.toUpperCase() : 'NINGUNO REFERIDO'}, `;
-  p1 += `ANTECEDENTES QUIRÚRGICOS DE ${h.surgicalHistory ? h.surgicalHistory.toUpperCase() : 'QUIRÚRGICOS NEGADOS'}, `;
-  p1 += `ANTECEDENTES TÓXICOS ${h.toxicHabits ? h.toxicHabits.toUpperCase() : 'NEGADOS'}, `;
-  p1 += `ALERGIAS ${h.allergicHistory ? h.allergicHistory.toUpperCase() : (v.allergies && v.allergies.length > 0 ? v.allergies.join(', ').toUpperCase() : 'NEGADAS')}. `;
+  p1 += `CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${morbidText}, `;
+  p1 += `ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, `;
+  p1 += `HÁBITOS TÓXICOS ${toxicText}, `;
+  p1 += `ALERGIAS ${allergicText}. `;
+  p1 += `REFIERE PACIENTE QUE ${pronombre} ${pureHda || 'SE ENCONTRABA EN APARENTE BUEN ESTADO DE SALUD HASTA QUE INICIA SINTOMATOLOGÍA ACTUAL'}. `;
+  p1 += `MOTIVO POR EL CUAL ES TRAÍDO A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
 
-  p1 += `REFIERE PACIENTE QUE ${pronombre} SE ENCONTRABA EN APARENTE BUEN ESTADO DE SALUD HASTA HACE ${h.currentIllnessHistory ? h.currentIllnessHistory.toUpperCase() : 'POCO TIEMPO CUANDO INICIA SINTOMATOLOGÍA'}, `;
-  p1 += `MOTIVOS POR LOS CUALES ACUDE A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
+  // Examen Físico Normalizado y Cefalocaudal Estricto
+  const cleanPe = ClinicalDataNormalizer.cleanPhysicalExamSections(pe);
 
-  p1 += `ACTUALMENTE PACIENTE ALERTA, CON ADECUADA MECÁNICA VENTILATORIA, AFEBRIL, TOLERANDO AIRE AMBIENTE Y VÍA ORAL, `;
-  p1 += `MANEJANDO LOS SIGUIENTES SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AL AIRE AMBIENTE, TEMP: ${v.temperature || '37'} °C. `;
+  p1 += `ACTUALMENTE PACIENTE ${cleanPe.general.toUpperCase()}, `;
+  p1 += `MANEJANDO LOS SIGUIENTES SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AL AIRE AMBIENTE, TEMP: ${v.temperature || '37'} °C, GLICEMIA: ${v.bloodGlucose || '95'} MG/DL. `;
 
-  // Examen físico narrativo continuo cefalocaudal ordenado
-  p1 += `AL EXAMEN FÍSICO: CABEZA: ${pe.head ? pe.head.toUpperCase() : 'NORMOCÉFALA, SIN MASAS NI HUNDIMIENTOS ÓSEOS, ADECUADA IMPLANTACIÓN DE PELO'}. `;
-  p1 += `OJOS: ${pe.eyes ? pe.eyes.toUpperCase() : 'SIMÉTRICOS, ESCLERAS ANICTÉRICAS, PUPILAS ISOCÓRICAS Y FOTORREACTIVAS A LA LUZ'}. `;
-  if (pe.ears) p1 += `OÍDOS: ${pe.ears.toUpperCase()}. `;
-  if (pe.nose) p1 += `NARIZ: ${pe.nose.toUpperCase()}. `;
-  p1 += `BOCA: ${pe.mouth ? pe.mouth.toUpperCase() : 'SIMÉTRICA, MUCOSA ORAL HÚMEDA, LENGUA NORMOGLOSA, ÚVULA CENTRAL'}. `;
-  p1 += `CUELLO: ${pe.neck ? pe.neck.toUpperCase() : 'SIMÉTRICO, CILÍNDRICO, MÓVIL, TRÁQUEA CENTRAL, TIROIDES EUTRÓFICA, NO INGURGITACIÓN YUGULAR NI SOPLOS'}. `;
-  p1 += `TÓRAX: ${pe.chest ? pe.chest.toUpperCase() : 'SIMÉTRICO, NORMODINÁMICO, NORMOEXPANSIVO, SIN TIRAJES'}. `;
-  p1 += `PULMONES: ${pe.respiratory ? pe.respiratory.toUpperCase() : 'NORMOVENTILADOS, CON MURMULLO VESICULAR AUDIBLE EN AMBOS CAMPOS PULMONARES, SIN ESTERTORES'}. `;
-  p1 += `CORAZÓN: ${pe.cardiovascular ? pe.cardiovascular.toUpperCase() : 'RUIDOS CARDÍACOS RÍTMICOS Y REGULARES, R1 Y R2 ÍNTEGROS, NO SOPLOS AUDIBLES'}. `;
-  p1 += `ABDOMEN: ${pe.abdominal ? pe.abdominal.toUpperCase() : 'GLOBOSO, DEPRESIBLE, NO DOLOROSO A LA PALPACIÓN SUPERFICIAL NI PROFUNDA, PERISTALSIS PRESENTE'}. `;
-  p1 += `EXTREMIDADES: ${pe.extremities ? pe.extremities.toUpperCase() : 'SIMÉTRICAS, MÓVILES, PULSOS PERIFÉRICOS PRESENTES EN BUENA FORMA Y AMPLITUD, SIN EDEMA'}. `;
-  p1 += `NEUROLÓGICO: ${pe.neurological ? pe.neurological.toUpperCase() : 'ALERTA, ORIENTADO EN TRES ESFERAS, GLASGOW 15/15, SIN DÉFICIT FOCAL'}. `;
+  p1 += `EN CUANTO AL EXAMEN FÍSICO: `;
+  p1 += `CABEZA Y CUELLO: ${cleanPe.head.toUpperCase()}, CUELLO: ${cleanPe.neck.toUpperCase()}. `;
+  p1 += `TÓRAX Y RESPIRATORIO: ${cleanPe.respiratory.toUpperCase()}. `;
+  p1 += `CORAZÓN: ${cleanPe.cardiovascular.toUpperCase()}. `;
+  p1 += `ABDOMEN: ${cleanPe.abdominal.toUpperCase()}. `;
+  p1 += `EXTREMIDADES SUPERIORES: ${cleanPe.upperExtremities.toUpperCase()}. `;
+  p1 += `EXTREMIDADES INFERIORES: ${cleanPe.lowerExtremities.toUpperCase()}. `;
+  p1 += `NEUROLÓGICO: ${cleanPe.neurological.toUpperCase()}. `;
+  p1 += `PIEL Y ANEXOS: ${cleanPe.skin.toUpperCase()}. `;
 
   // Estudios de Gabinete e Imagen
   if (studies.length > 0) {
@@ -373,47 +375,47 @@ function generateNarrativeAdmissionNote(
   });
   p1 += `\n`;
 
-  // 4. EN CUANTO AL MANEJO (Sin duplicaciones de Salina u Omeprazol)
-  p1 += `EN CUANTO AL MANEJO: `;
+  // 4. EN CUANTO AL MANEJO (Órdenes clínicas directas sin discusión teórica)
+  p1 += `EN CUANTO AL MANEJO:\n`;
+  let orderIdx = 1;
 
   const solutionOrders = orders.filter((o) => o.type === 'Solución');
   const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
 
-  // Manejo de soluciones
+  p1 += `${orderIdx++}. DIETA: ${getDietaText(solutionOrders)}, POSICIÓN SEMIFOWLER, OXIGENOTERAPIA SOS SI SPO2 < 92%.\n`;
+  p1 += `${orderIdx++}. CONTROL DE SIGNOS VITALES CADA 6 HORAS Y VIGILANCIA DE PATRÓN RESPIRATORIO.\n`;
+
+  // Soluciones
   if (solutionOrders.length > 0) {
     const seenSolutions = new Set<string>();
     solutionOrders.forEach((sol) => {
       const key = sol.name.toUpperCase().trim();
       if (!seenSolutions.has(key)) {
         seenSolutions.add(key);
-        p1 += `SE INDICA ${key} ${sol.dose ? sol.dose.toUpperCase() : '2,000 ML'} ${sol.route ? sol.route.toUpperCase() : 'EV'} ${sol.frequency ? sol.frequency.toUpperCase() : 'C/24 HORAS'} CON FINES DE HIDRATACIÓN Y VÍA VENOSA PERMEABLE. `;
+        p1 += `${orderIdx++}. ${key} ${sol.dose ? sol.dose.toUpperCase() : '2,000 ML'} ${sol.route ? sol.route.toUpperCase() : 'EV'} ${sol.frequency ? sol.frequency.toUpperCase() : 'C/24 HORAS'}.\n`;
       }
     });
   } else {
-    p1 += `SE INDICA SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV CON FINES DE HIDRATACIÓN PARENTERAL Y MANTENIMIENTO HEMODINÁMICO. `;
+    p1 += `${orderIdx++}. SOLUCIÓN SALINA AL 0.9% 1,000 ML EV C/12 HORAS.\n`;
   }
 
-  // Manejo de medicamentos prescritos sin duplicar
+  // Medicamentos
   if (medicationOrders.length > 0) {
     const seenMeds = new Set<string>();
     medicationOrders.forEach((med) => {
       const key = med.name.toUpperCase().trim();
-      if (!seenMeds.has(key)) {
-        seenMeds.add(key);
-        const disc = getTherapeuticDiscussion(med.name);
+      const sig = `${key}_${med.dose || ''}_${med.route || ''}_${med.frequency || ''}`;
+      if (!seenMeds.has(sig)) {
+        seenMeds.add(sig);
         const dayStr = med.treatmentDay ? ` (DÍA ${med.treatmentDay})` : '';
-        if (disc) {
-          p1 += `SE INDICA ${key}${dayStr} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : ''}, ${disc.discussionSummary.toUpperCase()} `;
-        } else {
-          p1 += `SE INDICA ${key}${dayStr} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : ''} CON FINES DE CONTROL TERAPÉUTICO ESTRICTO. `;
-        }
+        p1 += `${orderIdx++}. ${key}${dayStr} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : 'C/24H'}.\n`;
       }
     });
   } else {
-    p1 += `SE INDICA OMEPRAZOL 40 MG C/24 HORAS EV PARA GASTROPROTECCIÓN HOSPITALARIA. `;
+    p1 += `${orderIdx++}. OMEPRAZOL 40 MG EV C/24 HORAS.\n`;
   }
 
-  p1 += `EN CONCLUSIÓN, EL PACIENTE PERMANECE BAJO MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES, VIGILANCIA DE PATRONES NEUROLÓGICOS Y SEGUIMIENTO EVOLUTIVO ESTRICTO EN EL SERVICIO.\n`;
+  p1 += `${orderIdx++}. VIGILANCIA EVOLUTIVA ESTRICTA EN EL SERVICIO.\n`;
 
   out += p1;
   const normalized = normalizeMedicalText(out);

@@ -77,7 +77,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
   const [validationAudit, setValidationAudit] = useState<FinalDocumentAuditResult | null>(null);
   const [normalizationToast, setNormalizationToast] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string>(() => {
-    return localStorage.getItem('hospital_custom_logo') || '/hospital_logo.jpg';
+    return localStorage.getItem('hospital_custom_logo') || './hospital_logo.jpg';
   });
 
   const printContainerRef = useRef<HTMLDivElement>(null);
@@ -87,7 +87,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
     if (initialDocType) {
       setDocType(initialDocType);
     }
-    const currentLogo = localStorage.getItem('hospital_custom_logo') || '/hospital_logo.jpg';
+    const currentLogo = localStorage.getItem('hospital_custom_logo') || './hospital_logo.jpg';
     setLogoUrl(currentLogo);
   }, [initialDocType, isOpen]);
 
@@ -133,14 +133,17 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         txt += `VI. HÁBITOS TÓXICOS:\n${h?.toxicHabits || 'NEGADOS'}\n\n`;
         txt += `VII. ANTECEDENTES FAMILIARES:\n${h?.familyHistory || 'PADRES CON ANTECEDENTES DE HTA Y DM2'}\n\n`;
         
+        const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(h?.physicalExam);
         txt += `VIII. EXAMEN FÍSICO AL INGRESO:\n`;
         txt += `SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} mmHg, FC: ${v.heartRate || '78'} lpm, FR: ${v.respiratoryRate || '18'} rpm, SpO2: ${v.oxygenSaturation || '98'}%, Temp: ${v.temperature || '36.8'} °C, Glicemia: ${v.bloodGlucose || '105'} mg/dL.\n`;
-        txt += `CABEZA Y CUELLO: Normocéfalo, pupilas isocóricas fotorreactivas, cuello móvil sin adenopatías.\n`;
-        txt += `TÓRAX Y PULMONES: Simétrico, normoventilado, murmullo vesicular conservado sin ruidos sobreagregados.\n`;
-        txt += `CARDIOVASCULAR: Ruidos cardíacos rítmicos y regulares, buena intensidad, no soplos audibles.\n`;
-        txt += `ABDOMEN: Blando, depresible, no doloroso a la palpación profunda, ruidos hidroaéreos presentes.\n`;
-        txt += `EXTREMIDADES: Simétricas, sin edemas periféricos, pulsos distales presentes y simétricos.\n`;
-        txt += `NEUROLÓGICO: Consciente, orientado en tiempo, espacio y persona. Glasgow 15/15. Sin focalidad motora ni sensitiva.\n\n`;
+        txt += `CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}.\n`;
+        txt += `TÓRAX Y PULMONES: ${cleanedPe.chest.toUpperCase()}. ${cleanedPe.respiratory.toUpperCase()}.\n`;
+        txt += `CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}.\n`;
+        txt += `ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}.\n`;
+        txt += `EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}.\n`;
+        txt += `EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}.\n`;
+        txt += `NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}.\n`;
+        txt += `PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.\n\n`;
 
         txt += `IX. DIAGNÓSTICOS DE INGRESO:\n`;
         const diagList = ClinicalDeduplicationEngine.deduplicateDiagnoses(
@@ -479,7 +482,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
                         alt="Logo Hospital Dr. Ángel María Gatón" 
                         className="w-20 h-20 object-contain rounded"
                         onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/Caduceus.svg/100px-Caduceus.svg.png';
+                          (e.target as HTMLImageElement).src = './hospital_logo.jpg';
                         }}
                       />
                     </td>

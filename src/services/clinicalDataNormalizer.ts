@@ -208,4 +208,110 @@ export class ClinicalDataNormalizer {
 
     return [cleanName, doseStr, cleanFreq, cleanRoute].filter(Boolean).join(' ');
   }
+
+  /**
+   * Extrae la evolución pura de la enfermedad actual evitando duplicar
+   * la presentación demográfica o los antecedentes si ya estaban en el texto libre.
+   */
+  public static extractPureIllnessHistory(rawHda: string): string {
+    if (!rawHda) return '';
+    let text = this.cleanWhitespace(rawHda);
+
+    // Si ya contiene la fórmula de presentación "SE TRATA DE PACIENTE...", buscar dónde inicia el cuadro clínico
+    const refiereMatch = text.match(/REFIERE\s+(?:PACIENTE\s+)?(?:QUE\s+)?(.+)/i);
+    if (refiereMatch) {
+      text = refiereMatch[1];
+    } else {
+      const iniciaMatch = text.match(/(?:INICIA|PRESENTA|CON)\s+CUADRO\s+CL[IÍ]NICO\s+(.+)/i);
+      if (iniciaMatch) {
+        text = 'SE ENCONTRABA EN SU ESTADO HABITUAL HASTA QUE ' + iniciaMatch[0];
+      }
+    }
+
+    // Quitar coletillas finales de derivación o ingreso que se generan programáticamente
+    text = text.replace(/MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?\s+(?:ACUDE|ES\s+TRA[IÍ]D[OA]|ES\s+REFERID[OA]|CONSULTA).*$/i, '');
+    text = text.replace(/TRAS\s+PREVIA\s+EVALUACI[OÓ]N\s+CL[IÍ]NICA\s+Y\s+PARACL[IÍ]NICA\s+SE\s+DECIDE\s+SU\s+INGRESO.*$/i, '');
+    text = text.replace(/TRAS\s+EVALUACI[OÓ]N\s+DE\s+CL[IÍ]NICA\s+Y\s+PARA\s*CL[IÍ]NICA.*$/i, '');
+    text = text.replace(/SE\s+DECIDE\s+SU\s+INGRESO\s+CON\s+FINES\s+DIAGN[OÓ]STICOS.*$/i, '');
+    text = text.replace(/,\s*MOTIVO\s+POR\s+EL\s+CUAL.*$/i, '');
+
+    return text.trim();
+  }
+
+  /**
+   * Normaliza y desglosa el examen físico garantizando:
+   * 1. Presencia obligatoria del CORAZÓN sin sobreescrituras del tórax.
+   * 2. Separación individual de EXTREMIDADES SUPERIORES e INFERIORES sin barras '|'.
+   */
+  public static cleanPhysicalExamSections(pe: any = {}): {
+    general: string;
+    head: string;
+    eyes: string;
+    mouth: string;
+    neck: string;
+    chest: string;
+    respiratory: string;
+    cardiovascular: string;
+    abdominal: string;
+    upperExtremities: string;
+    lowerExtremities: string;
+    neurological: string;
+    skin: string;
+  } {
+    // 1. Corazón / Cardiovascular: Detectar si accidentalmente copiaron el texto del tórax o pulmones
+    let cardio = (pe.cardiovascular || pe.heart || '').trim();
+    const resp = (pe.respiratory || pe.lungs || pe.chest || '').trim().toLowerCase();
+
+    // Si cardio está vacío, o es idéntico al respiratorio, o contiene palabras obvias de pulmón/tórax
+    const isCopyOfLung = cardio && resp && (
+      cardio.toLowerCase() === resp ||
+      cardio.toLowerCase().includes('bases pulmonares') ||
+      cardio.toLowerCase().includes('musculatura accesoria') ||
+      cardio.toLowerCase().includes('fremito') ||
+      cardio.toLowerCase().includes('murmullo vesicular') ||
+      cardio.toLowerCase().includes('hiperdinamico, sin deformidades')
+    );
+
+    if (!cardio || isCopyOfLung) {
+      cardio = 'RUIDOS CARDÍACOS RÍTMICOS Y REGULARES, BUENA INTENSIDAD, R1 Y R2 ÍNTEGROS Y NORMOFONÉTICOS, NO SOPLOS AUDIBLES, NO GALOPE';
+    }
+
+    // 2. Extremidades Superiores e Inferiores
+    const rawExt = (pe.extremities || pe.extremidades || '').replace(/\|/g, ' ');
+    const extParts = rawExt.split(/[.,]+/).map((s: string) => s.trim()).filter(Boolean);
+    const uniqueExt = Array.from(new Set(extParts.map((s: string) => s.toLowerCase()))).map(s => {
+      return extParts.find((orig: string) => orig.toLowerCase() === s) || s;
+    }).join(', ');
+
+    let upperExt = (pe.upperExtremities || '').trim();
+    let lowerExt = (pe.lowerExtremities || '').trim();
+
+    if (!upperExt) {
+      upperExt = 'SIMÉTRICAS, MÓVILES, PULSOS RADIALES Y BRAQUIALES PRESENTES Y SIMÉTRICOS, LLENADO CAPILAR < 2 SEG, SIN DEFORMIDADES NI LESIONES AGREGADAS';
+    }
+
+    if (!lowerExt) {
+      if (uniqueExt.toLowerCase().includes('máculas') || uniqueExt.toLowerCase().includes('edema') || uniqueExt.toLowerCase().includes('pedio') || uniqueExt.toLowerCase().includes('inferiores')) {
+        lowerExt = uniqueExt.toUpperCase();
+      } else {
+        lowerExt = 'SIMÉTRICAS, MÓVILES, PULSOS PEDIOS Y POPLÍTEOS PRESENTES, SIN EDEMAS, SIN SIGNOS DE TROMBOSIS VENOSA PROFUNDA';
+      }
+    }
+
+    return {
+      general: pe.general || 'ALERTA, CONSCIENTE, ORIENTADO EN TRES ESFERAS, BIOTIPO NORMOLÍNEO, TOLERANDO VÍA ORAL Y AIRE AMBIENTE',
+      head: pe.head || 'NORMOCÉFALO, SIN MASAS NI HUNDIMIENTOS ÓSEOS, PELO DE ADECUADA IMPLANTACIÓN',
+      eyes: pe.eyes || 'PUPILAS ISOCÓRICAS, FOTORREACTIVAS, ESCLERAS ANICTÉRICAS',
+      mouth: pe.mouth || 'MUCOSA ORAL HÚMEDA, PIEZAS DENTALES EN REGULAR ESTADO, NO LESIONES',
+      neck: pe.neck || 'CILÍNDRICO, MÓVIL, NO INGURGITACIÓN YUGULAR, NO ADENOMEGALIAS NI SOPLOS CAROTÍDEOS',
+      chest: pe.chest || 'SIMÉTRICO, NORMOEXPANSIBLE, SIN DEFORMIDADES ÓSEAS',
+      respiratory: pe.respiratory || pe.lungs || 'NORMOVENTILADO, MURMULLO VESICULAR CONSERVADO EN AMBOS CAMPOS PULMONARES, SIN ESTERTORES',
+      cardiovascular: cardio.toUpperCase(),
+      abdominal: pe.abdominal || pe.abdomen || 'GLOBOSO A EXPENSAS DE PANÍCULO ADIPOSO, BLANDO, DEPRESIBLE, NO DOLOROSO, PERISTALSIS PRESENTE',
+      upperExtremities: upperExt.toUpperCase(),
+      lowerExtremities: lowerExt.toUpperCase(),
+      neurological: pe.neurological || 'ALERTA, GLASGOW 15/15, ORIENTADO EN TIEMPO, ESPACIO Y PERSONA, SIN FOCALIDAD NEUROLÓGICA',
+      skin: pe.skin || 'TURGENCIA Y ELASTICIDAD CONSERVADA PARA LA EDAD, SIN LESIONES ACTIVAS'
+    };
+  }
 }

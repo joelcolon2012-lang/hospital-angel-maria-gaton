@@ -19,7 +19,8 @@ import {
   FinalDisposition 
 } from '../types';
 import { generateTherapeuticDiscussionForOrders, getTherapeuticDiscussion } from './therapeuticDiscussionService';
-import { extractScalesAndDiagnoses } from './hospitalNoteGenerator';
+import { extractScalesAndDiagnoses, cleanAndDeduplicateNarrative } from './hospitalNoteGenerator';
+import { ClinicalDataNormalizer } from './clinicalDataNormalizer';
 import { FALLBACK_LOGO_BASE64, FALLBACK_TEMPLATES, base64ToArrayBuffer } from './templatesFallback';
 import { authService } from './authService';
 
@@ -77,11 +78,11 @@ async function injectOfficialLogoIfPresent(zip: PizZip): Promise<void> {
     }
 
     if (logoBuffer) {
-      if (zip.file('word/media/image1.jpg')) {
-        zip.file('word/media/image1.jpg', logoBuffer);
-      }
-      if (zip.file('word/media/image1.png')) {
-        zip.file('word/media/image1.png', logoBuffer);
+      const files = Object.keys(zip.files);
+      for (const f of files) {
+        if (f.startsWith('word/media/')) {
+          zip.file(f, logoBuffer);
+        }
       }
     }
   } catch (err) {
@@ -213,6 +214,56 @@ function triggerBrowserDownload(blob: Blob, filename: string) {
 /**
  * 1. GENERAR NOTA DE INGRESO EN EMERGENCIA (.DOCX)
  */
+
+/**
+ * Genera el texto de manejo intrahospitalario numerado y libre de ensayos o discusiones teóricas
+ */
+export function buildCleanHospitalManagement(orders: MedicalOrder[] = []): string {
+  const solutions = orders.filter(o => o.type === 'Solución');
+  const medications = orders.filter(o => o.type === 'Medicamento');
+  const orderItems: string[] = [];
+
+  // 1. Dieta
+  const dietOrder = orders.find(o => o.name.toLowerCase().includes('dieta') || o.name.toLowerCase().includes('npo'));
+  if (dietOrder) {
+    orderItems.push(dietOrder.name.toUpperCase());
+  } else {
+    orderItems.push('DIETA ADECUADA SEGÚN CONDICIÓN CLÍNICA');
+  }
+
+  // 2. Soluciones
+  if (solutions.length > 0) {
+    solutions.forEach(s => {
+      const dose = s.dose ? s.dose.toUpperCase() : '';
+      const route = s.route ? s.route.toUpperCase() : 'EV';
+      const freq = s.frequency ? s.frequency.toUpperCase() : '';
+      orderItems.push(`${s.name.toUpperCase()} ${dose} ${route} ${freq}`.trim());
+    });
+  } else {
+    orderItems.push('SOLUCIÓN SALINA AL 0.9% 1,000 ML C/12 HORAS EV CON FINES DE HIDRATACIÓN');
+  }
+
+  // 3. Medicamentos
+  if (medications.length > 0) {
+    medications.forEach(m => {
+      const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
+      const dose = m.dose ? m.dose.toUpperCase() : '';
+      const route = m.route ? m.route.toUpperCase() : 'EV';
+      const freq = m.frequency ? m.frequency.toUpperCase() : '';
+      const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
+      orderItems.push(`${m.name.toUpperCase()} ${pres}${dose} ${route} ${freq}${dayText}`.trim());
+    });
+  } else {
+    orderItems.push('OMEPRAZOL 40 MG C/24 HORAS EV GASTROPROTECCIÓN');
+  }
+
+  // 4. Medidas y Monitorización
+  orderItems.push('MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES CADA 6 HORAS');
+  orderItems.push('VIGILANCIA ESTRICTA Y REEVALUACIÓN MÉDICA PERIÓDICA');
+
+  return 'EN CUANTO AL MANEJO: SE INDICA ' + orderItems.map((item, idx) => `${idx + 1}. ${item}`).join('. ') + '.';
+}
+
 export async function generateEmergencyNoteDocx(
   patient: Patient,
   orders: MedicalOrder[] = [],
@@ -227,7 +278,7 @@ export async function generateEmergencyNoteDocx(
     const { date, time } = getFormattedDateTime(patient.arrivalDateTime || patient.createdAt);
     const { docName, exequatur } = resolveDoctorSignature(patient, options);
 
-    // Construir texto de narrativa de antecedentes y HDA
+    // Construir texto de narrativa de antecedentes y HDA sin duplicaciones
     const sexText = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
     const ageText = patient.age ? `${patient.age} AÑOS` : 'EDAD NO DOCUMENTADA';
     const morbidText = patient.clinicalHistory?.pathologicalHistory?.toUpperCase() || 'NEGADOS';
@@ -241,13 +292,21 @@ export async function generateEmergencyNoteDocx(
       allergicText = patient.vitals.allergies.join(', ').toUpperCase();
     }
 
-    const hdaText = patient.clinicalHistory?.currentIllnessHistory?.toUpperCase() || 
-                    patient.chiefComplaint?.toUpperCase() || 
-                    'CUADRO CLÍNICO DE EVALUACIÓN MÉDICA EN EMERGENCIA';
+    const rawHda = (patient.clinicalHistory?.currentIllnessHistory || patient.chiefComplaint || '').trim();
+    const pureHda = ClinicalDataNormalizer.extractPureIllnessHistory(rawHda);
 
-    const historyNarrative = `SE TRATA DE PACIENTE ${sexText} DE ${ageText} DE EDAD, CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${morbidText}, ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, HÁBITOS TÓXICOS ${toxicText}, ALERGIAS ${allergicText}. REFIERE ${hdaText}, MOTIVO POR EL CUAL ES TRAÍDO A NUESTRO CENTRO DE SALUD. TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.`;
+    let historyNarrative = '';
+    if (/^SE\s+TRATA\s+DE\s+PACIENTE/i.test(rawHda)) {
+      historyNarrative = rawHda.toUpperCase();
+      if (!/SE\s+DECIDE\s+SU\s+INGRESO/i.test(historyNarrative)) {
+        historyNarrative += ' TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.';
+      }
+    } else {
+      historyNarrative = `SE TRATA DE PACIENTE ${sexText} DE ${ageText} DE EDAD, CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${morbidText}, ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, HÁBITOS TÓXICOS ${toxicText}, ALERGIAS ${allergicText}. REFIERE ${pureHda || 'CUADRO CLÍNICO DE EVALUACIÓN MÉDICA EN EMERGENCIA'}, MOTIVO POR EL CUAL ES TRAÍDO A NUESTRO CENTRO DE SALUD. TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.`;
+    }
+    historyNarrative = cleanAndDeduplicateNarrative(historyNarrative);
 
-    // Signos vitales y Examen físico cefalocaudal ordenado
+    // Signos vitales y Examen físico cefalocaudal ordenado con CORAZÓN y EXTREMIDADES individualizadas
     const v = patient.vitals || {};
     const bpText = (v.systolicBP && v.diastolicBP) ? `${v.systolicBP}/${v.diastolicBP} MMHG` : '120/80 MMHG';
     const hrText = v.heartRate ? `${v.heartRate} LPM` : '80 LPM';
@@ -256,17 +315,8 @@ export async function generateEmergencyNoteDocx(
     const tempText = v.temperature ? `${v.temperature} °C` : '36.8 °C';
     const gluText = v.bloodGlucose ? `${v.bloodGlucose} MG/DL` : '95 MG/DL';
 
-    const pe: any = patient.clinicalHistory?.physicalExam || {
-      general: 'ALERTA, CONSCIENTE, ORIENTADO EN TRES ESFERAS, BIOTIPO NORMOLÍNEO, ADECUADA MECÁNICA VENTILATORIA, AFEBRIL.',
-      cardiovascular: 'RUIDOS CARDIACOS RÍTMICOS, R1 Y R2 REGULARES Y NORMOFONÉTICOS, SIN SOPLOS NI GALOPE.',
-      respiratory: 'TÓRAX SIMÉTRICO, NORMOEXPANSIBLE, MURMULLO VESICULAR CONSERVADO UNIVERSALMENTE EN AMBOS CAMPOS PULMONARES.',
-      abdominal: 'ABDOMEN BLANDO, DEPRESIBLE, NO DOLOROSO A LA PALPACIÓN SUPERFICIAL NI PROFUNDA, PERISTALSIS PRESENTE.',
-      neurological: 'GLASGOW 15/15, PUPILAS ISOCÓRICAS Y FOTORREACTIVAS, SIN DÉFICIT SENSITIVO NI MOTOR FOCAL.',
-      extremities: 'SIMÉTRICAS, MÓVILES, PULSOS PERIFÉRICOS PRESENTES, SIN EDEMAS.',
-      skin: 'PIEL Y ANEXOS CON TURGENCIA ADECUADA PARA EDAD Y SEXO.'
-    };
-
-    const peNarrative = `ACTUALMENTE PACIENTE ${(pe.general || 'ALERTA Y CONSCIENTE').toUpperCase()}, MANEJANDO UNOS SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, SPO2: ${satText}, TEMP: ${tempText}, GLICEMIA: ${gluText}. EN CUANTO AL EXAMEN FÍSICO: CABEZA Y CUELLO: ${(pe.head || 'SIMÉTRICO, PUPILAS ISOCÓRICAS, CUELLO MÓVIL SIN ADENOPATÍAS').toUpperCase()}. TÓRAX Y RESPIRATORIO: ${(pe.respiratory || 'MURMULLO VESICULAR CONSERVADO').toUpperCase()}. CORAZÓN: ${(pe.cardiovascular || 'R1-R2 RÍTMICOS SIN SOPLOS').toUpperCase()}. ABDOMEN: ${(pe.abdominal || 'BLANDO, DEPRESIBLE, SIN MEGALIAS').toUpperCase()}. EXTREMIDADES: ${(pe.extremities || 'SIMÉTRICAS SIN EDEMA').toUpperCase()}. NEUROLÓGICO: ${(pe.neurological || 'GLASGOW 15/15, SIN DÉFICIT FOCAL').toUpperCase()}. PIEL Y ANEXOS: ${(pe.skin || 'TURGENCIA CONSERVADA').toUpperCase()}.`;
+    const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(patient.clinicalHistory?.physicalExam);
+    const peNarrative = `ACTUALMENTE PACIENTE ${cleanedPe.general.toUpperCase()}, MANEJANDO UNOS SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, SPO2: ${satText}, TEMP: ${tempText}, GLICEMIA: ${gluText}. EN CUANTO AL EXAMEN FÍSICO: CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
 
     // Paraclínicos
     let labsText = 'LA MISMA CUENTA CON UNAS PARACLÍNICAS QUE REPORTAN DENTRO DE LÍMITES FISIOLÓGICOS A SU LLEGADA.';
@@ -281,16 +331,8 @@ export async function generateEmergencyNoteDocx(
     
     const { scales, diagnoses } = extractScalesAndDiagnoses(rawDiag);
 
-    // Manejo / Fármacos y Discusión sin duplicar
-    let managementText = '';
-    if (options.includeTherapeuticDiscussion !== false) {
-      managementText = generateTherapeuticDiscussionForOrders(orders);
-    }
-    if (!managementText) {
-      managementText = 'EN CUANTO AL MANEJO: SE INDICA SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV CON FINES DE HIDRATACIÓN Y VÍA VENOSA PERMEABLE, MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES, GASTROPROTECCIÓN CON INHIBIDOR DE BOMBA DE PROTONES Y REEVALUACIÓN CLÍNICA PERIÓDICA.';
-    } else {
-      managementText = `EN CUANTO AL MANEJO: ${managementText.toUpperCase()}`;
-    }
+    // Manejo intrahospitalario estandarizado numerado (sin discusión teórica)
+    const managementText = buildCleanHospitalManagement(orders);
 
     // Header line
     const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()}. EDAD: ${ageText}, EMERG: ${patient.cubicle.toUpperCase()}, FECHA: ${date} HORA: ${time}`;
@@ -385,17 +427,8 @@ export async function generateWardTransferNoteDocx(
     const satText = v.oxygenSaturation ? `${v.oxygenSaturation}%` : '98%';
     const tempText = v.temperature ? `${v.temperature} °C` : '37 °C';
 
-    const pe: any = patient.clinicalHistory?.physicalExam || {
-      general: 'CONSCIENTE, ORIENTADO EN TRES ESFERAS, HEMODINÁMICAMENTE ESTABLE, AFEBRIL.',
-      cardiovascular: 'R1 Y R2 RÍTMICOS, NORMOFONÉTICOS, SIN SOPLOS AUDIBLES.',
-      respiratory: 'CAMPOS PULMONARES BIEN VENTILADOS, SIN ESTERTORES NI RUIDOS AGREGADOS.',
-      abdominal: 'ABDOMEN BLANDO, DEPRESIBLE, SIN DOLOR A LA PALPACIÓN, PERISTALSIS CONSERVADA.',
-      neurological: 'GLASGOW 15/15, SIN DÉFICIT FOCAL EVIDENTE.',
-      extremities: 'EXTREMIDADES SIMÉTRICAS, SIN EDEMAS, PULSOS DISTALES PRESENTES.',
-      skin: 'PIEL HIDRATADA, NORMOPERFUNDIDA.'
-    };
-
-    const peNarrative = `AL MOMENTO DEL RECIBIMIENTO EN SALA SE ENCUENTRA ${(pe.general || 'CONSCIENTE Y ORIENTADO').toUpperCase()}. SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, TEMP: ${tempText}, SPO2: ${satText}. AL EXAMEN FÍSICO: CABEZA Y CUELLO: ${(pe.head || 'NORMOCÉFALO, PUPILAS ISOCÓRICAS, CUELLO SIN INGURGITACIÓN YUGULAR').toUpperCase()}. TÓRAX: ${(pe.respiratory || 'EXPANSIBLE, MURMULLO VESICULAR CONSERVADO').toUpperCase()}. CORAZÓN: ${(pe.cardiovascular || 'RÍTMICO, SIN SOPLOS').toUpperCase()}. ABDOMEN: ${(pe.abdominal || 'BLANDO, NO DOLOROSO').toUpperCase()}. EXTREMIDADES: ${(pe.extremities || 'SIMÉTRICAS SIN EDEMA').toUpperCase()}. NEUROLÓGICO: ${(pe.neurological || 'GLASGOW 15/15 SIN FOCALIZACIÓN').toUpperCase()}.`;
+    const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(patient.clinicalHistory?.physicalExam);
+    const peNarrative = `AL MOMENTO DEL RECIBIMIENTO EN SALA SE ENCUENTRA ${cleanedPe.general.toUpperCase()}. SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, TEMP: ${tempText}, SPO2: ${satText}. AL EXAMEN FÍSICO: CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
 
     let labsText = 'EN CUANTO A LAS PARACLÍNICAS, RESULTADOS DE CONTROL EN RANGO ACEPTABLE.';
     if (labs.length > 0) {
@@ -407,15 +440,7 @@ export async function generateWardTransferNoteDocx(
       : (patient.clinicalHistory?.clinicalImpression || 'PACIENTE EN PROTOCOLO DE RECIBIMIENTO Y SEGUIMIENTO EN SALA');
     const { scales, diagnoses } = extractScalesAndDiagnoses(rawDiag);
 
-    let therapeuticText = '';
-    if (options.includeTherapeuticDiscussion !== false) {
-      therapeuticText = generateTherapeuticDiscussionForOrders(orders);
-    }
-    if (!therapeuticText) {
-      therapeuticText = 'PLAN: CONTINUAR MANEJO EN SALA CLÍNICA POR MEDICINA INTERNA. MANTENER SOLUCIONES PARENTERALES, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, AJUSTE DE MEDICACIÓN Y SEGUIMIENTO EVOLUTIVO PARACLÍNICO.';
-    } else {
-      therapeuticText = `DISCUSIÓN Y PLAN TERAPÉUTICO: ${therapeuticText.toUpperCase()}`;
-    }
+    const therapeuticText = 'PLAN: CONTINUAR MANEJO EN SALA CLÍNICA POR MEDICINA INTERNA. ' + buildCleanHospitalManagement(orders).replace('EN CUANTO AL MANEJO: ', '');
 
     let xml = zip.file('word/document.xml')?.asText() || '';
 
@@ -547,23 +572,24 @@ export async function generateMedicalOrderDocx(
       });
     }
 
-    // Directrices farmacológicas basadas en guías (estrictamente deduplicadas)
-    const seenGuides = new Set<string>();
-    const noteLines: string[] = [];
-    medications.forEach(m => {
-      const disc = getTherapeuticDiscussion(m.name);
-      if (disc) {
-        const key = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
-        if (!seenGuides.has(key)) {
-          seenGuides.add(key);
-          noteLines.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+    // Directrices farmacológicas (solo si se solicitan explícitamente)
+    if (options.includeTherapeuticDiscussion === true) {
+      const seenGuides = new Set<string>();
+      const noteLines: string[] = [];
+      medications.forEach(m => {
+        const disc = getTherapeuticDiscussion(m.name);
+        if (disc) {
+          const key = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
+          if (!seenGuides.has(key)) {
+            seenGuides.add(key);
+            noteLines.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+          }
         }
+      });
+      if (noteLines.length > 0) {
+        newParagraphs.push(createDocxParagraphXml('DIRECTRICES Y JUSTIFICACIONES DE GUÍAS:', true, false, 80));
+        noteLines.forEach(nl => newParagraphs.push(createDocxParagraphXml(nl, false, false, 60)));
       }
-    });
-
-    if (noteLines.length > 0) {
-      newParagraphs.push(createDocxParagraphXml('DIRECTRICES Y JUSTIFICACIONES DE GUÍAS:', true, false, 80));
-      noteLines.forEach(nl => newParagraphs.push(createDocxParagraphXml(nl, false, false, 60)));
     }
 
     newParagraphs.push(createDocxParagraphXml('', false, false, 200));
@@ -656,8 +682,8 @@ export async function generateCombinedNoteAndOrderDocx(
     const tempText = v.temperature ? `${v.temperature} °C` : '36.8 °C';
     const gluText = v.bloodGlucose ? `${v.bloodGlucose} MG/DL` : '95 MG/DL';
 
-    const pe: any = patient.clinicalHistory?.physicalExam || {};
-    const peNarrative = `ACTUALMENTE PACIENTE ${(pe.general || 'ALERTA Y CONSCIENTE').toUpperCase()}, MANEJANDO UNOS SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, SPO2: ${satText}, TEMP: ${tempText}, GLICEMIA: ${gluText}. EXAMEN FÍSICO: CABEZA/CUELLO: ${(pe.head || 'SIMÉTRICO, PUPILAS ISOCÓRICAS, CUELLO MÓVIL').toUpperCase()}. TÓRAX: ${(pe.chest || 'SIMÉTRICO, NORMOEXPANSIBLE').toUpperCase()}. PULMONES: ${(pe.respiratory || 'MURMULLO VESICULAR CONSERVADO').toUpperCase()}. CORAZÓN: ${(pe.cardiovascular || 'R1-R2 RÍTMICOS, NO SOPLOS').toUpperCase()}. ABDOMEN: ${(pe.abdominal || 'BLANDO, DEPRESIBLE, PERISTALSIS PRESENTE').toUpperCase()}. EXTREMIDADES: ${(pe.extremities || 'SIMÉTRICAS, SIN EDEMAS').toUpperCase()}. NEUROLÓGICO: ${(pe.neurological || 'GLASGOW 15/15, SIN DÉFICIT FOCAL').toUpperCase()}.`;
+    const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(patient.clinicalHistory?.physicalExam);
+    const peNarrative = `ACTUALMENTE PACIENTE ${cleanedPe.general.toUpperCase()}, MANEJANDO UNOS SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, SPO2: ${satText}, TEMP: ${tempText}, GLICEMIA: ${gluText}. EXAMEN FÍSICO: CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
     
     let labsText = 'PARACLÍNICAS REPORTAN DENTRO DE LÍMITES FISIOLÓGICOS A SU LLEGADA.';
     if (labs.length > 0) {
@@ -680,13 +706,8 @@ export async function generateCombinedNoteAndOrderDocx(
     const pureDiags = diagnoses.length > 0 ? diagnoses : ['SÍNDROME CLÍNICO EN PROTOCOLO DIAGNÓSTICO'];
     pureDiags.forEach((d, idx) => paragraphs.push(createDocxParagraphXml(`${idx + 1}. ${d.toUpperCase()}`, true, false, 60)));
 
-    // Discusión terapéutica
-    let managementText = generateTherapeuticDiscussionForOrders(orders);
-    if (!managementText) {
-      managementText = 'EN CUANTO AL MANEJO: SE INDICA SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV CON FINES DE HIDRATACIÓN Y VÍA VENOSA PERMEABLE, MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES Y REEVALUACIÓN CLÍNICA PERIÓDICA.';
-    } else {
-      managementText = `EN CUANTO AL MANEJO: ${managementText.toUpperCase()}`;
-    }
+    // Manejo intrahospitalario estandarizado numerado (sin discusión teórica)
+    const managementText = buildCleanHospitalManagement(orders);
     paragraphs.push(createDocxParagraphXml(managementText, false, false, 200));
 
     // Firma Nota
@@ -754,23 +775,24 @@ export async function generateCombinedNoteAndOrderDocx(
       });
     }
 
-    // Directrices farmacológicas deduplicadas
-    const seenGuidesCombined = new Set<string>();
-    const noteLinesCombined: string[] = [];
-    medications.forEach(m => {
-      const disc = getTherapeuticDiscussion(m.name);
-      if (disc) {
-        const key = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
-        if (!seenGuidesCombined.has(key)) {
-          seenGuidesCombined.add(key);
-          noteLinesCombined.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+    // Directrices farmacológicas (solo si se solicitan explícitamente)
+    if (options.includeTherapeuticDiscussion === true) {
+      const seenGuidesCombined = new Set<string>();
+      const noteLinesCombined: string[] = [];
+      medications.forEach(m => {
+        const disc = getTherapeuticDiscussion(m.name);
+        if (disc) {
+          const key = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
+          if (!seenGuidesCombined.has(key)) {
+            seenGuidesCombined.add(key);
+            noteLinesCombined.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
+          }
         }
+      });
+      if (noteLinesCombined.length > 0) {
+        paragraphs.push(createDocxParagraphXml('DIRECTRICES Y JUSTIFICACIONES DE GUÍAS:', true, false, 80));
+        noteLinesCombined.forEach(nl => paragraphs.push(createDocxParagraphXml(nl, false, false, 60)));
       }
-    });
-
-    if (noteLinesCombined.length > 0) {
-      paragraphs.push(createDocxParagraphXml('DIRECTRICES Y JUSTIFICACIONES DE GUÍAS:', true, false, 80));
-      noteLinesCombined.forEach(nl => paragraphs.push(createDocxParagraphXml(nl, false, false, 60)));
     }
 
     // Firma Orden

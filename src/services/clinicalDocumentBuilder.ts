@@ -124,74 +124,87 @@ export class ClinicalDocumentBuilder {
       out += `NOMBRE: ${cleanName},    EDAD: ${ageStr},    SALA: ${cubicleStr},    FECHA INGRESO: ${dateStr}.    HORA: ${timeStr}\n\n`;
     }
 
-    // 2. PÁRRAFO NARRATIVO INTEGRAL DE ANTECEDENTES Y MOTIVO DE INGRESO
-    let p1 = `SE TRATA DE PACIENTE ${sexoStr} DE ${ageStr} DE EDAD, `;
+    // 2. PÁRRAFO NARRATIVO INTEGRAL DE ANTECEDENTES Y MOTIVO DE INGRESO (DESDUPLICADO)
+    const rawHda = (h.currentIllnessHistory || patient.chiefComplaint || '').trim();
+    const pureHda = ClinicalDataNormalizer.extractPureIllnessHistory(rawHda);
+    let p1 = '';
 
-    // Antecedentes mórbidos conocidos (APP)
-    const rawPatho = h.pathologicalHistory?.trim() || '';
-    if (rawPatho && rawPatho.toUpperCase() !== 'NEGADOS' && rawPatho.toUpperCase() !== 'NEGADOS.') {
-      p1 += `CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${rawPatho.toUpperCase()}, `;
+    if (/^SE\s+TRATA\s+DE\s+PACIENTE/i.test(rawHda)) {
+      p1 = rawHda.toUpperCase();
+      if (!/SE\s+DECIDE\s+SU\s+INGRESO/i.test(p1)) {
+        p1 += ' TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. ';
+      } else {
+        p1 += ' ';
+      }
     } else {
-      p1 += `SIN ANTECEDENTES MÓRBIDOS CONOCIDOS, `;
-    }
+      p1 = `SE TRATA DE PACIENTE ${sexoStr} DE ${ageStr} DE EDAD, `;
 
-    // Medicación habitual
-    if (h.habitualMedications && h.habitualMedications.trim() && !h.habitualMedications.toUpperCase().includes('NINGUN')) {
-      p1 += `MEDICADO CON ${h.habitualMedications.toUpperCase()}, `;
-    }
+      // Antecedentes mórbidos conocidos (APP)
+      const rawPatho = h.pathologicalHistory?.trim() || '';
+      if (rawPatho && rawPatho.toUpperCase() !== 'NEGADOS' && rawPatho.toUpperCase() !== 'NEGADOS.') {
+        p1 += `CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${rawPatho.toUpperCase()}, `;
+      } else {
+        p1 += `SIN ANTECEDENTES MÓRBIDOS CONOCIDOS, `;
+      }
 
-    // Hábitos tóxicos
-    const rawTox = h.toxicHabits?.trim() || '';
-    if (rawTox && !rawTox.toUpperCase().includes('NEGADO')) {
-      p1 += `ANTECEDENTES TÓXICOS ${rawTox.toUpperCase()}, `;
-    } else {
-      p1 += `ANTECEDENTES TÓXICOS NEGADOS, `;
-    }
+      // Medicación habitual
+      if (h.habitualMedications && h.habitualMedications.trim() && !h.habitualMedications.toUpperCase().includes('NINGUN')) {
+        p1 += `MEDICADO CON ${h.habitualMedications.toUpperCase()}, `;
+      }
 
-    // Alergias
-    const allergiesList = v.allergies && v.allergies.length > 0 ? v.allergies : (h.allergicHistory ? [h.allergicHistory] : []);
-    const dedupedAllergies = ClinicalDeduplicationEngine.deduplicateAllergies(allergiesList);
-    if (dedupedAllergies.length > 0 && !dedupedAllergies[0].toUpperCase().includes('NEGAD')) {
-      p1 += `ALERGIAS ${dedupedAllergies.join(', ').toUpperCase()}, `;
-    } else {
-      p1 += `ALERGIAS NEGADAS, `;
-    }
+      // Hábitos tóxicos
+      const rawTox = h.toxicHabits?.trim() || '';
+      if (rawTox && !rawTox.toUpperCase().includes('NEGADO')) {
+        p1 += `ANTECEDENTES TÓXICOS ${rawTox.toUpperCase()}, `;
+      } else {
+        p1 += `ANTECEDENTES TÓXICOS NEGADOS, `;
+      }
 
-    // Antecedentes quirúrgicos
-    const rawSurg = h.surgicalHistory?.trim() || '';
-    if (rawSurg && !rawSurg.toUpperCase().includes('NEGADO')) {
-      p1 += `ANTECEDENTES QUIRÚRGICOS DE ${rawSurg.toUpperCase()}, `;
-    } else {
-      p1 += `ANTECEDENTES QUIRÚRGICOS NEGADOS, `;
-    }
+      // Alergias
+      const allergiesList = v.allergies && v.allergies.length > 0 ? v.allergies : (h.allergicHistory ? [h.allergicHistory] : []);
+      const dedupedAllergies = ClinicalDeduplicationEngine.deduplicateAllergies(allergiesList);
+      if (dedupedAllergies.length > 0 && !dedupedAllergies[0].toUpperCase().includes('NEGAD')) {
+        p1 += `ALERGIAS ${dedupedAllergies.join(', ').toUpperCase()}, `;
+      } else {
+        p1 += `ALERGIAS NEGADAS, `;
+      }
 
-    // Traumatismos
-    if (h.transfusionalHistory && !h.transfusionalHistory.toUpperCase().includes('NEGAD')) {
-      p1 += `TRANSFUSIONES PREVIAS: ${h.transfusionalHistory.toUpperCase()}, `;
-    }
+      // Antecedentes quirúrgicos
+      const rawSurg = h.surgicalHistory?.trim() || '';
+      if (rawSurg && !rawSurg.toUpperCase().includes('NEGADO')) {
+        p1 += `ANTECEDENTES QUIRÚRGICOS DE ${rawSurg.toUpperCase()}, `;
+      } else {
+        p1 += `ANTECEDENTES QUIRÚRGICOS NEGADOS, `;
+      }
 
-    // Historia de la Enfermedad Actual (HDA)
-    const rawHda = h.currentIllnessHistory?.trim() || patient.chiefComplaint?.trim() || 'INICIA SÍNTOMAS DE EVOLUCIÓN RECIENTE';
-    p1 += `REFIERE PACIENTE QUE ${pronombre} SE ENCONTRABA EN APARENTE BUEN ESTADO DE SALUD HASTA HACE ${rawHda.toUpperCase()}, `;
-    p1 += `MOTIVOS POR LOS CUALES ACUDE A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
+      // Traumatismos
+      if (h.transfusionalHistory && !h.transfusionalHistory.toUpperCase().includes('NEGAD')) {
+        p1 += `TRANSFUSIONES PREVIAS: ${h.transfusionalHistory.toUpperCase()}, `;
+      }
+
+      p1 += `REFIERE ${pureHda || 'CUADRO CLÍNICO DE EVOLUCIÓN RECIENTE'}, MOTIVO POR EL CUAL ACUDE A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
+    }
 
     // Estado actual y signos vitales
     p1 += `ACTUALMENTE PACIENTE ALERTA, CON ADECUADA MECÁNICA VENTILATORIA, AFEBRIL, TOLERANDO AIRE AMBIENTE Y VÍA ORAL, `;
     p1 += `MANEJANDO LOS SIGUIENTES SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AL AIRE AMBIENTE, TEMP: ${v.temperature || '37'} °C. `;
 
-    // Examen Físico Segmentario Cefalocaudal (15 Sistemas)
-    p1 += `AL EXAMEN FÍSICO: CABEZA: ${pe.head ? pe.head.toUpperCase() : 'NORMOCÉFALO, SIN LESIONES NI MASAS'}. `;
-    p1 += `OJOS: ${pe.eyes ? pe.eyes.toUpperCase() : 'SIMÉTRICOS, ESCLERAS ANICTÉRICAS, PUPILAS ISOCÓRICAS Y FOTORREACTIVAS'}. `;
+    // Examen Físico Segmentario Cefalocaudal (con CORAZÓN garantizado y EXTREMIDADES individualizadas)
+    const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(pe);
+    p1 += `AL EXAMEN FÍSICO: CABEZA: ${cleanedPe.head.toUpperCase()}. `;
+    p1 += `OJOS: ${cleanedPe.eyes.toUpperCase()}. `;
     if (pe.ears) p1 += `OÍDOS: ${pe.ears.toUpperCase()}. `;
     if (pe.nose) p1 += `NARIZ: ${pe.nose.toUpperCase()}. `;
-    p1 += `BOCA: ${pe.mouth ? pe.mouth.toUpperCase() : 'SIMÉTRICA, MUCOSA ORAL HÚMEDA'}. `;
-    p1 += `CUELLO: ${pe.neck ? pe.neck.toUpperCase() : 'SIMÉTRICO, CILÍNDRICO, MÓVIL, SIN INGURGITACIÓN YUGULAR'}. `;
-    p1 += `TÓRAX: ${pe.thorax ? pe.thorax.toUpperCase() : 'SIMÉTRICO, NORMODINÁMICO, NORMOEXPANSIVO'}. `;
-    p1 += `PULMONES: ${pe.lungs || pe.respiratory ? (pe.lungs || pe.respiratory).toUpperCase() : 'NORMOVENTILADOS, MURMULLO VESICULAR CONSERVADO SIN ESTERTORES'}. `;
-    p1 += `CORAZÓN: ${pe.heart || pe.cardiovascular ? (pe.heart || pe.cardiovascular).toUpperCase() : 'RUIDOS CARDÍACOS RÍTMICOS Y REGULARES, R1 Y R2 ÍNTEGROS, NO SOPLOS'}. `;
-    p1 += `ABDOMEN: ${pe.abdomen || pe.abdominal ? (pe.abdomen || pe.abdominal).toUpperCase() : 'GLOBOSO A EXPENSAS DE PANÍCULO ADIPOSO, BLANDO, DEPRESIBLE, PERISTALSIS PRESENTE, NO DOLOROSO'}. `;
-    p1 += `EXTREMIDADES: ${pe.extremities || pe.lowerExtremities ? (pe.extremities || pe.lowerExtremities).toUpperCase() : 'SIMÉTRICAS, MÓVILES, PULSOS PERIFÉRICOS PRESENTES, SIN EDEMA'}. `;
-    p1 += `NEUROLÓGICO: ${pe.neurological ? pe.neurological.toUpperCase() : 'ALERTA, CONSCIENTE, ORIENTADO EN TRES ESFERAS, GLASGOW 15/15, SIN DÉFICIT FOCAL'}. `;
+    p1 += `BOCA: ${cleanedPe.mouth.toUpperCase()}. `;
+    p1 += `CUELLO: ${cleanedPe.neck.toUpperCase()}. `;
+    p1 += `TÓRAX: ${cleanedPe.chest.toUpperCase()}. `;
+    p1 += `PULMONES: ${cleanedPe.respiratory.toUpperCase()}. `;
+    p1 += `CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. `;
+    p1 += `ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. `;
+    p1 += `EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. `;
+    p1 += `EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. `;
+    p1 += `NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. `;
+    p1 += `PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}. `;
 
     // Estudios de Imagen y Gabinete
     if (studies && studies.length > 0) {
@@ -238,37 +251,39 @@ export class ClinicalDocumentBuilder {
     }
     out += `\n`;
 
-    // 3. EN CUANTO AL MANEJO (Discusión terapéutica y prescripciones ordenadas)
-    out += `EN CUANTO AL MANEJO: `;
+    // 3. EN CUANTO AL MANEJO (Órdenes médicas hospitalarias numeradas sin discusión teórica)
+    out += `EN CUANTO AL MANEJO: SE INDICA `;
     const dedupedOrders = ClinicalDeduplicationEngine.deduplicateMedicalOrders(orders);
     const solutionOrders = dedupedOrders.filter(o => o.type === 'Solución');
     const medOrders = dedupedOrders.filter(o => o.type === 'Medicamento');
+    const mgmtList: string[] = [];
+
+    const diet = orders.find(o => o.name.toLowerCase().includes('dieta') || o.name.toLowerCase().includes('npo'));
+    mgmtList.push(diet ? diet.name.toUpperCase() : 'DIETA ADECUADA A SU CONDICIÓN CLÍNICA');
 
     if (solutionOrders.length > 0) {
       solutionOrders.forEach(s => {
-        out += `SE INDICA ${s.name.toUpperCase()} ${s.dose ? s.dose.toUpperCase() : '1,000 ML'} C/24 HORAS ${s.route ? s.route.toUpperCase() : 'EV'} PARA MANTENIMIENTO DE VOLEMIA Y VÍA PERMEABLE. `;
+        mgmtList.push(`${s.name.toUpperCase()} ${s.dose ? s.dose.toUpperCase() : '1,000 ML'} C/24 HORAS ${s.route ? s.route.toUpperCase() : 'EV'} PARA MANTENIMIENTO DE VOLEMIA`);
       });
     } else {
-      out += `SE INDICA SOLUCIÓN SALINA AL 0.9% 1,000 ML C/24 HORAS EV PARA HIDRATACIÓN PARENTERAL Y VÍA PERMEABLE. `;
+      mgmtList.push('SOLUCIÓN SALINA AL 0.9% 1,000 ML C/12 HORAS EV');
     }
 
     if (medOrders.length > 0) {
       medOrders.forEach(m => {
-        const disc = getTherapeuticDiscussion(m.name);
         const freq = m.frequency ? m.frequency.toUpperCase() : 'C/24 HORAS';
         const route = m.route ? m.route.toUpperCase() : 'EV';
         const dose = m.dose ? m.dose.toUpperCase() : '';
-        if (disc) {
-          out += `SE INDICA ${m.name.toUpperCase()} ${dose} ${freq} ${route}, ${disc.discussionSummary.toUpperCase()} `;
-        } else {
-          out += `SE INDICA ${m.name.toUpperCase()} ${dose} ${freq} ${route} CON FINES DE CONTROL TERAPÉUTICO ESTRICTO. `;
-        }
+        mgmtList.push(`${m.name.toUpperCase()} ${dose} ${route} ${freq}`.trim());
       });
     } else {
-      out += `SE INDICA OMEPRAZOL 40 MG C/24 HORAS EV PARA GASTROPROTECCIÓN HOSPITALARIA. `;
+      mgmtList.push('OMEPRAZOL 40 MG C/24 HORAS EV GASTROPROTECCIÓN');
     }
 
-    out += `QUEDAMOS A LA ESPERA DE EVOLUCIÓN CLÍNICA Y CONTROL DE PARACLÍNICOS EN EL SERVICIO.\n`;
+    mgmtList.push('MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES CADA 6 HORAS');
+    mgmtList.push('VIGILANCIA ESTRICTA DE EVOLUCIÓN CLÍNICA Y CONTROL DE PARACLÍNICOS');
+
+    out += mgmtList.map((it, idx) => `${idx + 1}. ${it}`).join('. ') + '.\n';
 
     // Aplicar normalización y corrección final
     const normalized = ClinicalDataNormalizer.normalizeClinicalText(out);

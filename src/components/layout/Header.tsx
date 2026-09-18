@@ -19,6 +19,7 @@ import {
   Clock,
   LogOut,
   ShieldCheck,
+  Smartphone,
 } from 'lucide-react';
 import { User, Patient, HospitalSettings, HeaderLayoutConfig } from '../../types';
 import { googleDriveService } from '../../services/googleDriveService';
@@ -91,13 +92,41 @@ export const Header: React.FC<Props> = ({
   const [settings, setSettings] = React.useState<HospitalSettings>(() => ({
     hospitalName: 'Hospital Regional Dr. Ángel María Gatón',
     serviceSubtitle: 'Servicio de Emergencias & Medicina Interna',
-    logoUrl: localStorage.getItem('hospital_custom_logo') || '/hospital_logo.jpg',
+    logoUrl: localStorage.getItem('hospital_custom_logo') || './hospital_logo.jpg',
     defaultDoctor: 'Dr. Joel Colón',
     defaultExequatur: 'EXEQ. 45892-01',
     themeColor: '#0F4C5C',
     isDarkMode: false,
     headerLayout: DEFAULT_HEADER_LAYOUT,
   }));
+
+  const [deferredPrompt, setDeferredPrompt] = React.useState<any>(null);
+  const [showPwaModal, setShowPwaModal] = React.useState(false);
+
+  React.useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallPwa = async () => {
+    if (deferredPrompt) {
+      try {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setDeferredPrompt(null);
+        }
+      } catch (err) {
+        setShowPwaModal(true);
+      }
+    } else {
+      setShowPwaModal(true);
+    }
+  };
 
   const [currentTime, setCurrentTime] = React.useState(() => {
     return new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' });
@@ -304,6 +333,16 @@ export const Header: React.FC<Props> = ({
           </button>
         )}
 
+        {/* PWA Mobile Install Button */}
+        <button
+          onClick={handleInstallPwa}
+          className="p-1.5 sm:px-2.5 sm:py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+          title="Instalar App en Celular o Tablet (Android / iOS / PC)"
+        >
+          <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+          <span className="hidden lg:inline">Instalar App</span>
+        </button>
+
         {/* Share App Modal Trigger */}
         {onOpenShareModal && (
           <button
@@ -403,6 +442,63 @@ export const Header: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {/* Modal Guía de Instalación PWA */}
+      {showPwaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                  <Smartphone className="w-5 h-5 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Instalar en Dispositivo Móvil</h3>
+                  <p className="text-[11px] text-slate-500">Acceso directo rápido sin necesidad de tienda</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPwaModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-600">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="font-bold text-slate-800 mb-1 flex items-center gap-1.5">
+                  <span>📱 En iPhone / iPad (Safari):</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 pl-1">
+                  <li>Toca el botón <strong>Compartir</strong> (icono de cuadrado con flecha hacia arriba ⬆️ en la barra inferior).</li>
+                  <li>Desplázate hacia abajo y selecciona <strong>"Agregar al inicio"</strong>.</li>
+                  <li>Toca <strong>"Agregar"</strong> en la esquina superior derecha.</li>
+                </ol>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="font-bold text-slate-800 mb-1 flex items-center gap-1.5">
+                  <span>🤖 En Android (Chrome / Edge):</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 pl-1">
+                  <li>Toca los <strong>tres puntos</strong> (⋮) en la esquina superior derecha.</li>
+                  <li>Selecciona <strong>"Instalar aplicación"</strong> o <strong>"Agregar a pantalla principal"</strong>.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setShowPwaModal(false)}
+                className="px-4 py-2 bg-[#0F4C5C] hover:bg-teal-800 text-white rounded-xl text-xs font-bold transition"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };
