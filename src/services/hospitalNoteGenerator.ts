@@ -8,6 +8,7 @@
 import { Patient, MedicalOrder, LabResult, MedicalStudy, ClinicalHistory } from '../types';
 import { normalizeMedicalText } from './medicalSpellingService';
 import { ClinicalDataNormalizer } from './clinicalDataNormalizer';
+import { formatClinicalVitals, extractClinicalStatus } from './clinicalDocumentBuilder';
 
 /**
  * Función auxiliar para descargar inmediatamente cualquier archivo de texto o JSON en el PC
@@ -207,21 +208,6 @@ export function cleanAndDeduplicateNarrative(text: string): string {
 
   let result = text;
 
-  // 1. Eliminar duplicación inicial de presentación ("SE TRATA DE PACIENTE ... REFIERE ... SE TRATA DE PACIENTE ...")
-  const doublePresentationRegex = /^[\s\S]*?SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*?\bREFIERE\s+(?:PACIENTE\s+QUE\s+(?:EST[EA]\s+)?)?(SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*)/i;
-  const matchDouble = result.match(doublePresentationRegex);
-  if (matchDouble) {
-    result = matchDouble[1].trim();
-  }
-
-  // 2. Normalizar y consolidar variantes acumuladas de cierre de ingreso al final de la narrativa
-  const hasAdmissionClosing = /MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?|SE\s+DECIDE\s+SU\s+INGRESO|TRAS\s+(?:PREVIA\s+)?EVALUACI[OÓ]N/i.test(result);
-  if (hasAdmissionClosing) {
-    result = result.replace(/[,;\s.]*\b(?:MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?|SE\s+DECIDE\s+SU\s+INGRESO)[\s\S]*$/i, '').trim();
-    result = result.replace(/[,;\s.]*\bTRAS\s+(?:PREVIA\s+)?EVALUACI[OÓ]N[\s\S]*$/i, '').trim();
-    result = result.replace(/[,;\s.]*$/, '').trim();
-    result += '. MOTIVO POR EL CUAL ES TRAÍDO A NUESTRO CENTRO DE SALUD. TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.';
-  }
 
   // 3. Deduplicar oraciones idénticas por líneas
   const lines = result.split('\n');
@@ -344,12 +330,21 @@ function generateNarrativeAdmissionNote(
   // Examen Físico Normalizado y Cefalocaudal Estricto
   const cleanPe = ClinicalDataNormalizer.cleanPhysicalExamSections(pe);
 
-  p1 += `ACTUALMENTE PACIENTE ${cleanPe.general.toUpperCase()}, `;
-  p1 += `MANEJANDO LOS SIGUIENTES SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AL AIRE AMBIENTE, TEMP: ${v.temperature || '37'} °C, GLICEMIA: ${v.bloodGlucose || '95'} MG/DL. `;
+  // Estado actual guardado más reciente
+  const statusText = (pe.general || (patient as any).generalStatus || cleanPe.general || 'ALERTA, CONSCIENTE, ORIENTADO').toUpperCase();
+  p1 += `ACTUALMENTE PACIENTE ${statusText}, `;
+
+  // Signos vitales reales (sin inventar datos)
+  const vitalsResult = formatClinicalVitals(v);
+  p1 += `${vitalsResult.text} `;
 
   p1 += `EN CUANTO AL EXAMEN FÍSICO: `;
-  p1 += `CABEZA Y CUELLO: ${cleanPe.head.toUpperCase()}, CUELLO: ${cleanPe.neck.toUpperCase()}. `;
-  p1 += `TÓRAX Y RESPIRATORIO: ${cleanPe.respiratory.toUpperCase()}. `;
+  p1 += `CABEZA: ${cleanPe.head.toUpperCase()}. `;
+  p1 += `OJOS: ${cleanPe.eyes.toUpperCase()}. `;
+  p1 += `BOCA: ${cleanPe.mouth.toUpperCase()}. `;
+  p1 += `CUELLO: ${cleanPe.neck.toUpperCase()}. `;
+  p1 += `TÓRAX: ${cleanPe.chest.toUpperCase()}. `;
+  p1 += `PULMONES: ${cleanPe.respiratory.toUpperCase()}. `;
   p1 += `CORAZÓN: ${cleanPe.cardiovascular.toUpperCase()}. `;
   p1 += `ABDOMEN: ${cleanPe.abdominal.toUpperCase()}. `;
   p1 += `EXTREMIDADES SUPERIORES: ${cleanPe.upperExtremities.toUpperCase()}. `;

@@ -39,6 +39,7 @@ import {
 } from '../../services/pdfHospitalDocumentService';
 import { clinicalTemplateService } from '../../services/clinicalTemplateService';
 import { findRepeatedPhrases, checkMedicalSpelling } from '../../services/ai/ClinicalSpellChecker';
+import { validateDownloadableClinicalNote } from '../../services/clinicalDocumentBuilder';
 
 export type NoteType = 'emergencia' | 'sala' | 'evolucion' | 'orden';
 
@@ -159,6 +160,13 @@ export const MandatoryNotePreviewModal: React.FC<Props> = ({
 
   // Acciones de descarga
   const handleConfirmAndDownloadWord = async () => {
+    if (docType === 'emergencia' || docType === 'sala') {
+      const val = validateDownloadableClinicalNote(editableNote, patient);
+      if (!val.isValid) {
+        alert('ADVERTENCIA DE INTEGRIDAD CLÍNICA:\n\n' + val.errors.join('\n'));
+        return;
+      }
+    }
     setIsGeneratingDocx(true);
     try {
       if (docType === 'emergencia') {
@@ -179,6 +187,11 @@ export const MandatoryNotePreviewModal: React.FC<Props> = ({
 
   const handleDownloadPdf = () => {
     if (docType === 'emergencia' || docType === 'sala') {
+      const val = validateDownloadableClinicalNote(editableNote, patient);
+      if (!val.isValid) {
+        alert('ADVERTENCIA DE INTEGRIDAD CLÍNICA:\n\n' + val.errors.join('\n'));
+        return;
+      }
       exportOfficialAdmissionNotePdf(patient, orders, labs, studies, docType);
     } else if (docType === 'orden') {
       exportOfficialMedicalOrderPdf(patient, orders);

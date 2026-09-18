@@ -21,6 +21,7 @@ import {
 import { generateTherapeuticDiscussionForOrders, getTherapeuticDiscussion } from './therapeuticDiscussionService';
 import { extractScalesAndDiagnoses, cleanAndDeduplicateNarrative } from './hospitalNoteGenerator';
 import { ClinicalDataNormalizer } from './clinicalDataNormalizer';
+import { formatClinicalVitals, extractClinicalStatus, formatPhysicalExam, validateDownloadableClinicalNote } from './clinicalDocumentBuilder';
 import { FALLBACK_LOGO_BASE64, FALLBACK_TEMPLATES, base64ToArrayBuffer } from './templatesFallback';
 import { authService } from './authService';
 
@@ -317,15 +318,10 @@ export async function generateEmergencyNoteDocx(
 
     // Signos vitales y Examen físico cefalocaudal ordenado con CORAZÓN y EXTREMIDADES individualizadas
     const v = patient.vitals || {};
-    const bpText = (v.systolicBP && v.diastolicBP) ? `${v.systolicBP}/${v.diastolicBP} MMHG` : '120/80 MMHG';
-    const hrText = v.heartRate ? `${v.heartRate} LPM` : '80 LPM';
-    const rrText = v.respiratoryRate ? `${v.respiratoryRate} RPM` : '18 RPM';
-    const satText = v.oxygenSaturation ? `${v.oxygenSaturation}% AA` : '98% AA';
-    const tempText = v.temperature ? `${v.temperature} °C` : '36.8 °C';
-    const gluText = v.bloodGlucose ? `${v.bloodGlucose} MG/DL` : '95 MG/DL';
-
+    const vitalsResult = formatClinicalVitals(v);
+    const statusText = extractClinicalStatus(patient) || 'ALERTA, CONSCIENTE, ORIENTADO EN TRES ESFERAS, TOLERANDO AIRE AMBIENTE Y VÍA ORAL';
     const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(patient.clinicalHistory?.physicalExam);
-    const peNarrative = `ACTUALMENTE PACIENTE ${cleanedPe.general.toUpperCase()}, MANEJANDO UNOS SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, SPO2: ${satText}, TEMP: ${tempText}, GLICEMIA: ${gluText}. EN CUANTO AL EXAMEN FÍSICO: CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
+    const peNarrative = `ACTUALMENTE PACIENTE ${statusText}. ${vitalsResult.text} EN CUANTO AL EXAMEN FÍSICO: CABEZA: ${cleanedPe.head.toUpperCase()}. OJOS: ${cleanedPe.eyes.toUpperCase()}. BOCA: ${cleanedPe.mouth.toUpperCase()}. CUELLO: ${cleanedPe.neck.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
 
     // Paraclínicos
     let labsText = 'LA MISMA CUENTA CON UNAS PARACLÍNICAS QUE REPORTAN DENTRO DE LÍMITES FISIOLÓGICOS A SU LLEGADA.';
@@ -432,14 +428,10 @@ export async function generateWardTransferNoteDocx(
     const historyNarrative = cleanAndDeduplicateNarrative(`SE RECIBE EN SALA CLÍNICA PACIENTE ${sexText} DE ${ageText} DE EDAD, PROCEDENTE DEL SERVICIO DE EMERGENCIAS / UCI, DONDE RECIBIÓ ATENCIÓN Y ESTABILIZACIÓN INICIAL POR CUADRO DE ${patient.chiefComplaint?.toUpperCase() || 'PATOLOGÍA CLÍNICA AGUDA'}. ANTECEDENTES MÓRBIDOS: ${patient.clinicalHistory?.pathologicalHistory?.toUpperCase() || 'NEGADOS'}. ANTECEDENTES QUIRÚRGICOS: ${patient.clinicalHistory?.surgicalHistory?.toUpperCase() || 'NEGADOS'}. ALERGIAS: ${patient.clinicalHistory?.allergicHistory?.toUpperCase() || 'NEGADAS'}. DURANTE SU ESTANCIA HOSPITALARIA PREVIA CURSA CON EVOLUCIÓN ESTABLE, TOLERANDO MEDIDAS GENERALES Y TRATAMIENTO MÉDICO INDICADO.`);
 
     const v = patient.vitals || {};
-    const bpText = (v.systolicBP && v.diastolicBP) ? `${v.systolicBP}/${v.diastolicBP} MMHG` : '120/80 MMHG';
-    const hrText = v.heartRate ? `${v.heartRate} LPM` : '82 LPM';
-    const rrText = v.respiratoryRate ? `${v.respiratoryRate} RPM` : '18 RPM';
-    const satText = v.oxygenSaturation ? `${v.oxygenSaturation}%` : '98%';
-    const tempText = v.temperature ? `${v.temperature} °C` : '37 °C';
-
+    const vitalsResult = formatClinicalVitals(v);
+    const statusText = extractClinicalStatus(patient) || 'ALERTA, CONSCIENTE, ORIENTADO EN TRES ESFERAS, TOLERANDO AIRE AMBIENTE';
     const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(patient.clinicalHistory?.physicalExam);
-    const peNarrative = `AL MOMENTO DEL RECIBIMIENTO EN SALA SE ENCUENTRA ${cleanedPe.general.toUpperCase()}. SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, TEMP: ${tempText}, SPO2: ${satText}. AL EXAMEN FÍSICO: CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
+    const peNarrative = `AL MOMENTO DEL RECIBIMIENTO EN SALA SE ENCUENTRA ${statusText}. ${vitalsResult.text} AL EXAMEN FÍSICO: CABEZA: ${cleanedPe.head.toUpperCase()}. OJOS: ${cleanedPe.eyes.toUpperCase()}. BOCA: ${cleanedPe.mouth.toUpperCase()}. CUELLO: ${cleanedPe.neck.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
 
     let labsText = 'EN CUANTO A LAS PARACLÍNICAS, RESULTADOS DE CONTROL EN RANGO ACEPTABLE.';
     if (labs.length > 0) {
@@ -528,7 +520,7 @@ export async function generateMedicalOrderDocx(
     const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS` : 'N/D'}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
 
     const v = patient.vitals || {};
-    const vitalsLine = `SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG FC: ${v.heartRate || '80'} LPM SAT: ${v.oxygenSaturation || '98'}% AIRE AMBIENTE TEMP: ${v.temperature || '37'} °C FR: ${v.respiratoryRate || '18'} RPM GLICEMIA: ${v.bloodGlucose || '100'} MG/DL`;
+    const vitalsLine = formatClinicalVitals(v).summaryLine;
 
     let diagnosesLines = 'DIAGNÓSTICOS:\n';
     if (patient.diagnosesList && patient.diagnosesList.length > 0) {
@@ -703,15 +695,10 @@ export async function generateCombinedNoteAndOrderDocx(
 
     // Examen físico y paraclínicos
     const v = patient.vitals || {};
-    const bpText = (v.systolicBP && v.diastolicBP) ? `${v.systolicBP}/${v.diastolicBP} MMHG` : '120/80 MMHG';
-    const hrText = v.heartRate ? `${v.heartRate} LPM` : '80 LPM';
-    const rrText = v.respiratoryRate ? `${v.respiratoryRate} RPM` : '18 RPM';
-    const satText = v.oxygenSaturation ? `${v.oxygenSaturation}% AA` : '98% AA';
-    const tempText = v.temperature ? `${v.temperature} °C` : '36.8 °C';
-    const gluText = v.bloodGlucose ? `${v.bloodGlucose} MG/DL` : '95 MG/DL';
-
+    const vitalsResult = formatClinicalVitals(v);
+    const statusText = extractClinicalStatus(patient) || 'ALERTA, CONSCIENTE, ORIENTADO EN TRES ESFERAS, TOLERANDO AIRE AMBIENTE Y VÍA ORAL';
     const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(patient.clinicalHistory?.physicalExam);
-    const peNarrative = `ACTUALMENTE PACIENTE ${cleanedPe.general.toUpperCase()}, MANEJANDO UNOS SIGNOS VITALES: TA: ${bpText}, FC: ${hrText}, FR: ${rrText}, SPO2: ${satText}, TEMP: ${tempText}, GLICEMIA: ${gluText}. EXAMEN FÍSICO: CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
+    const peNarrative = `ACTUALMENTE PACIENTE ${statusText}. ${vitalsResult.text} EXAMEN FÍSICO: CABEZA: ${cleanedPe.head.toUpperCase()}. OJOS: ${cleanedPe.eyes.toUpperCase()}. BOCA: ${cleanedPe.mouth.toUpperCase()}. CUELLO: ${cleanedPe.neck.toUpperCase()}. TÓRAX: ${cleanedPe.chest.toUpperCase()}. PULMONES: ${cleanedPe.respiratory.toUpperCase()}. CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}. ABDOMEN: ${cleanedPe.abdominal.toUpperCase()}. EXTREMIDADES SUPERIORES: ${cleanedPe.upperExtremities.toUpperCase()}. EXTREMIDADES INFERIORES: ${cleanedPe.lowerExtremities.toUpperCase()}. NEUROLÓGICO: ${cleanedPe.neurological.toUpperCase()}. PIEL Y ANEXOS: ${cleanedPe.skin.toUpperCase()}.`;
     
     let labsText = 'PARACLÍNICAS REPORTAN DENTRO DE LÍMITES FISIOLÓGICOS A SU LLEGADA.';
     if (labs.length > 0) {
@@ -760,7 +747,7 @@ export async function generateCombinedNoteAndOrderDocx(
     const headerLineOrder = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${ageText}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
     paragraphs.push(createDocxParagraphXml(headerLineOrder, true, false, 140));
 
-    const vitalsLine = `SIGNOS VITALES: TA: ${bpText} | FC: ${hrText} | FR: ${rrText} | SAT: ${satText} | TEMP: ${tempText} | GLICEMIA: ${gluText}`;
+    const vitalsLine = vitalsResult.summaryLine;
     paragraphs.push(createDocxParagraphXml('MEDIDAS GENERALES: DIETA ADECUADA SEGÚN CONDICIÓN, CABECERA A 30°, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.', false, false, 120));
 
     let diagnosesLines = 'DIAGNÓSTICOS ACTIVOS:\n' + pureDiags.map((d, i) => `${i + 1}. ${d.toUpperCase()}`).join('\n');

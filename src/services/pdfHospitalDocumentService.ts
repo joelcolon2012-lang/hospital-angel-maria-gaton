@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Patient, MedicalOrder, LabResult, MedicalStudy, ClinicalHistory } from '../types';
-import { getTherapeuticDiscussion } from './therapeuticDiscussionService';
+import { formatClinicalVitals, extractClinicalStatus, formatPhysicalExam, validateDownloadableClinicalNote } from './clinicalDocumentBuilder';
 import { normalizeMedicalText } from './medicalSpellingService';
 import { FALLBACK_LOGO_BASE64 } from './templatesFallback';
 import { authService } from './authService';
@@ -178,16 +178,10 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
 
   // 3. SIGNOS VITALES
   const v = patient.vitals || {};
-  const tas = v.systolicBP || '120';
-  const tad = v.diastolicBP || '80';
-  const fc = v.heartRate || '78';
-  const fr = v.respiratoryRate || '19';
-  const sat = v.oxygenSaturation || '98';
-  const temp = v.temperature || '37';
-  const glic = v.bloodGlucose || '110';
+  const vitalsResult = formatClinicalVitals(v);
   printWrapped(
     'SIGNOS VITALES:',
-    `TA: ${tas}/${tad} MMHG, FC: ${fc} L/M, FR: ${fr} R/M, SPO2: ${sat}% TEMP: ${temp} GRADOS, GLICEMIA: ${glic} MG/DL`
+    vitalsResult.summaryLine.replace(/^SIGNOS VITALES:\s*/i, '')
   );
 
   // 4. MEDICACIÓN
@@ -249,27 +243,8 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
     'RADIOGRAFÍA DE TÓRAX, TAC CRANEO, ELECTROCARDIOGRAMA'
   );
 
-  // 6. NOTAS FARMACOLÓGICAS Y DISCUSIONES DE GUÍAS (DEDUPLICADAS)
-  const notesList: string[] = [];
-  const seenGuides = new Set<string>();
-  medicationOrders.forEach((m) => {
-    const disc = getTherapeuticDiscussion(m.name);
-    if (disc) {
-      const guideKey = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
-      if (!seenGuides.has(guideKey)) {
-        seenGuides.add(guideKey);
-        notesList.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
-      }
-    }
-  });
-
-  if (notesList.length > 0) {
-    notesList.forEach((note) => {
-      printWrapped('', note, false);
-    });
-  } else {
-    printWrapped('NOTA:', 'VIGILANCIA ESTRICTA DE SIGNOS VITALES Y CONTROL DE GLICEMIAS CAPILARES CADA TURNO.');
-  }
+  // 6. NOTAS FARMACOLÓGICAS Y DIRECTRICES DE SERVICIO
+  printWrapped('NOTA:', 'VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y PATRÓN CLÍNICO EN EL SERVICIO.');
 
   // Firma institucional del médico en turno
   y = drawDoctorSignatureFooter(doc, y + 4, patient);
@@ -364,19 +339,10 @@ export function exportOfficialAdmissionNotePdf(
   p1 += `REFIERE PACIENTE QUE ${pronombre} SE ENCONTRABA EN APARENTE BUEN ESTADO DE SALUD HASTA HACE ${h.currentIllnessHistory ? h.currentIllnessHistory.toUpperCase() : 'POCO TIEMPO CUANDO INICIA SINTOMATOLOGÍA'}, `;
   p1 += `MOTIVOS POR LOS CUALES ACUDE A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
 
-  p1 += `ACTUALMENTE PACIENTE ALERTA, CON ADECUADA MECÁNICA VENTILATORIA, AFEBRIL, TOLERANDO AIRE AMBIENTE Y VÍA ORAL, `;
-  p1 += `MANEJANDO LOS SIGUIENTES SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AL AIRE AMBIENTE, TEMP: ${v.temperature || '37'} °C. `;
-
-  p1 += `AL EXAMEN FÍSICO: CABEZA: NORMOCÉFALA, SIN MASAS NI HUNDIMIENTOS ÓSEOS, ADECUADA IMPLANTACIÓN DE PELO. `;
-  p1 += `OJOS: SIMÉTRICOS, ESCLERAS ANICTÉRICAS, PUPILAS ISOCÓRICAS Y FOTORREACTIVAS A LA LUZ, CONJUNTIVAS ${pe.general && pe.general.toLowerCase().includes('palidez') ? 'PÁLIDAS' : 'NORMOPIGMENTADAS'}. `;
-  p1 += `BOCA: SIMÉTRICA, MUCOSA ORAL HÚMEDA, LENGUA NORMOGLOSA, ÚVULA CENTRAL, PALADAR DURO Y BLANDO SIN LESIONES. `;
-  p1 += `CUELLO: SIMÉTRICO, CILÍNDRICO, MÓVIL, TRÁQUEA CENTRAL, TIROIDES EUTRÓFICA, PULSOS CAROTÍDEOS BILATERALES PRESENTES CON BUENA AMPLITUD Y FORMA, NO INGURGITACIÓN YUGULAR NI SOPLOS AUDIBLES. `;
-  p1 += `TÓRAX: SIMÉTRICO, NORMODINÁMICO, NORMOEXPANSIVO, SIN TIRAJES INTERCOSTALES NI SUBCOSTALES, FRÉMITO TÁCTIL CONSERVADO. `;
-  p1 += `PULMONES: ${pe.respiratory ? pe.respiratory.toUpperCase() : 'NORMOVENTILADOS, CON MURMULLO VESICULAR AUDIBLE EN AMBOS CAMPOS PULMONARES, SIN ESTERTORES NI RUIDOS AGREGADOS'}. `;
-  p1 += `CORAZÓN: ${pe.cardiovascular ? pe.cardiovascular.toUpperCase() : 'RUIDOS CARDÍACOS RÍTMICOS Y REGULARES, R1 Y R2 ÍNTEGROS, NO SOPLOS AUDIBLES NI GALOPE'}. `;
-  p1 += `ABDOMEN: ${pe.abdominal ? pe.abdominal.toUpperCase() : 'GLOBOSO, DEPRESIBLE, NO DOLOROSO A LA PALPACIÓN SUPERFICIAL NI PROFUNDA, PERISTALSIS PRESENTE, SIN MEGALIAS NI SIGNOS DE IRRITACIÓN PERITONEAL'}. `;
-  p1 += `EXTREMIDADES: ${pe.extremities ? pe.extremities.toUpperCase() : 'SIMÉTRICAS, MÓVILES, PULSOS PERIFÉRICOS PRESENTES EN BUENA FORMA Y AMPLITUD, SIN EDEMA, LLENADO CAPILAR DISTAL MENOR DE 2 SEGUNDOS'}. `;
-  p1 += `NEUROLÓGICO: ${pe.neurological ? pe.neurological.toUpperCase() : 'ALERTA, ORIENTADA EN LAS TRES ESFERAS DEL SENSORIO, GLASGOW 15/15, PARES CRANEALES SIN LESIONES, FUERZA MUSCULAR 5/5 GLOBAL, SIN SIGNOS MENÍNGEOS NI DÉFICIT FOCAL'}. `;
+  const statusText = extractClinicalStatus(patient) || 'ALERTA, CONSCIENTE, ORIENTADO EN TRES ESFERAS, TOLERANDO AIRE AMBIENTE Y VÍA ORAL';
+  p1 += `ACTUALMENTE PACIENTE ${statusText}, `;
+  p1 += `${formatClinicalVitals(v).text} `;
+  p1 += `${formatPhysicalExam(pe)} `;
 
   if (studies.length > 0) {
     p1 += `SE REALIZAN ESTUDIOS DE GABINETE: `;
@@ -416,24 +382,38 @@ export function exportOfficialAdmissionNotePdf(
   });
   y += 2;
 
-  // 2. EN CUANTO AL MANEJO (Discusión farmacoterapéutica razonada continua)
-  let p2 = `EN CUANTO AL MANEJO: EN NUESTRO PACIENTE SE INDICA SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV CON EL OBJETIVO DE MANTENER UNA ADECUADA HIDRATACIÓN Y PERFUSIÓN SISTÉMICA, DEBIENDO INDIVIDUALIZARSE EL APORTE SEGÚN FUNCIÓN RENAL, DIURESIS Y PRESENCIA DE SOBRECARGA DE VOLUMEN. `;
-  p2 += `SE INDICA OMEPRAZOL 40 MG C/24 HORAS EV COMO INHIBIDOR DE LA BOMBA DE PROTONES PARA GASTROPROTECCIÓN, CUYO USO DEBE CORRELACIONARSE CON EL RIESGO DE LESIÓN GASTRODUODENAL O SANGRADO DIGESTIVO. `;
+  // 2. EN CUANTO AL MANEJO (Órdenes clínicas directas sin discusión teórica)
+  let p2 = `EN CUANTO AL MANEJO: SE INDICA DIETA ADECUADA SEGÚN CONDICIÓN CLÍNICA, CONTROL DE CONSTANTES VITALES CADA 6 HORAS Y VIGILANCIA DE PATRÓN RESPIRATORIO. `;
 
-  orders
-    .filter((o) => o.type === 'Medicamento' && !o.name.toLowerCase().includes('omeprazol'))
-    .forEach((med) => {
-      const disc = getTherapeuticDiscussion(med.name);
-      if (disc) {
-        p2 += `SE INDICA ${med.name.toUpperCase()} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : ''}, ${disc.discussionSummary.toUpperCase()} `;
-      } else {
-        p2 += `SE INDICA ${med.name.toUpperCase()} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : ''} ${med.frequency ? med.frequency.toUpperCase() : ''} CON FINES DE CONTROL TERAPÉUTICO ESTRICTO. `;
-      }
+  const solOrders = orders.filter((o) => o.type === 'Solución');
+  if (solOrders.length > 0) {
+    solOrders.forEach((sol) => {
+      p2 += `SE INDICA ${sol.name.toUpperCase()} ${sol.dose ? sol.dose.toUpperCase() : '2,000 ML'} ${sol.route ? sol.route.toUpperCase() : 'EV'} ${sol.frequency ? sol.frequency.toUpperCase() : 'C/24 HORAS'}. `;
     });
+  } else {
+    p2 += `SE INDICA SOLUCIÓN SALINA AL 0.9% 1,000 ML EV C/12 HORAS. `;
+  }
 
-  p2 += `EN CONCLUSIÓN, NUESTRO PACIENTE SE ENCUENTRA BAJO MANEJO DIRIGIDO A ESTABILIZACIÓN HEMODINÁMICA, CONTROL DE CONSTANTES VITALES Y VIGILANCIA DE COMPLICACIONES EN EL SERVICIO HOSPITALARIO.`;
+  const medOrders = orders.filter((o) => o.type === 'Medicamento');
+  if (medOrders.length > 0) {
+    medOrders.forEach((med) => {
+      const dayStr = med.treatmentDay ? ` (DÍA ${med.treatmentDay})` : '';
+      p2 += `SE INDICA ${med.name.toUpperCase()}${dayStr} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : 'C/24H'}. `;
+    });
+  } else {
+    p2 += `SE INDICA OMEPRAZOL 40 MG EV C/24 HORAS COMO GASTROPROTECCIÓN. `;
+  }
+
+  p2 += `EN CONCLUSIÓN, NUESTRO PACIENTE SE ENCUENTRA BAJO MANEJO DIRIGIDO A ESTABILIZACIÓN HEMODINÁMICA, CONTROL DE CONSTANTES VITALES Y VIGILANCIA EVOLUTIVA ESTRICTA EN EL SERVICIO HOSPITALARIO.`;
 
   printBlock(normalizeMedicalText(p2));
+
+  // Validar nota antes de guardar
+  const fullNoteForValidation = `${p1}\n${diagList.join('\n')}\n${p2}`;
+  const validation = validateDownloadableClinicalNote(fullNoteForValidation, patient);
+  if (!validation.isValid) {
+    console.error('Validación de nota clínica para PDF falló:', validation.errors);
+  }
 
   // Guardar archivo
   const filePrefix = noteType === 'emergencia' ? 'Nota_Ingreso_Emergencia' : 'Nota_Recibimiento_Sala';
@@ -510,8 +490,10 @@ export function exportOfficialCombinedNoteAndOrderPdf(
 
   let p1 = `SE TRATA DE PACIENTE ${sexText} DE ${ageStr} DE EDAD, CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${h.pathologicalHistory ? h.pathologicalHistory.toUpperCase() : 'NIEGA ENFERMEDADES CRÓNICAS'}, EN TRATAMIENTO ACTUAL CON ${h.habitualMedications ? h.habitualMedications.toUpperCase() : 'NINGUNO REFERIDO'}, ANTECEDENTES QUIRÚRGICOS DE ${h.surgicalHistory ? h.surgicalHistory.toUpperCase() : 'QUIRÚRGICOS NEGADOS'}, HÁBITOS TÓXICOS ${h.toxicHabits ? h.toxicHabits.toUpperCase() : 'NEGADOS'}, ALERGIAS ${h.allergicHistory ? h.allergicHistory.toUpperCase() : 'NEGADAS'}. `;
   p1 += `REFIERE QUE ${pron} SE ENCONTRABA EN APARENTE ESTADO DE SALUD HASTA HACE ${h.currentIllnessHistory ? h.currentIllnessHistory.toUpperCase() : 'POCO TIEMPO CUANDO INICIA SINTOMATOLOGÍA'}, MOTIVOS POR LOS CUALES ACUDE A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
-  p1 += `ACTUALMENTE PACIENTE ALERTA Y CONSCIENTE, MANEJANDO SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AA, TEMP: ${v.temperature || '37'} °C. `;
-  p1 += `AL EXAMEN FÍSICO: CABEZA/CUELLO: ${pe.head ? pe.head.toUpperCase() : 'NORMOCÉFALO, PUPILAS ISOCÓRICAS'}. TÓRAX: ${pe.chest ? pe.chest.toUpperCase() : 'SIMÉTRICO, NORMOEXPANSIBLE'}. PULMONES: ${pe.respiratory ? pe.respiratory.toUpperCase() : 'MURMULLO VESICULAR CONSERVADO'}. CORAZÓN: ${pe.cardiovascular ? pe.cardiovascular.toUpperCase() : 'RUIDOS RÍTMICOS, NO SOPLOS'}. ABDOMEN: ${pe.abdominal ? pe.abdominal.toUpperCase() : 'BLANDO, DEPRESIBLE, PERISTALSIS PRESENTE'}. EXTREMIDADES: ${pe.extremities ? pe.extremities.toUpperCase() : 'SIMÉTRICAS, SIN EDEMAS'}. NEUROLÓGICO: ${pe.neurological ? pe.neurological.toUpperCase() : 'GLASGOW 15/15, SIN DÉFICIT FOCAL'}. `;
+  const statusText = extractClinicalStatus(patient) || 'ALERTA Y CONSCIENTE';
+  p1 += `ACTUALMENTE PACIENTE ${statusText}, `;
+  p1 += `${formatClinicalVitals(v).text} `;
+  p1 += `${formatPhysicalExam(pe)} `;
 
   if (labs.length > 0) {
     p1 += `PARACLÍNICOS REPORTAN: ` + labs.map((l) => `${l.parameter.toUpperCase()}: ${l.value} ${l.unit ? l.unit.toUpperCase() : ''}`).join(', ') + '. ';
@@ -534,16 +516,22 @@ export function exportOfficialCombinedNoteAndOrderPdf(
 
   // Manejo de la nota
   let p2 = `EN CUANTO AL MANEJO: SE INDICA SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV PARA MANTENER HIDRATACIÓN Y VÍA PERMEABLE, Y OMEPRAZOL 40 MG C/24 HORAS EV COMO GASTROPROTECCIÓN HOSPITALARIA. `;
-  orders.filter(o => o.type === 'Medicamento' && !o.name.toLowerCase().includes('omeprazol')).forEach(med => {
-    const disc = getTherapeuticDiscussion(med.name);
-    if (disc) {
-      p2 += `SE INDICA ${med.name.toUpperCase()} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : ''}, ${disc.discussionSummary.toUpperCase()} `;
-    } else {
-      p2 += `SE INDICA ${med.name.toUpperCase()} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : ''} ${med.frequency ? med.frequency.toUpperCase() : ''} CON FINES DE CONTROL TERAPÉUTICO ESTRICTO. `;
-    }
-  });
+  const noteMedOrders = orders.filter(o => o.type === 'Medicamento' && !o.name.toLowerCase().includes('omeprazol'));
+  if (noteMedOrders.length > 0) {
+    noteMedOrders.forEach(med => {
+      const dayStr = med.treatmentDay ? ` (DÍA ${med.treatmentDay})` : '';
+      p2 += `SE INDICA ${med.name.toUpperCase()}${dayStr} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : 'C/24H'}. `;
+    });
+  }
   p2 += `EN CONCLUSIÓN, EL PACIENTE PERMANECE BAJO MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES Y SEGUIMIENTO EVOLUTIVO ESTRICTO.`;
   printBlock(normalizeMedicalText(p2));
+
+  // Validar nota clínica combinada
+  const fullNoteCombForValidation = `${p1}\n${diagList.join('\n')}\n${p2}`;
+  const valComb = validateDownloadableClinicalNote(fullNoteCombForValidation, patient);
+  if (!valComb.isValid) {
+    console.error('Validación de nota clínica combinada para PDF falló:', valComb.errors);
+  }
 
   // Firma Nota Oficial
   y = drawDoctorSignatureFooter(doc, y, patient);
@@ -582,7 +570,7 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   y += 2;
 
   // Signos vitales
-  printBlock(`SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG | FC: ${v.heartRate || '78'} LPM | FR: ${v.respiratoryRate || '18'} RPM | SPO2: ${v.oxygenSaturation || '98'}% AA | TEMP: ${v.temperature || '37'} °C | GLICEMIA: ${v.bloodGlucose || '100'} MG/DL`, false, 8.5);
+  printBlock(formatClinicalVitals(v).summaryLine, false, 8.5);
   y += 2;
 
   // Medicación y Soluciones
@@ -625,25 +613,8 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   printBlock('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, TGO, TGP, ELECTROLITOS SÉRICOS, HIV, VDRL, HEPATITIS B Y C.', false, 8);
   printBlock('IMÁGENES: RADIOGRAFÍA DE TÓRAX, ELECTROCARDIOGRAMA, TAC CRÁNEO SEGÚN PROTOCOLO.', false, 8);
 
-  // Notas farmacológicas deduplicadas
-  const seenGuidesComb = new Set<string>();
-  const combNotes: string[] = [];
-  medOrders.forEach(m => {
-    const disc = getTherapeuticDiscussion(m.name);
-    if (disc) {
-      const k = `${disc.primaryGuide}_${m.name.toUpperCase().trim()}`;
-      if (!seenGuidesComb.has(k)) {
-        seenGuidesComb.add(k);
-        combNotes.push(`NOTA: SE INDICA ${m.name.toUpperCase()} (${disc.primaryGuide.toUpperCase()}). ${disc.discussionSummary.toUpperCase()}`);
-      }
-    }
-  });
-
-  if (combNotes.length > 0) {
-    combNotes.forEach(cn => printBlock(cn, false, 8));
-  } else {
-    printBlock('NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y PATRÓN CLÍNICO.', false, 8);
-  }
+  // Notas y directrices
+  printBlock('NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y PATRÓN CLÍNICO.', false, 8);
 
   // Firma Orden Oficial
   y = drawDoctorSignatureFooter(doc, y, patient);
