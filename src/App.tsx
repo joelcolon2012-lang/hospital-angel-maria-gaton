@@ -75,6 +75,7 @@ import {
   Clock,
   LogOut,
   UserPlus,
+  ChevronDown,
 } from 'lucide-react';
 
 export default function App() {
@@ -759,8 +760,29 @@ export default function App() {
               onSelectPatient={setActivePatient}
             />
 
-            {/* Dossier Tabs Navigation */}
-            <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-slate-200 overflow-x-auto no-scrollbar flex gap-1">
+            {/* Mobile Quick Dossier Tab Selector (Salto Directo en 1 Toque para iPhone y Android) */}
+            <div className="sm:hidden bg-white rounded-2xl p-2.5 shadow-2xs border border-slate-200">
+              <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 px-1">
+                Sección Activa del Expediente:
+              </label>
+              <div className="relative">
+                <select
+                  value={activeDossierTab}
+                  onChange={(e) => setActiveDossierTab(e.target.value as any)}
+                  className="w-full bg-slate-50 text-slate-900 font-bold text-xs py-2.5 pl-3 pr-8 rounded-xl border border-slate-200 shadow-2xs focus:ring-2 focus:ring-[#0F4C5C] focus:border-[#0F4C5C] appearance-none cursor-pointer touch-manipulation min-h-[42px]"
+                >
+                  {dossierTabs.map((tab) => (
+                    <option key={tab.id} value={tab.id}>
+                      {tab.label} {tab.count !== undefined && tab.count > 0 ? `(${tab.count})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Dossier Tabs Navigation con Desplazamiento Táctil Fluido */}
+            <div className="bg-white rounded-2xl p-1.5 shadow-2xs border border-slate-200 overflow-x-auto no-scrollbar flex gap-1 touch-pan-x scroll-smooth select-none">
               {dossierTabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeDossierTab === tab.id;
@@ -768,10 +790,10 @@ export default function App() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveDossierTab(tab.id as any)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all touch-manipulation min-h-[38px] shrink-0 active:scale-95 ${
                       isActive
-                        ? 'bg-[#0F4C5C] text-white shadow-sm'
-                        : 'text-slate-600 hover:bg-slate-100'
+                        ? 'bg-[#0F4C5C] text-white shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                   >
                     <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-emerald-300' : 'text-slate-500'}`} />

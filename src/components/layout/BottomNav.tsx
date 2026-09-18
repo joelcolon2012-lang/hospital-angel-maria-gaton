@@ -13,12 +13,12 @@ export const BottomNav: React.FC<Props> = ({
   onOpenRegister,
 }) => {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-2 py-1.5 sm:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:hidden select-none">
       <div className="flex items-center justify-around">
         {/* Tablero */}
         <button
           onClick={() => onChangeTab('dashboard')}
-          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all ${
+          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all touch-manipulation min-h-[44px] ${
             activeTab === 'dashboard'
               ? 'text-petrol-900 font-bold'
               : 'text-slate-500 hover:text-slate-800'
@@ -31,7 +31,7 @@ export const BottomNav: React.FC<Props> = ({
         {/* Buscador */}
         <button
           onClick={() => onChangeTab('search')}
-          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all ${
+          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all touch-manipulation min-h-[44px] ${
             activeTab === 'search'
               ? 'text-petrol-900 font-bold'
               : 'text-slate-500 hover:text-slate-800'
@@ -44,7 +44,7 @@ export const BottomNav: React.FC<Props> = ({
         {/* Quick Register FAB in center */}
         <button
           onClick={onOpenRegister}
-          className="flex flex-col items-center justify-center -mt-5 bg-petrol-900 text-white w-13 h-13 rounded-full shadow-lg hover:bg-petrol-800 active:scale-95 transition-all border-4 border-white"
+          className="flex flex-col items-center justify-center -mt-5 bg-petrol-900 text-white w-13 h-13 rounded-full shadow-lg hover:bg-petrol-800 active:scale-95 transition-all border-4 border-white touch-manipulation"
           title="Registrar nuevo paciente"
         >
           <UserPlus className="w-5 h-5" />
@@ -54,7 +54,7 @@ export const BottomNav: React.FC<Props> = ({
         {/* Google Drive */}
         <button
           onClick={() => onChangeTab('drive')}
-          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all ${
+          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all touch-manipulation min-h-[44px] ${
             activeTab === 'drive'
               ? 'text-petrol-900 font-bold'
               : 'text-slate-500 hover:text-slate-800'
@@ -67,7 +67,7 @@ export const BottomNav: React.FC<Props> = ({
         {/* Estadísticas */}
         <button
           onClick={() => onChangeTab('stats')}
-          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all ${
+          className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all touch-manipulation min-h-[44px] ${
             activeTab === 'stats'
               ? 'text-petrol-900 font-bold'
               : 'text-slate-500 hover:text-slate-800'
