@@ -515,3 +515,4 @@ export interface Patient {
 }
 
 export * from './clinicalHistoryPlanta';
+export * from './patientMaster';

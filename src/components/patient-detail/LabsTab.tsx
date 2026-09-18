@@ -6,6 +6,7 @@ import { parseParaclinicalText, ExtractedLabItem } from '../../services/ocrServi
 
 import { HemogramPhotoModal } from '../labs/HemogramPhotoModal';
 import { ChemistryPhotoModal } from '../labs/ChemistryPhotoModal';
+import { FastPasteLabsModal } from '../labs/FastPasteLabsModal';
 
 interface Props {
   patientId: string;
@@ -31,6 +32,7 @@ export const LabsTab: React.FC<Props> = ({
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [isHemogramModalOpen, setIsHemogramModalOpen] = useState(false);
   const [isChemistryModalOpen, setIsChemistryModalOpen] = useState(false);
+  const [isFastPasteModalOpen, setIsFastPasteModalOpen] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
 
   // Manual Add Form
@@ -220,6 +222,17 @@ export const LabsTab: React.FC<Props> = ({
           >
             <FileText className="w-3.5 h-3.5 text-slate-600" />
             <span>Texto / OCR</span>
+          </button>
+
+          {/* Pegado Rápido Inteligente (Fases 11-13) */}
+          <button
+            type="button"
+            onClick={() => setIsFastPasteModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white transition-all active:scale-95 shadow-sm"
+            title="Pegado rápido inteligente de cualquier formato de texto de paraclínicos"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-teal-200" />
+            <span>Pegado Rápido</span>
           </button>
 
           {/* Quick Save & Auto-Download */}
@@ -585,6 +598,14 @@ export const LabsTab: React.FC<Props> = ({
         patientId={patientId}
         patientAge={patientAge}
         patientSex={patientSex}
+        onSaveLabs={handleSaveBatchLabs}
+      />
+
+      {/* Pegado Rápido Inteligente Modal (Fases 11-13) */}
+      <FastPasteLabsModal
+        isOpen={isFastPasteModalOpen}
+        onClose={() => setIsFastPasteModalOpen(false)}
+        patientId={patientId}
         onSaveLabs={handleSaveBatchLabs}
       />
     </div>

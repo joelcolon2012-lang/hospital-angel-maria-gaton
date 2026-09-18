@@ -54,6 +54,7 @@ import { DocumentExporterModal } from './components/documents/DocumentExporterMo
 import { GoogleDriveModal } from './components/documents/GoogleDriveModal';
 import { ImageCompareModal } from './components/image-tools/ImageCompareModal';
 import { QuickCalculatorBar } from './components/common/QuickCalculatorBar';
+import { UnifiedClinicalDocumentModal, UnifiedDocType } from './components/documents/UnifiedClinicalDocumentModal';
 import { HospitalNotesModal, HospitalDocType } from './components/documents/HospitalNotesModal';
 import { MedicalOrderPrintModal } from './components/documents/MedicalOrderPrintModal';
 import { CloudSyncModal } from './components/documents/CloudSyncModal';
@@ -113,7 +114,7 @@ export default function App() {
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
   const [isHospitalNotesOpen, setIsHospitalNotesOpen] = useState(false);
-  const [hospitalDocType, setHospitalDocType] = useState<HospitalDocType>('emergencia');
+  const [hospitalDocType, setHospitalDocType] = useState<UnifiedDocType>('emergencia');
   const [isMedicalOrderPrintOpen, setIsMedicalOrderPrintOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isHospitalSettingsOpen, setIsHospitalSettingsOpen] = useState(false);
@@ -1093,14 +1094,30 @@ export default function App() {
       />
 
       {activePatient && (
-        <HospitalNotesModal
+        <UnifiedClinicalDocumentModal
           patient={activePatient}
           orders={currentPatientOrders}
           labs={currentPatientLabs}
           studies={currentPatientStudies}
+          evolutions={currentPatientEvolutions}
           isOpen={isHospitalNotesOpen}
           onClose={() => setIsHospitalNotesOpen(false)}
           initialDocType={hospitalDocType}
+          onSavePatientEvolution={async (text) => {
+            if (activePatient) {
+              await handleAddEvolution({
+                patientId: activePatient.id,
+                timestamp: new Date().toISOString(),
+                doctorName: currentUser.name || 'Dr. Joel Colón',
+                vitalSignsSummary: 'Signos vitales registrados al momento de la nota',
+                clinicalChanges: text,
+                newResults: '',
+                problemReevaluation: 'Documento clínico archivado en evoluciones',
+                updatedDiagnoses: activePatient.chiefComplaint || '',
+                conduct: 'Continuar plan terapéutico hospitalario'
+              });
+            }
+          }}
         />
       )}
 
