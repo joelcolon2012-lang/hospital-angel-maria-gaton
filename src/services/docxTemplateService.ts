@@ -153,6 +153,15 @@ function createDocxParagraphXml(text: string, isBold: boolean = false, isCentere
 /**
  * Genera el XML de un salto de página oficial en Word
  */
+
+/**
+ * Extrae el párrafo del logo institucional (<w:drawing>) de la plantilla original
+ */
+function extractLogoParagraphXml(xml: string): string {
+  const match = xml.match(/<w:p\b(?:(?!<w:p[\s>])[\s\S])*?<w:drawing[\s\S]*?<\/w:p>/);
+  return match ? match[0] : '';
+}
+
 function createDocxPageBreakXml(): string {
   return `
     <w:p>
@@ -339,9 +348,11 @@ export async function generateEmergencyNoteDocx(
 
     // Reconstruir word/document.xml
     let xml = zip.file('word/document.xml')?.asText() || '';
+    const logoParagraphXml = extractLogoParagraphXml(xml);
 
     // Reemplazo inteligente de párrafos manteniendo XML
     const newParagraphs: string[] = [
+      ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
       createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 100),
       createDocxParagraphXml('NOTA DE INGRESO EMERGENCIA', true, true, 200),
@@ -418,7 +429,7 @@ export async function generateWardTransferNoteDocx(
 
     const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${ageText} FECHA: ${date} SALA: ${ward.toUpperCase()} HORA: ${time}`;
 
-    const historyNarrative = `SE RECIBE EN SALA CLÍNICA PACIENTE ${sexText} DE ${ageText} DE EDAD, PROCEDENTE DEL SERVICIO DE EMERGENCIAS / UCI, DONDE RECIBIÓ ATENCIÓN Y ESTABILIZACIÓN INICIAL POR CUADRO DE ${patient.chiefComplaint?.toUpperCase() || 'PATOLOGÍA CLÍNICA AGUDA'}. ANTECEDENTES MÓRBIDOS: ${patient.clinicalHistory?.pathologicalHistory?.toUpperCase() || 'NEGADOS'}. ANTECEDENTES QUIRÚRGICOS: ${patient.clinicalHistory?.surgicalHistory?.toUpperCase() || 'NEGADOS'}. ALERGIAS: ${patient.clinicalHistory?.allergicHistory?.toUpperCase() || 'NEGADAS'}. DURANTE SU ESTANCIA HOSPITALARIA PREVIA CURSA CON EVOLUCIÓN ESTABLE, TOLERANDO MEDIDAS GENERALES Y TRATAMIENTO MÉDICO INDICADO.`;
+    const historyNarrative = cleanAndDeduplicateNarrative(`SE RECIBE EN SALA CLÍNICA PACIENTE ${sexText} DE ${ageText} DE EDAD, PROCEDENTE DEL SERVICIO DE EMERGENCIAS / UCI, DONDE RECIBIÓ ATENCIÓN Y ESTABILIZACIÓN INICIAL POR CUADRO DE ${patient.chiefComplaint?.toUpperCase() || 'PATOLOGÍA CLÍNICA AGUDA'}. ANTECEDENTES MÓRBIDOS: ${patient.clinicalHistory?.pathologicalHistory?.toUpperCase() || 'NEGADOS'}. ANTECEDENTES QUIRÚRGICOS: ${patient.clinicalHistory?.surgicalHistory?.toUpperCase() || 'NEGADOS'}. ALERGIAS: ${patient.clinicalHistory?.allergicHistory?.toUpperCase() || 'NEGADAS'}. DURANTE SU ESTANCIA HOSPITALARIA PREVIA CURSA CON EVOLUCIÓN ESTABLE, TOLERANDO MEDIDAS GENERALES Y TRATAMIENTO MÉDICO INDICADO.`);
 
     const v = patient.vitals || {};
     const bpText = (v.systolicBP && v.diastolicBP) ? `${v.systolicBP}/${v.diastolicBP} MMHG` : '120/80 MMHG';
@@ -443,8 +454,10 @@ export async function generateWardTransferNoteDocx(
     const therapeuticText = 'PLAN: CONTINUAR MANEJO EN SALA CLÍNICA POR MEDICINA INTERNA. ' + buildCleanHospitalManagement(orders).replace('EN CUANTO AL MANEJO: ', '');
 
     let xml = zip.file('word/document.xml')?.asText() || '';
+    const logoParagraphXml = extractLogoParagraphXml(xml);
 
     const newParagraphs: string[] = [
+      ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
       createDocxParagraphXml('SERVICIO DE MEDICINA INTERNA — SALA CLÍNICA', true, true, 100),
       createDocxParagraphXml('NOTA DE TRASLADO Y RECIBIMIENTO EN SALA', true, true, 200),
@@ -531,8 +544,10 @@ export async function generateMedicalOrderDocx(
     const paraclinics = orders.filter(o => o.type === 'Estudio' || o.type === 'Procedimiento' || o.type === 'Interconsulta');
 
     let xml = zip.file('word/document.xml')?.asText() || '';
+    const logoParagraphXml = extractLogoParagraphXml(xml);
 
     const newParagraphs: string[] = [
+      ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
       createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 100),
       createDocxParagraphXml('ORDEN MEDICA', true, true, 200),
@@ -642,11 +657,15 @@ export async function generateCombinedNoteAndOrderDocx(
     const { date, time } = getFormattedDateTime(patient.arrivalDateTime || patient.createdAt);
     const { docName, exequatur } = resolveDoctorSignature(patient, options);
 
+    let xml = zip.file('word/document.xml')?.asText() || '';
+    const logoParagraphXml = extractLogoParagraphXml(xml);
+
     const paragraphs: string[] = [];
 
     // ==========================================
     // SECCIÓN 1: NOTA CLÍNICA DE INGRESO / SALA
     // ==========================================
+    if (logoParagraphXml) paragraphs.push(logoParagraphXml);
     paragraphs.push(createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40));
     paragraphs.push(createDocxParagraphXml(isSala ? 'SERVICIO DE MEDICINA INTERNA — SALA CLÍNICA' : 'SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80));
     paragraphs.push(createDocxParagraphXml(isSala ? 'NOTA DE RECIBIMIENTO EN SALA' : 'NOTA DE INGRESO EMERGENCIA', true, true, 180));
@@ -670,7 +689,16 @@ export async function generateCombinedNoteAndOrderDocx(
                     patient.chiefComplaint?.toUpperCase() || 
                     'CUADRO CLÍNICO DE EVALUACIÓN MÉDICA';
 
-    const historyNarrative = `SE TRATA DE PACIENTE ${sexText} DE ${ageText} DE EDAD, CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${morbidText}, ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, HÁBITOS TÓXICOS ${toxicText}, ALERGIAS ${allergicText}. REFIERE ${hdaText}, MOTIVO POR EL CUAL ES INGRESADO EN NUESTRO CENTRO DE SALUD TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.`;
+    const rawHdaCombined = (patient.clinicalHistory?.currentIllnessHistory || patient.chiefComplaint || '').trim();
+    const pureHdaCombined = ClinicalDataNormalizer.extractPureIllnessHistory(rawHdaCombined);
+
+    let historyNarrative = '';
+    if (/^SE\s+TRATA\s+DE\s+PACIENTE/i.test(rawHdaCombined)) {
+      historyNarrative = rawHdaCombined.toUpperCase();
+    } else {
+      historyNarrative = `SE TRATA DE PACIENTE ${sexText} DE ${ageText} DE EDAD, CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${morbidText}, ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, HÁBITOS TÓXICOS ${toxicText}, ALERGIAS ${allergicText}. REFIERE ${pureHdaCombined || 'CUADRO CLÍNICO DE EVALUACIÓN MÉDICA EN EMERGENCIA'}.`;
+    }
+    historyNarrative = cleanAndDeduplicateNarrative(historyNarrative);
     paragraphs.push(createDocxParagraphXml(historyNarrative, false, false, 160));
 
     // Examen físico y paraclínicos
@@ -723,6 +751,7 @@ export async function generateCombinedNoteAndOrderDocx(
     // ==========================================
     // SECCIÓN 2: HOJA DE ÓRDENES MÉDICAS OFICIAL
     // ==========================================
+    if (logoParagraphXml) paragraphs.push(logoParagraphXml);
     paragraphs.push(createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40));
     paragraphs.push(createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80));
     paragraphs.push(createDocxParagraphXml('ORDEN MEDICA', true, true, 180));
@@ -802,7 +831,6 @@ export async function generateCombinedNoteAndOrderDocx(
     paragraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
 
     // Ensamblar en XML
-    let xml = zip.file('word/document.xml')?.asText() || '';
     const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
     if (bodyMatch) {
       const sectPrMatch = xml.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
@@ -849,8 +877,10 @@ export async function generateFinalDispositionDocx(
     const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()}  EDAD: ${ageText}  EXP/CÉD: ${recordNum.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
 
     let xml = zip.file('word/document.xml')?.asText() || '';
+    const logoParagraphXml = extractLogoParagraphXml(xml);
 
     const newParagraphs: string[] = [
+      ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
       createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80),
       createDocxParagraphXml('DISPOSICIÓN FINAL Y DOCUMENTO DE EGRESO / TRASLADO', true, true, 180),
@@ -939,8 +969,10 @@ export async function generateEvolutionDocx(
     const diagList = rawDiag.split(/[\n,;]+/).map(d => d.trim().toUpperCase()).filter(Boolean);
 
     let xml = zip.file('word/document.xml')?.asText() || '';
+    const logoParagraphXml = extractLogoParagraphXml(xml);
 
     const newParagraphs: string[] = [
+      ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
       createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80),
       createDocxParagraphXml('NOTA DE EVOLUCIÓN MÉDICA HOSPITALARIA', true, true, 160),

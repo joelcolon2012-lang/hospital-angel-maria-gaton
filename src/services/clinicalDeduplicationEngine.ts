@@ -211,7 +211,25 @@ export class ClinicalDeduplicationEngine {
   public static deduplicateNarrativeText(text: string): string {
     if (!text) return '';
 
-    const lines = text.split('\n');
+    let result = text;
+
+    // 1. Eliminar duplicación inicial de presentación ("SE TRATA DE PACIENTE ... REFIERE ... SE TRATA DE PACIENTE ...")
+    const doublePresentationRegex = /^[\s\S]*?SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*?\bREFIERE\s+(?:PACIENTE\s+QUE\s+(?:EST[EA]\s+)?)?(SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*)/i;
+    const matchDouble = result.match(doublePresentationRegex);
+    if (matchDouble) {
+      result = matchDouble[1].trim();
+    }
+
+    // 2. Normalizar y consolidar variantes acumuladas de cierre de ingreso al final de la narrativa
+    const hasAdmissionClosing = /MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?|SE\s+DECIDE\s+SU\s+INGRESO|TRAS\s+(?:PREVIA\s+)?EVALUACI[OÓ]N/i.test(result);
+    if (hasAdmissionClosing) {
+      result = result.replace(/[,;\s.]*\b(?:MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?|SE\s+DECIDE\s+SU\s+INGRESO)[\s\S]*$/i, '').trim();
+      result = result.replace(/[,;\s.]*\bTRAS\s+(?:PREVIA\s+)?EVALUACI[OÓ]N[\s\S]*$/i, '').trim();
+      result = result.replace(/[,;\s.]*$/, '').trim();
+      result += '. MOTIVO POR EL CUAL ES TRAÍDO A NUESTRO CENTRO DE SALUD. TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.';
+    }
+
+    const lines = result.split('\n');
     const seenLines = new Set<string>();
     const dedupedLines: string[] = [];
 
@@ -223,7 +241,7 @@ export class ClinicalDeduplicationEngine {
       }
 
       // Preservar líneas de encabezado institucional
-      if (trimmed.includes(':HOSPITAL') || trimmed.includes('H  DR.') || trimmed.length < 5) {
+      if (trimmed.includes(':HOSPITAL') || trimmed.includes('H  DR.') || trimmed.includes('H DR.') || trimmed.length < 5) {
         dedupedLines.push(line);
         continue;
       }
@@ -254,6 +272,17 @@ export class ClinicalDeduplicationEngine {
       }
     }
 
-    return dedupedLines.join('\n');
+    let finalStr = dedupedLines.join('\n');
+    finalStr = finalStr.replace(/\b(paciente)\s+\1\b/gi, '$1');
+    finalStr = finalStr.replace(/\b(masculino|femenina|femenino)\s+\1\b/gi, '$1');
+    finalStr = finalStr.replace(/\b(de)\s+\1\b/gi, '$1');
+    finalStr = finalStr.replace(/\bESTÁ\s+SE\b/gi, 'ESTA SE');
+    finalStr = finalStr.replace(/\|\s*/g, '');
+    finalStr = finalStr.replace(/\.\s*\./g, '.');
+    finalStr = finalStr.replace(/,\s*,/g, ',');
+    finalStr = finalStr.replace(/\s+([.,;:])/g, '$1');
+    finalStr = finalStr.replace(/[ ]{2,}/g, ' ');
+
+    return finalStr;
   }
 }

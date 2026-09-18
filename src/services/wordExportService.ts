@@ -7,7 +7,8 @@
  */
 
 import { Patient, MedicalOrder, LabResult, MedicalStudy } from '../types';
-import { generateIndividualMedicalOrder, generateEmergencyAdmissionNote, generateInternalMedicineWardAdmissionNote } from './hospitalNoteGenerator';
+import { generateIndividualMedicalOrder, generateEmergencyAdmissionNote, generateInternalMedicineWardAdmissionNote, cleanAndDeduplicateNarrative } from './hospitalNoteGenerator';
+import { FALLBACK_LOGO_BASE64 } from './templatesFallback';
 
 /**
  * Descarga en el navegador un archivo .doc formateado
@@ -202,18 +203,8 @@ export function exportMedicalOrderToWord(patient: Patient, orders: MedicalOrder[
     .filter(Boolean);
 
   let body = `
-    <div class="hospital-header">
-      <table align="center" style="margin: 0 auto; border: none;">
-        <tr>
-          <td style="padding-right: 10px; vertical-align: middle;">
-            <div style="background-color: #0284c7; color: white; font-family: Arial, sans-serif; font-size: 20pt; font-weight: bold; width: 34px; height: 34px; line-height: 34px; text-align: center; border-radius: 6px;">H</div>
-          </td>
-          <td style="text-align: left; vertical-align: middle;">
-            <div style="font-size: 8pt; font-weight: bold; color: #0e7490; letter-spacing: 1.5px; text-transform: uppercase;">:HOSPITAL</div>
-            <div style="font-size: 13pt; font-weight: bold; color: #0284c7; letter-spacing: 1px; text-transform: uppercase;">DR. ÁNGEL MARÍA GATÓN</div>
-          </td>
-        </tr>
-      </table>
+    <div class="hospital-header" style="text-align: center; margin-bottom: 20px;">
+      <img src="data:image/jpeg;base64,${FALLBACK_LOGO_BASE64}" width="280" style="width: 280px; max-width: 100%; height: auto; display: block; margin: 0 auto;" alt="Hospital Regional Dr. Ángel María Gatón" />
     </div>
 
     <div class="doc-title">ORDEN MEDICA</div>
@@ -289,7 +280,8 @@ export function exportAdmissionNoteToWord(
 
   // Extraer el texto narrativo eliminando cabeceras
   const narrativeStart = rawNoteText.indexOf('SE TRATA DE PACIENTE');
-  const cleanNarrative = narrativeStart !== -1 ? rawNoteText.substring(narrativeStart) : rawNoteText;
+  const rawNarrative = narrativeStart !== -1 ? rawNoteText.substring(narrativeStart) : rawNoteText;
+  const cleanNarrative = cleanAndDeduplicateNarrative(rawNarrative);
 
   // Dividir entre narrativa previa a diagnósticos, diagnósticos y manejo
   const diagMarker = 'POR LO QUE SE DEJA BAJO DIAGNÓSTICOS DE:';
@@ -314,18 +306,8 @@ export function exportAdmissionNoteToWord(
     .filter(Boolean);
 
   let body = `
-    <div class="hospital-header">
-      <table align="center" style="margin: 0 auto; border: none;">
-        <tr>
-          <td style="padding-right: 10px; vertical-align: middle;">
-            <div style="background-color: #0284c7; color: white; font-family: Arial, sans-serif; font-size: 20pt; font-weight: bold; width: 34px; height: 34px; line-height: 34px; text-align: center; border-radius: 6px;">H</div>
-          </td>
-          <td style="text-align: left; vertical-align: middle;">
-            <div style="font-size: 8pt; font-weight: bold; color: #0e7490; letter-spacing: 1.5px; text-transform: uppercase;">:HOSPITAL</div>
-            <div style="font-size: 13pt; font-weight: bold; color: #0284c7; letter-spacing: 1px; text-transform: uppercase;">DR. ÁNGEL MARÍA GATÓN</div>
-          </td>
-        </tr>
-      </table>
+    <div class="hospital-header" style="text-align: center; margin-bottom: 20px;">
+      <img src="data:image/jpeg;base64,${FALLBACK_LOGO_BASE64}" width="280" style="width: 280px; max-width: 100%; height: auto; display: block; margin: 0 auto;" alt="Hospital Regional Dr. Ángel María Gatón" />
     </div>
 
     <div class="doc-title">${title}</div>
@@ -385,18 +367,8 @@ export function exportClinicalHistoryToWord(patient: Patient) {
   };
 
   let body = `
-    <div class="hospital-header">
-      <table align="center" style="margin: 0 auto; border: none;">
-        <tr>
-          <td style="padding-right: 10px; vertical-align: middle;">
-            <div style="background-color: #0284c7; color: white; font-family: Arial, sans-serif; font-size: 20pt; font-weight: bold; width: 34px; height: 34px; line-height: 34px; text-align: center; border-radius: 6px;">H</div>
-          </td>
-          <td style="text-align: left; vertical-align: middle;">
-            <div style="font-size: 8pt; font-weight: bold; color: #0e7490; letter-spacing: 1.5px; text-transform: uppercase;">:HOSPITAL</div>
-            <div style="font-size: 13pt; font-weight: bold; color: #0284c7; letter-spacing: 1px; text-transform: uppercase;">DR. ÁNGEL MARÍA GATÓN</div>
-          </td>
-        </tr>
-      </table>
+    <div class="hospital-header" style="text-align: center; margin-bottom: 20px;">
+      <img src="data:image/jpeg;base64,${FALLBACK_LOGO_BASE64}" width="280" style="width: 280px; max-width: 100%; height: auto; display: block; margin: 0 auto;" alt="Hospital Regional Dr. Ángel María Gatón" />
     </div>
 
     <div class="doc-title">HISTORIA CLÍNICA Y EXAMEN FÍSICO</div>

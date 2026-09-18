@@ -131,11 +131,6 @@ export class ClinicalDocumentBuilder {
 
     if (/^SE\s+TRATA\s+DE\s+PACIENTE/i.test(rawHda)) {
       p1 = rawHda.toUpperCase();
-      if (!/SE\s+DECIDE\s+SU\s+INGRESO/i.test(p1)) {
-        p1 += ' TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. ';
-      } else {
-        p1 += ' ';
-      }
     } else {
       p1 = `SE TRATA DE PACIENTE ${sexoStr} DE ${ageStr} DE EDAD, `;
 
@@ -182,8 +177,10 @@ export class ClinicalDocumentBuilder {
         p1 += `TRANSFUSIONES PREVIAS: ${h.transfusionalHistory.toUpperCase()}, `;
       }
 
-      p1 += `REFIERE ${pureHda || 'CUADRO CLÍNICO DE EVOLUCIÓN RECIENTE'}, MOTIVO POR EL CUAL ACUDE A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
+      p1 += `REFIERE ${pureHda || 'CUADRO CLÍNICO DE EVOLUCIÓN RECIENTE'}. `;
     }
+
+    p1 = ClinicalDeduplicationEngine.deduplicateNarrativeText(p1) + ' ';
 
     // Estado actual y signos vitales
     p1 += `ACTUALMENTE PACIENTE ALERTA, CON ADECUADA MECÁNICA VENTILATORIA, AFEBRIL, TOLERANDO AIRE AMBIENTE Y VÍA ORAL, `;

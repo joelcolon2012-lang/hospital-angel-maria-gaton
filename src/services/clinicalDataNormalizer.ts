@@ -217,11 +217,18 @@ export class ClinicalDataNormalizer {
     if (!rawHda) return '';
     let text = this.cleanWhitespace(rawHda);
 
-    // Si ya contiene la fórmula de presentación "SE TRATA DE PACIENTE...", buscar dónde inicia el cuadro clínico
-    const refiereMatch = text.match(/REFIERE\s+(?:PACIENTE\s+)?(?:QUE\s+)?(.+)/i);
-    if (refiereMatch) {
+    // Caso 1: Detección y eliminación de doble presentación sintética
+    // ej: "SE TRATA DE PACIENTE ... REFIERE SE TRATA DE PACIENTE ..."
+    const doublePresMatch = text.match(/^[\s\S]*?SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*?\bREFIERE\s+(?:PACIENTE\s+QUE\s+(?:EST[EA]\s+)?)?(SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*)/i);
+    if (doublePresMatch) {
+      text = doublePresMatch[1];
+    }
+
+    // Caso 2: Si ya contiene la fórmula de presentación "SE TRATA DE PACIENTE...", buscar dónde inicia el cuadro clínico
+    const refiereMatch = text.match(/\bREFIERE\s+(?:PACIENTE\s+)?(?:QUE\s+)?(?:EST[EA]\s+)?(.+)/i);
+    if (refiereMatch && !/^SE\s+TRATA\s+DE\s+PACIENTE/i.test(refiereMatch[1])) {
       text = refiereMatch[1];
-    } else {
+    } else if (!/^SE\s+TRATA\s+DE\s+PACIENTE/i.test(text)) {
       const iniciaMatch = text.match(/(?:INICIA|PRESENTA|CON)\s+CUADRO\s+CL[IÍ]NICO\s+(.+)/i);
       if (iniciaMatch) {
         text = 'SE ENCONTRABA EN SU ESTADO HABITUAL HASTA QUE ' + iniciaMatch[0];
@@ -229,11 +236,9 @@ export class ClinicalDataNormalizer {
     }
 
     // Quitar coletillas finales de derivación o ingreso que se generan programáticamente
-    text = text.replace(/MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?\s+(?:ACUDE|ES\s+TRA[IÍ]D[OA]|ES\s+REFERID[OA]|CONSULTA).*$/i, '');
-    text = text.replace(/TRAS\s+PREVIA\s+EVALUACI[OÓ]N\s+CL[IÍ]NICA\s+Y\s+PARACL[IÍ]NICA\s+SE\s+DECIDE\s+SU\s+INGRESO.*$/i, '');
-    text = text.replace(/TRAS\s+EVALUACI[OÓ]N\s+DE\s+CL[IÍ]NICA\s+Y\s+PARA\s*CL[IÍ]NICA.*$/i, '');
-    text = text.replace(/SE\s+DECIDE\s+SU\s+INGRESO\s+CON\s+FINES\s+DIAGN[OÓ]STICOS.*$/i, '');
-    text = text.replace(/,\s*MOTIVO\s+POR\s+EL\s+CUAL.*$/i, '');
+    text = text.replace(/[,;\s.]*\b(?:MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?|SE\s+DECIDE\s+SU\s+INGRESO)[\s\S]*$/i, '');
+    text = text.replace(/[,;\s.]*\bTRAS\s+(?:PREVIA\s+)?EVALUACI[OÓ]N[\s\S]*$/i, '');
+    text = text.replace(/[,;\s.]*$/, '');
 
     return text.trim();
   }

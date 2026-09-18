@@ -203,7 +203,28 @@ export function extractScalesAndDiagnoses(rawText: string = ''): ClinicalImpress
  * Motor de limpieza y anti-repeticiones para notas clínicas
  */
 export function cleanAndDeduplicateNarrative(text: string): string {
-  const lines = text.split('\n');
+  if (!text) return '';
+
+  let result = text;
+
+  // 1. Eliminar duplicación inicial de presentación ("SE TRATA DE PACIENTE ... REFIERE ... SE TRATA DE PACIENTE ...")
+  const doublePresentationRegex = /^[\s\S]*?SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*?\bREFIERE\s+(?:PACIENTE\s+QUE\s+(?:EST[EA]\s+)?)?(SE\s+TRATA\s+DE\s+PACIENTE[\s\S]*)/i;
+  const matchDouble = result.match(doublePresentationRegex);
+  if (matchDouble) {
+    result = matchDouble[1].trim();
+  }
+
+  // 2. Normalizar y consolidar variantes acumuladas de cierre de ingreso al final de la narrativa
+  const hasAdmissionClosing = /MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?|SE\s+DECIDE\s+SU\s+INGRESO|TRAS\s+(?:PREVIA\s+)?EVALUACI[OÓ]N/i.test(result);
+  if (hasAdmissionClosing) {
+    result = result.replace(/[,;\s.]*\b(?:MOTIVOS?\s+POR\s+(?:LOS?\s+)?CUAL(?:ES)?|SE\s+DECIDE\s+SU\s+INGRESO)[\s\S]*$/i, '').trim();
+    result = result.replace(/[,;\s.]*\bTRAS\s+(?:PREVIA\s+)?EVALUACI[OÓ]N[\s\S]*$/i, '').trim();
+    result = result.replace(/[,;\s.]*$/, '').trim();
+    result += '. MOTIVO POR EL CUAL ES TRAÍDO A NUESTRO CENTRO DE SALUD. TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.';
+  }
+
+  // 3. Deduplicar oraciones idénticas por líneas
+  const lines = result.split('\n');
   const seenLines = new Set<string>();
   const dedupedLines: string[] = [];
 
@@ -214,7 +235,7 @@ export function cleanAndDeduplicateNarrative(text: string): string {
       continue;
     }
     // Encabezados institucionales se preservan
-    if (trimmed.includes(':HOSPITAL') || trimmed.includes('H DR.') || trimmed.length < 5) {
+    if (trimmed.includes(':HOSPITAL') || trimmed.includes('H DR.') || trimmed.includes('H  DR.') || trimmed.length < 5) {
       dedupedLines.push(line);
       continue;
     }
@@ -243,26 +264,24 @@ export function cleanAndDeduplicateNarrative(text: string): string {
     }
   }
 
-  let result = dedupedLines.join('\n');
+  result = dedupedLines.join('\n');
+
+  // 4. Corrección de tartamudeos léxicos y signos de puntuación
   result = result.replace(/\b(paciente)\s+\1\b/gi, '$1');
   result = result.replace(/\b(masculino|femenina|femenino)\s+\1\b/gi, '$1');
   result = result.replace(/\b(de)\s+\1\b/gi, '$1');
+  result = result.replace(/\b(niega)\s+\1\b/gi, '$1');
+  result = result.replace(/\b(alergias)\s+\1\b/gi, '$1');
+  result = result.replace(/\b(antecedentes)\s+\1\b/gi, '$1');
+  result = result.replace(/\b(quir[uú]rgicos)\s+\1\b/gi, '$1');
+  result = result.replace(/\b(t[oó]xicos)\s+\1\b/gi, '$1');
+  result = result.replace(/\bESTÁ\s+SE\b/gi, 'ESTA SE');
   result = result.replace(/\|\s*/g, '');
   result = result.replace(/\.\s*\./g, '.');
   result = result.replace(/,\s*,/g, ',');
   result = result.replace(/\s+([.,;:])/g, '$1');
+  result = result.replace(/([.,;:])([A-ZÁÉÍÓÚÑ])/g, '$1 $2');
   result = result.replace(/[ ]{2,}/g, ' ');
-
-  // Eliminar cierre de ingreso si aparece duplicado en el texto
-  const admissionClause = /MOTIVO\s+POR\s+EL\s+CUAL\s+ES\s+TRA[IÍ]DO\s+A\s+NUESTRO\s+CENTRO\s+DE\s+SALUD\s+DONDE\s+TRAS\s+PREVIA\s+EVALUACI[OÓ]N\s+CL[IÍ]NICA\s+Y\s+PARACL[IÍ]NICA\s+SE\s+DECIDE\s+SU\s+INGRESO\s+CON\s+FINES\s+DIAGN[OÓ]STICOS\s+Y\s+TERAP[EÉ]UTICOS\.?/gi;
-  const matches = result.match(admissionClause);
-  if (matches && matches.length > 1) {
-    let count = 0;
-    result = result.replace(admissionClause, () => {
-      count++;
-      return count === 1 ? matches[0] : '';
-    });
-  }
 
   return result.toUpperCase();
 }
