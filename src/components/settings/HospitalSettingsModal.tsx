@@ -35,7 +35,11 @@ import {
   AlertCircle,
   EyeOff,
   ShieldAlert,
-  Crown
+  Crown,
+  Server,
+  Activity,
+  Globe,
+  Lock
 } from 'lucide-react';
 import { 
   HospitalSettings, 
@@ -54,7 +58,7 @@ import { quickOptionsService, DEFAULT_QUICK_OPTIONS } from '../../services/quick
 import { CustomNormalExamModal } from './CustomNormalExamModal';
 import { authService } from '../../services/authService';
 import { GeminiClinicalService } from '../../services/ai/GeminiClinicalService';
-import { geminiService } from '../../services/ai/geminiService';
+import { geminiService, GeminiTelemetryStatus } from '../../services/ai/geminiService';
 
 export const DEFAULT_HEADER_LAYOUT: HeaderLayoutConfig = {
   showHospitalLogo: true,
@@ -131,10 +135,11 @@ export const HospitalSettingsModal: React.FC<Props> = ({
   const [newUserPin, setNewUserPin] = useState('1234');
   const [userSuccessMsg, setUserSuccessMsg] = useState('');
 
-  // Estado Gemini AI
+  // Estado Gemini AI & Telemetría Backend
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [geminiTelemetry, setGeminiTelemetry] = useState<GeminiTelemetryStatus | null>(null);
+  const [backendUrl, setBackendUrl] = useState<string>(() => geminiService.getBaseUrl());
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
 
@@ -305,14 +310,14 @@ export const HospitalSettingsModal: React.FC<Props> = ({
       }
       localStorage.setItem('hospital_general_settings', JSON.stringify(settings));
 
-      // Guardar clave API en servidor backend de forma segura (sin exponer en localStorage)
-      if (settings.geminiApiKey !== undefined && settings.geminiApiKey.trim()) {
-        await geminiService.saveServerApiKey(settings.geminiApiKey.trim());
+      // Guardar URL de Backend independiente si fue modificada
+      if (backendUrl !== undefined) {
+        geminiService.setBaseUrl(backendUrl);
       }
       if (settings.geminiModel) {
         geminiService.setActiveModel(settings.geminiModel);
       }
-      // Limpiar cualquier residuo previo en localStorage
+      // Limpiar cualquier residuo previo en localStorage por seguridad absoluta
       try {
         localStorage.removeItem('hospital_gemini_api_key');
         localStorage.removeItem('hospital_gemini_model');
@@ -341,21 +346,36 @@ export const HospitalSettingsModal: React.FC<Props> = ({
     }
   };
 
-  // Probar conexión con Gemini
+  // Probar conexión con Gemini (Frontend -> Backend Render -> Google Gemini API)
   const handleTestGeminiConnection = async () => {
     setIsTestingGemini(true);
     setGeminiTestResult(null);
     try {
-      const keyToTest = settings.geminiApiKey?.trim();
-      const res = await geminiService.testGeminiConnection(keyToTest || undefined);
-      setGeminiTestResult(res);
-      if (res.model) {
-        setSettings(s => ({ ...s, geminiModel: res.model }));
+      if (backendUrl !== undefined) {
+        geminiService.setBaseUrl(backendUrl);
+      }
+      const telemetry = await geminiService.testConnectionFull();
+      setGeminiTelemetry(telemetry);
+      setGeminiTestResult({
+        success: telemetry.geminiConnected,
+        message: telemetry.message,
+      });
+      if (telemetry.model && telemetry.model !== 'Desconectado' && telemetry.model !== 'Sin respuesta' && telemetry.model !== 'Error de autenticación') {
+        setSettings(s => ({ ...s, geminiModel: telemetry.model }));
       }
     } catch (err: any) {
+      const errorMsg = 'No fue posible contactar el servidor de inteligencia artificial.';
+      setGeminiTelemetry({
+        backendConnected: false,
+        geminiConnected: false,
+        model: 'Desconectado',
+        latencyMs: 0,
+        checkedAt: new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        message: errorMsg,
+      });
       setGeminiTestResult({
         success: false,
-        message: 'No se pudo establecer conexión con Gemini. El sistema intentará utilizar otro modelo disponible.',
+        message: errorMsg,
       });
     } finally {
       setIsTestingGemini(false);
@@ -887,48 +907,154 @@ export const HospitalSettingsModal: React.FC<Props> = ({
               </div>
 
               {/* Configuración de API Key */}
-              <div className="bg-slate-50 rounded-2xl p-4.5 border border-slate-200 space-y-4">
-                <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2 text-[#0F4C5C]">
-                  <Key className="w-4 h-4" />
-                  <span>Credenciales de Google AI Studio (Gemini API)</span>
-                </h4>
-
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700">
-                    Gemini API Key:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showGeminiKey ? 'text' : 'password'}
-                      value={settings.geminiApiKey || ''}
-                      disabled={!isSuperAdmin}
-                      onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })}
-                      placeholder="AIzaSy..."
-                      className="w-full px-3.5 py-2.5 pr-20 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-mono focus:ring-2 focus:ring-[#0F4C5C] focus:border-transparent outline-none disabled:bg-slate-100 disabled:cursor-not-allowed"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowGeminiKey(!showGeminiKey)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 px-2 py-1 text-slate-500 hover:text-slate-800 text-xs flex items-center gap-1"
-                    >
-                      {showGeminiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      <span>{showGeminiKey ? 'Ocultar' : 'Ver'}</span>
-                    </button>
+              {/* Panel de Telemetría y Estado de Google Gemini */}
+              <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2 text-[#0F4C5C]">
+                      <Activity className="w-4 h-4 text-[#0F4C5C]" />
+                      <span>ESTADO DE GEMINI & ARQUITECTURA SEGURA</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Frontend en GitHub Pages vinculado al backend independiente seguro en Render (sin exposición de claves).
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    Al guardar, la clave se almacena de forma segura exclusivamente en el servidor backend (<code>GEMINI_API_KEY</code> en <code>.env</code>). Nunca se expone en el código cliente.
-                  </p>
+                  <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      <Lock className="w-3 h-3 text-emerald-700" />
+                      Zero Client-Secrets
+                    </span>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
+                {/* 4 Tarjetas de Telemetría */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Tarjeta 1: Backend */}
+                  <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Server className="w-3.5 h-3.5 text-slate-600" />
+                        Backend (Render)
+                      </span>
+                    </div>
+                    <div>
+                      {geminiTelemetry ? (
+                        geminiTelemetry.backendConnected ? (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Conectado
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                            <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                            Desconectado
+                          </div>
+                        )
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+                          Sin verificar
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate" title={geminiService.getBaseUrl() || 'Proxy / Relativo'}>
+                      {geminiService.getBaseUrl() || 'Modo Local / Proxy'}
+                    </p>
+                  </div>
+
+                  {/* Tarjeta 2: API Gemini */}
+                  <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        API Gemini
+                      </span>
+                    </div>
+                    <div>
+                      {geminiTelemetry ? (
+                        geminiTelemetry.geminiConnected ? (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            Conectado
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                            Desconectado
+                          </div>
+                        )
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+                          Sin verificar
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      Validación end-to-end
+                    </p>
+                  </div>
+
+                  {/* Tarjeta 3: Modelo Activo */}
+                  <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Cpu className="w-3.5 h-3.5 text-teal-600" />
+                        Modelo Activo
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-slate-800 font-mono truncate" title={geminiTelemetry?.model || settings.geminiModel || 'gemini-2.5-flash'}>
+                      {geminiTelemetry?.model && geminiTelemetry.model !== 'Desconectado' && geminiTelemetry.model !== 'Sin respuesta'
+                        ? geminiTelemetry.model
+                        : (settings.geminiModel || 'gemini-2.5-flash')}
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Auto-detección Flash estable
+                    </p>
+                  </div>
+
+                  {/* Tarjeta 4: Latencia & Diagnóstico */}
+                  <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-indigo-600" />
+                        Latencia
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-slate-800">
+                      {geminiTelemetry ? `${geminiTelemetry.latencyMs} ms` : '-- ms'}
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {geminiTelemetry?.checkedAt ? `Última: ${geminiTelemetry.checkedAt}` : 'Última: Ninguna'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Configuración URL Backend & Selector de Modelo */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                  <div className="sm:col-span-6 space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      URL del Backend Render:
+                    </label>
+                    <input
+                      type="text"
+                      value={backendUrl}
+                      disabled={!isSuperAdmin}
+                      onChange={(e) => setBackendUrl(e.target.value)}
+                      placeholder="https://hospital-angel-maria-gaton-api.onrender.com"
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-mono outline-none focus:ring-2 focus:ring-[#0F4C5C] disabled:bg-slate-100 disabled:cursor-not-allowed"
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      Configurado vía <code>VITE_API_BASE_URL</code> o sobreescritura personalizada para este entorno.
+                    </p>
+                  </div>
+
+                  <div className="sm:col-span-6 space-y-1">
+                    <div className="flex items-center justify-between">
                       <label className="block text-xs font-bold text-slate-700">
-                        Modelo Activo de Gemini:
+                        Modelo de Gemini Preferido:
                       </label>
                       {isLoadingModels && (
                         <span className="text-[10px] text-teal-600 font-semibold animate-pulse">
-                          Consultando modelos...
+                          Consultando...
                         </span>
                       )}
                     </div>
@@ -957,34 +1083,50 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                         })
                       )}
                     </select>
+                    <p className="text-[10px] text-slate-500">
+                      Filtrado exclusivamente a modelos compatibles con <code>generateContent</code>.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Botón de Comprobación */}
+                <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Prueba dual: valida <code>/api/health</code> y <code>/api/gemini/test</code> calculando latencia en tiempo real.</span>
                   </div>
 
-                  <div className="flex items-end">
-                    <button
-                      type="button"
-                      onClick={handleTestGeminiConnection}
-                      disabled={isTestingGemini}
-                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{isTestingGemini ? 'Verificando con Google...' : 'Probar Conexión con Gemini'}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTestGeminiConnection}
+                    disabled={isTestingGemini}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F4C5C] hover:bg-[#0c3c49] text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    <Sparkles className="w-4 h-4 text-emerald-300" />
+                    <span>{isTestingGemini ? 'Verificando Backend y Gemini...' : 'Probar Conexión con Gemini'}</span>
+                  </button>
                 </div>
 
                 {/* Resultado de la prueba */}
                 {geminiTestResult && (
-                  <div className={`p-3 rounded-xl border text-xs flex items-center gap-2.5 ${
+                  <div className={`p-3.5 rounded-xl border text-xs flex items-center gap-2.5 transition-all ${
                     geminiTestResult.success
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                       : 'bg-rose-50 border-rose-300 text-rose-900'
                   }`}>
                     {geminiTestResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                     ) : (
-                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
                     )}
-                    <span className="font-semibold">{geminiTestResult.message}</span>
+                    <div className="flex-1">
+                      <span className="font-bold">{geminiTestResult.message}</span>
+                      {geminiTelemetry && (
+                        <span className="block text-[11px] opacity-80 mt-0.5">
+                          Latencia: {geminiTelemetry.latencyMs} ms · Modelo: {geminiTelemetry.model} · Comprobado: {geminiTelemetry.checkedAt}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

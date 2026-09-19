@@ -9,7 +9,10 @@ build/
 
 # Logs y entorno
 .env
+.env.local
+.env.production
 .env.*
+!.env.example
 *.log
 .DS_Store
 Thumbs.db

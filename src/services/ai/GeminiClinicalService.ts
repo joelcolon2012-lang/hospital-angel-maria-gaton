@@ -75,11 +75,7 @@ export class GeminiClinicalService {
     return this.backendConfigured ? 'SERVER_MANAGED_KEY' : '';
   }
 
-  public static async setApiKey(key: string, model?: string) {
-    if (key && key.trim()) {
-      await geminiService.saveServerApiKey(key);
-      this.backendConfigured = true;
-    }
+  public static async setApiKey(_key?: string, model?: string) {
     if (model) {
       geminiService.setActiveModel(model);
     }
@@ -96,8 +92,8 @@ export class GeminiClinicalService {
   /**
    * Valida la conectividad con una llamada real a generateContent a través del backend
    */
-  public static async testConnection(apiKey?: string): Promise<{ success: boolean; message: string }> {
-    return await geminiService.testGeminiConnection(apiKey);
+  public static async testConnection(): Promise<{ success: boolean; message: string }> {
+    return await geminiService.testGeminiConnection();
   }
 
   /**

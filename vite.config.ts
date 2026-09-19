@@ -2,22 +2,6 @@ import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
-import { GeminiBackend } from './src/server/geminiBackend';
-
-function geminiApiPlugin(): Plugin {
-  GeminiBackend.setRootDir(__dirname);
-  const middleware = GeminiBackend.createMiddleware();
-
-  return {
-    name: 'gemini-secure-api-middleware',
-    configureServer(server) {
-      server.middlewares.use(middleware);
-    },
-    configurePreviewServer(server) {
-      server.middlewares.use(middleware);
-    }
-  };
-}
 
 function hospitalDatabasePlugin(): Plugin {
   const dbDir = path.resolve(__dirname, 'database');
@@ -135,10 +119,26 @@ function hospitalDatabasePlugin(): Plugin {
 
 export default defineConfig({
   base: './',
-  plugins: [react(), hospitalDatabasePlugin(), geminiApiPlugin()],
+  plugins: [react(), hospitalDatabasePlugin()],
   server: {
     port: 3000,
     host: true,
-    allowedHosts: true
+    allowedHosts: true,
+    proxy: {
+      '/api/gemini': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
+      }
+    }
+  },
+  preview: {
+    port: 3000,
+    host: true,
+    proxy: {
+      '/api/gemini': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
+      }
+    }
   }
 });

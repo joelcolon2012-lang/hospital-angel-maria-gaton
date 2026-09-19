@@ -2,13 +2,16 @@
  * geminiService: Servicio centralizado para Google Gemini AI
  * Hospital Regional Dr. Ángel María Gatón — Dr. Joel Colón
  *
- * Principio de Seguridad:
- * El frontend NUNCA se comunica directamente con Google Gemini ni almacena la API Key en el cliente.
- * Toda petición viaja: Frontend -> Backend Seguro (/api/gemini/...) -> Google Gemini API.
+ * Arquitectura Segura y Desacoplada:
+ * Frontend (GitHub Pages) -> Backend Independiente (Render HTTPS) -> Google Gemini API
+ *
+ * La API Key NUNCA reside en el cliente ni se expone al navegador.
+ * Las peticiones utilizan VITE_API_BASE_URL para alcanzar el backend en Render.
  */
 
 export interface GeminiGenerateRequest {
-  contents: Array<{
+  prompt?: string;
+  contents?: Array<{
     role?: string;
     parts: Array<{
       text?: string;
@@ -37,16 +40,19 @@ export interface GeminiGenerateResponse {
   error?: string;
 }
 
-export interface GeminiStatus {
-  isConfigured: boolean;
-  currentModel: string;
-  hasEnvKey: boolean;
+export interface GeminiTelemetryStatus {
+  backendConnected: boolean;
+  geminiConnected: boolean;
+  model: string;
+  latencyMs: number;
+  checkedAt: string;
+  message: string;
 }
 
 export class GeminiService {
   private static instance: GeminiService;
   private cachedModels: string[] = [];
-  private selectedModel: string = '';
+  private selectedModel: string = 'gemini-2.5-flash';
   private lastModelsFetch: number = 0;
   private MODELS_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
@@ -60,22 +66,73 @@ export class GeminiService {
   }
 
   /**
-   * Consulta el estado del backend y si la clave API está configurada en el servidor
+   * Obtiene la URL base del backend seguro (Render o local)
    */
-  public async checkStatus(): Promise<GeminiStatus> {
+  public getBaseUrl(): string {
+    // 1. Ver si el usuario configuró una URL en la UI local (override)
     try {
-      const res = await fetch('/api/gemini/status');
-      if (res.ok) {
-        return await res.json();
+      const userConfigured = localStorage.getItem('hospital_backend_api_url');
+      if (userConfigured && userConfigured.trim()) {
+        return userConfigured.trim().replace(/\/$/, '');
       }
-    } catch (e) {
-      console.warn('[geminiService] Error verificando estado backend:', e);
+    } catch {}
+
+    // 2. Variable de entorno Vite (VITE_API_BASE_URL)
+    const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+    if (envUrl && typeof envUrl === 'string' && envUrl.trim()) {
+      return envUrl.trim().replace(/\/$/, '');
     }
-    return {
-      isConfigured: false,
-      currentModel: 'gemini-flash-auto',
-      hasEnvKey: false
-    };
+
+    // 3. Fallback relativo (para desarrollo local con Vite proxy o servidor local)
+    return '';
+  }
+
+  /**
+   * Permite configurar o actualizar la URL del backend en Render desde la interfaz
+   */
+  public setBaseUrl(url: string): void {
+    try {
+      if (url && url.trim()) {
+        localStorage.setItem('hospital_backend_api_url', url.trim().replace(/\/$/, ''));
+      } else {
+        localStorage.removeItem('hospital_backend_api_url');
+      }
+    } catch {}
+  }
+
+  /**
+   * Verifica la salud del backend (/api/health) y calcula la latencia en milisegundos
+   */
+  public async checkHealth(): Promise<{ ok: boolean; status: string; service: string; latencyMs: number }> {
+    const baseUrl = this.getBaseUrl();
+    const startTime = performance.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      const res = await fetch(`${baseUrl}/api/health`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const latencyMs = Math.round(performance.now() - startTime);
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return {
+          ok: true,
+          status: data.status || 'ok',
+          service: data.service || 'Hospital Angel Maria Gaton AI Backend',
+          latencyMs
+        };
+      }
+      return { ok: false, status: `HTTP ${res.status}`, service: '', latencyMs };
+    } catch (e: any) {
+      const latencyMs = Math.round(performance.now() - startTime);
+      return { ok: false, status: 'error', service: e.message || 'Sin conexión', latencyMs };
+    }
   }
 
   /**
@@ -87,27 +144,29 @@ export class GeminiService {
       return this.cachedModels;
     }
 
+    const baseUrl = this.getBaseUrl();
     try {
-      const res = await fetch('/api/gemini/models');
+      const res = await fetch(`${baseUrl}/api/gemini/models`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.models)) {
           this.cachedModels = data.models;
-          this.selectedModel = data.selectedModel || this.selectBestGeminiModel(data.models);
+          if (data.selectedModel) {
+            this.selectedModel = data.selectedModel;
+          }
           this.lastModelsFetch = now;
           return this.cachedModels;
         }
       }
-    } catch (err: any) {
-      console.warn('[geminiService] Error obteniendo modelos:', err);
+    } catch (err) {
+      console.warn('[geminiService] Error obteniendo modelos desde backend:', err);
     }
 
     return this.cachedModels.length > 0 ? this.cachedModels : ['gemini-2.5-flash'];
   }
 
   /**
-   * Selecciona automáticamente el mejor modelo compatible priorizando Flash estables
-   * Prioridad: Flash (3.5 > 3.0 > 2.5 > 2.0 > latest > pro > otros)
+   * Selecciona el mejor modelo compatible (priorizando gemini-2.5-flash)
    */
   public selectBestGeminiModel(modelsList?: string[]): string {
     const list = modelsList || this.cachedModels;
@@ -115,11 +174,15 @@ export class GeminiService {
       return 'gemini-2.5-flash';
     }
 
+    if (list.includes('gemini-2.5-flash')) {
+      this.selectedModel = 'gemini-2.5-flash';
+      return 'gemini-2.5-flash';
+    }
+
     const scoreModel = (name: string): number => {
       let score = 0;
       const lower = name.toLowerCase();
 
-      // Priorizar variantes Flash
       if (lower.includes('flash')) {
         score += 1000;
         if (lower.includes('3.5')) score += 350;
@@ -128,18 +191,11 @@ export class GeminiService {
         else if (lower.includes('2.0') || lower.includes('2-')) score += 200;
         else if (lower.includes('flash-latest')) score += 280;
         else score += 100;
-
-        if (lower.includes('lite')) score -= 20;
       } else if (lower.includes('pro')) {
         score += 500;
         if (lower.includes('2.5')) score += 250;
         else if (lower.includes('2.0')) score += 200;
-      } else {
-        score += 100;
       }
-
-      if (lower.includes('exp') || lower.includes('experimental')) score -= 80;
-      if (lower.includes('preview')) score -= 30;
 
       return score;
     };
@@ -149,16 +205,10 @@ export class GeminiService {
     return this.selectedModel;
   }
 
-  /**
-   * Obtiene el modelo activo actual
-   */
   public getActiveModel(): string {
     return this.selectedModel || 'gemini-2.5-flash';
   }
 
-  /**
-   * Establece un modelo preferido (si está en la lista de compatibles)
-   */
   public setActiveModel(model: string): void {
     if (model) {
       this.selectedModel = model;
@@ -166,84 +216,110 @@ export class GeminiService {
   }
 
   /**
-   * Prueba real de conexión con Google Gemini enviando una petición mínima a generateContent
+   * Ejecuta la comprobación completa requerida al presionar "Probar conexión con Gemini":
+   * 1. Comprueba /api/health (Estado del Backend)
+   * 2. Comprueba /api/gemini/test (Estado de Gemini API)
+   * 3. Mide latencia en ms
+   * 4. Retorna la telemetría formateada
    */
-  public async testGeminiConnection(apiKeyOverride?: string): Promise<{ success: boolean; message: string; model?: string }> {
+  public async testConnectionFull(): Promise<GeminiTelemetryStatus> {
+    const baseUrl = this.getBaseUrl();
+    const startTime = performance.now();
+    const nowTimestamp = new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    // PASO 1: Comprobar Backend (/api/health)
+    const health = await this.checkHealth();
+    if (!health.ok) {
+      return {
+        backendConnected: false,
+        geminiConnected: false,
+        model: 'Desconectado',
+        latencyMs: health.latencyMs,
+        checkedAt: nowTimestamp,
+        message: 'No fue posible contactar el servidor de inteligencia artificial.'
+      };
+    }
+
+    // PASO 2: Comprobar Gemini API (/api/gemini/test)
+    const testStartTime = performance.now();
     try {
-      const res = await fetch('/api/gemini/test', {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const res = await fetch(`${baseUrl}/api/gemini/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(apiKeyOverride ? { apiKey: apiKeyOverride } : {})
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
+      const totalLatencyMs = Math.round(performance.now() - startTime);
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data.success) {
-        if (data.model) this.selectedModel = data.model;
+        if (data.model) {
+          this.selectedModel = data.model;
+        }
         return {
-          success: true,
-          message: 'Conexión con Google Gemini establecida correctamente.',
-          model: data.model
+          backendConnected: true,
+          geminiConnected: true,
+          model: data.model || this.selectedModel || 'gemini-2.5-flash',
+          latencyMs: totalLatencyMs,
+          checkedAt: nowTimestamp,
+          message: 'Conexión con Google Gemini establecida correctamente.'
         };
       }
 
-      // Mensajes controlados sin exponer errores técnicos
+      // Mapeo específico de errores
       const errorMsg = data.message || data.error || '';
-      if (errorMsg.includes('inválida') || errorMsg.includes('autorización')) {
-        return { success: false, message: 'API Key de Gemini inválida o sin autorización.' };
-      }
-      if (errorMsg.includes('límite') || errorMsg.includes('429') || errorMsg.includes('cuota')) {
-        return { success: false, message: 'Se alcanzó temporalmente el límite de uso de Gemini.' };
-      }
-
       return {
-        success: false,
-        message: 'No se pudo establecer conexión con Gemini. El sistema intentará utilizar otro modelo disponible.'
+        backendConnected: true,
+        geminiConnected: false,
+        model: 'Error de autenticación',
+        latencyMs: totalLatencyMs,
+        checkedAt: nowTimestamp,
+        message: errorMsg || 'Error interno del servicio de inteligencia artificial.'
       };
     } catch (err: any) {
+      const totalLatencyMs = Math.round(performance.now() - startTime);
       return {
-        success: false,
-        message: 'No se pudo establecer conexión con Gemini. El sistema intentará utilizar otro modelo disponible.'
+        backendConnected: true,
+        geminiConnected: false,
+        model: 'Sin respuesta',
+        latencyMs: totalLatencyMs,
+        checkedAt: nowTimestamp,
+        message: 'No fue posible contactar el servidor de inteligencia artificial.'
       };
     }
   }
 
   /**
-   * Guarda de forma segura la clave en el archivo .env del servidor (sin guardar en localStorage)
+   * Método de compatibilidad para pruebas simples de conexión
    */
-  public async saveServerApiKey(apiKey: string): Promise<{ success: boolean; message: string }> {
-    try {
-      const res = await fetch('/api/gemini/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey.trim() })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        // Limpiar cualquier residuo de localStorage previo por seguridad
-        try {
-          localStorage.removeItem('hospital_gemini_api_key');
-        } catch {}
-        return { success: true, message: 'Clave API de Gemini guardada de forma segura en el servidor.' };
-      }
-      return { success: false, message: data.message || 'Error guardando clave en el servidor.' };
-    } catch (err: any) {
-      return { success: false, message: 'Error de comunicación con el servidor backend.' };
-    }
+  public async testGeminiConnection(): Promise<{ success: boolean; message: string; model?: string }> {
+    const full = await this.testConnectionFull();
+    return {
+      success: full.geminiConnected,
+      message: full.message,
+      model: full.model
+    };
   }
 
   /**
-   * Ejecuta generateContent a través del backend seguro
-   * Maneja timeouts, reintentos y fallback automático
+   * Ejecuta generateContent a través del backend seguro en Render
    */
   public async generateContent(request: GeminiGenerateRequest): Promise<GeminiGenerateResponse> {
+    const baseUrl = this.getBaseUrl();
     try {
       const payload = {
-        ...request,
+        prompt: request.prompt || (request.contents?.[0]?.parts?.[0]?.text) || '',
+        contents: request.contents,
+        systemInstruction: request.systemInstruction,
+        generationConfig: request.generationConfig,
         model: request.model || this.selectedModel || undefined
       };
 
-      const res = await fetch('/api/gemini/generate', {
+      const res = await fetch(`${baseUrl}/api/gemini/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -252,46 +328,27 @@ export class GeminiService {
       const responseJson = await res.json().catch(() => ({}));
 
       if (!res.ok || !responseJson.success) {
-        const errorText = responseJson.error || '';
-
-        // Mapeo riguroso de errores
-        if (errorText.includes('inválida') || errorText.includes('autorización')) {
-          return {
-            success: false,
-            error: 'API Key de Gemini inválida o sin autorización.'
-          };
-        }
-        if (errorText.includes('límite') || errorText.includes('429') || errorText.includes('cuota')) {
-          return {
-            success: false,
-            error: 'Se alcanzó temporalmente el límite de uso de Gemini.'
-          };
-        }
-
-        // Si el modelo falló o fue deprecado, el backend ya intentó fallback; informar al usuario limpiamente
         return {
           success: false,
-          error: 'No se pudo establecer conexión con Gemini. El sistema intentará utilizar otro modelo disponible.'
+          error: responseJson.error || 'Error interno del servicio de inteligencia artificial.'
         };
       }
 
-      // Extraer el texto generado
-      const data = responseJson.data;
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const text = responseJson.text || responseJson.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       if (responseJson.modelUsed) {
         this.selectedModel = responseJson.modelUsed;
       }
 
       return {
         success: true,
-        data,
+        data: responseJson.data,
         text,
         modelUsed: responseJson.modelUsed
       };
     } catch (err: any) {
       return {
         success: false,
-        error: 'No se pudo establecer conexión con Gemini. El sistema intentará utilizar otro modelo disponible.'
+        error: 'No fue posible contactar el servidor de inteligencia artificial.'
       };
     }
   }
