@@ -11,7 +11,16 @@
  */
 
 import { db } from '../db/dexieDb';
-import { Patient, MedicalStudy, LabResult, MedicalOrder, PatientEvolution } from '../types';
+import { 
+  Patient, 
+  MedicalStudy, 
+  LabResult, 
+  MedicalOrder, 
+  PatientEvolution, 
+  User, 
+  AuditLogEntry, 
+  StrokeRecord 
+} from '../types';
 import { googleDriveService, DEFAULT_GAS_URL } from './googleDriveService';
 
 export interface HospitalMasterData {
@@ -20,6 +29,10 @@ export interface HospitalMasterData {
   labs: LabResult[];
   orders: MedicalOrder[];
   evolutions: PatientEvolution[];
+  users?: User[];
+  auditLogs?: AuditLogEntry[];
+  clinicalHistoriesPlanta?: any[];
+  strokeRegistry?: StrokeRecord[];
   lastUpdated: number;
   deviceOrigin?: string;
 }
@@ -165,6 +178,10 @@ class CloudSyncService {
     const labs = await db.labs.toArray();
     const orders = await db.orders.toArray();
     const evolutions = await db.evolutions.toArray();
+    const users = await db.users.toArray();
+    const auditLogs = await db.auditLogs.toArray();
+    const clinicalHistoriesPlanta = await db.clinicalHistoriesPlanta.toArray();
+    const strokeRegistry = await db.strokeRegistry.toArray();
 
     return {
       patients,
@@ -172,6 +189,10 @@ class CloudSyncService {
       labs,
       orders,
       evolutions,
+      users,
+      auditLogs,
+      clinicalHistoriesPlanta,
+      strokeRegistry,
       lastUpdated: this.lastLocalTimestamp || Date.now(),
       deviceOrigin: navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Escritorio PC',
     };
@@ -441,7 +462,7 @@ class CloudSyncService {
   public async hydrateDexie(data: HospitalMasterData, purgeMockData: boolean = false): Promise<void> {
     if (!data.patients) return;
 
-    await db.transaction('rw', db.patients, db.studies, db.labs, db.orders, db.evolutions, async () => {
+    await db.transaction('rw', [db.patients, db.studies, db.labs, db.orders, db.evolutions, db.users, db.auditLogs, db.clinicalHistoriesPlanta, db.strokeRegistry], async () => {
       // 1. Si purgeMockData es true, limpiar casos modelo previos
       if (purgeMockData) {
         await db.patients.clear();
@@ -494,12 +515,53 @@ class CloudSyncService {
           await db.evolutions.put(e);
         }
       }
+
+      // 6. Actualizar usuarios (Smart merge: NUNCA borrar usuarios locales creados)
+      if (data.users && data.users.length > 0) {
+        const localUsers = await db.users.toArray();
+        const localUserMap = new Map(localUsers.map((u) => [u.id, u]));
+        for (const remoteU of data.users) {
+          const localU = localUserMap.get(remoteU.id);
+          if (!localU) {
+            await db.users.put(remoteU);
+          } else {
+            const localTime = new Date(localU.updatedAt || localU.createdAt || 0).getTime();
+            const remoteTime = new Date(remoteU.updatedAt || remoteU.createdAt || 0).getTime();
+            if (remoteTime >= localTime) {
+              await db.users.put(remoteU);
+            }
+          }
+        }
+      }
+
+      // 7. Actualizar auditLogs
+      if (data.auditLogs && data.auditLogs.length > 0) {
+        for (const log of data.auditLogs) {
+          await db.auditLogs.put(log);
+        }
+      }
+
+      // 8. Actualizar clinicalHistoriesPlanta
+      if (data.clinicalHistoriesPlanta && data.clinicalHistoriesPlanta.length > 0) {
+        for (const ch of data.clinicalHistoriesPlanta) {
+          await db.clinicalHistoriesPlanta.put(ch);
+        }
+      }
+
+      // 9. Actualizar strokeRegistry
+      if (data.strokeRegistry && data.strokeRegistry.length > 0) {
+        for (const sr of data.strokeRegistry) {
+          await db.strokeRegistry.put(sr);
+        }
+      }
     });
 
     // Guardar copia de seguridad en localStorage
     try {
       const allP = await db.patients.toArray();
+      const allU = await db.users.toArray();
       localStorage.setItem('hr_colon_patients_backup', JSON.stringify(allP));
+      localStorage.setItem('hr_colon_users_backup', JSON.stringify(allU));
       if (data.lastUpdated) {
         localStorage.setItem('hr_colon_last_local_timestamp', String(data.lastUpdated));
       }

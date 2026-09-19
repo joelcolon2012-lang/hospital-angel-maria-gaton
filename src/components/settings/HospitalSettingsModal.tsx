@@ -95,15 +95,23 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSettingsSaved?: (settings: HospitalSettings) => void;
+  initialTab?: SettingsTab;
 }
 
 export const HospitalSettingsModal: React.FC<Props> = ({
   isOpen,
   onClose,
   onSettingsSaved,
+  initialTab = 'barra_superior',
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<SettingsTab>('barra_superior');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   // Estado general de identidad institucional y configuración
   const [settings, setSettings] = useState<HospitalSettings>(DEFAULT_HOSPITAL_SETTINGS);

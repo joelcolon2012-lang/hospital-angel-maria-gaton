@@ -1,5 +1,6 @@
-import { User, UserRole, AuditLogEntry } from '../types';
+import { User, UserRole, AuditLogEntry, AuditAction } from '../types';
 import { db } from '../db/dexieDb';
+import { cloudSyncService } from './cloudSyncService';
 
 export const DEFAULT_USERS: User[] = [
   {
@@ -12,6 +13,9 @@ export const DEFAULT_USERS: User[] = [
     exequatur: 'EXEQ. 45892-01',
     pin: '2026',
     isActive: true,
+    isDeleted: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     avatarUrl: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80'
   },
   {
@@ -24,6 +28,9 @@ export const DEFAULT_USERS: User[] = [
     exequatur: 'EXEQ. 51204-12',
     pin: '1234',
     isActive: true,
+    isDeleted: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     avatarUrl: 'https://images.unsplash.com/photo-1594824813583-74b88d2d9b62?w=120&auto=format&fit=crop&q=80'
   },
   {
@@ -36,6 +43,9 @@ export const DEFAULT_USERS: User[] = [
     exequatur: 'EXEQ. 67812-24',
     pin: '1234',
     isActive: true,
+    isDeleted: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     avatarUrl: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=120&auto=format&fit=crop&q=80'
   },
   {
@@ -48,6 +58,9 @@ export const DEFAULT_USERS: User[] = [
     exequatur: 'EXEQ. 38901-08',
     pin: '1234',
     isActive: true,
+    isDeleted: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     avatarUrl: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?w=120&auto=format&fit=crop&q=80'
   }
 ];
@@ -81,6 +94,17 @@ export class AuthService {
         } else {
           this.currentUser = DEFAULT_USERS[0];
         }
+      }
+
+      // 1. Respaldo de seguridad local (LocalStorage fallback para proteger contra reseteos de caché de navegadores móviles)
+      const backupUsersStr = localStorage.getItem('hr_colon_users_backup');
+      if (backupUsersStr) {
+        try {
+          const parsed = JSON.parse(backupUsersStr);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            await db.users.bulkPut(parsed);
+          }
+        } catch {}
       }
 
       const count = await db.users.count();
@@ -126,6 +150,9 @@ export class AuthService {
     window.dispatchEvent(new CustomEvent('hospital_auth_state_changed', { detail: { isAuthenticated: false } }));
   }
 
+  /**
+   * Registro atómico y transaccionado de nuevo médico con persistencia inmediata
+   */
   public async registerNewUser(data: {
     name: string;
     role: UserRole;
@@ -136,7 +163,7 @@ export class AuthService {
     avatarUrl?: string;
   }): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
-      const all = await this.getAllUsers();
+      const all = await this.getAllUsers(true); // Incluyendo inactivos para evitar duplicar exequátur
       const cleanName = data.name.trim();
       const cleanExeq = data.exequatur.trim();
 
@@ -147,12 +174,19 @@ export class AuthService {
       );
 
       if (existing) {
+        if (existing.isDeleted || existing.isActive === false) {
+          return { 
+            success: false, 
+            error: `El médico ${cleanName} (${cleanExeq}) se encuentra desactivado en el sistema. Puede reactivarlo desde el panel de Administración.` 
+          };
+        }
         return { 
           success: false, 
           error: `Ya existe un médico registrado con el nombre o exequátur: ${cleanName} (${cleanExeq}). Por favor inicie sesión o utilice sus credenciales.` 
         };
       }
 
+      const now = new Date().toISOString();
       const newUser: User = {
         id: 'usr-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
         name: cleanName,
@@ -164,27 +198,234 @@ export class AuthService {
         pin: data.pin.trim(),
         password: data.pin.trim(),
         isActive: true,
+        isDeleted: false,
+        createdAt: now,
+        updatedAt: now,
         avatarUrl: data.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80',
       };
 
-      await this.saveUser(newUser);
+      // Transacción atómica: insertar usuario y registrar en tabla de auditoría
+      await db.transaction('rw', db.users, db.auditLogs, async () => {
+        await db.users.put(newUser);
+        await db.auditLogs.add({
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          timestamp: now,
+          userId: this.currentUser?.id || newUser.id,
+          userName: this.currentUser?.name || newUser.name,
+          userRole: this.currentUser?.role || newUser.role,
+          action: 'USER_CREATED',
+          patientId: 'SISTEMA',
+          recordId: newUser.id,
+          recordType: 'USER',
+          newValue: { name: newUser.name, role: newUser.role, exequatur: newUser.exequatur },
+          details: `Registro de nuevo usuario: ${newUser.name} (${newUser.role})`
+        });
+      });
+
+      // Guardar respaldo inmediato en localStorage para tolerar desconexión
+      try {
+        const currentList = await db.users.toArray();
+        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
+      } catch {}
+
       this.login(newUser);
+
+      // Sincronizar inmediatamente a disco duro (/api/sync) y a Google Drive en la Nube
+      cloudSyncService.triggerPushSync().catch(() => {});
+
       return { success: true, user: newUser };
     } catch (err: any) {
       return { success: false, error: 'Error registrando nuevo médico: ' + err.message };
     }
   }
 
-  public async getAllUsers(): Promise<User[]> {
+  /**
+   * Actualiza datos de un usuario mediante transacción segura
+   */
+  public async updateUser(user: User): Promise<{ success: boolean; error?: string }> {
+    try {
+      const now = new Date().toISOString();
+      const updated: User = {
+        ...user,
+        updatedAt: now
+      };
+
+      await db.transaction('rw', db.users, db.auditLogs, async () => {
+        const oldUser = await db.users.get(user.id);
+        await db.users.put(updated);
+        await db.auditLogs.add({
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          timestamp: now,
+          userId: this.currentUser.id,
+          userName: this.currentUser.name,
+          userRole: this.currentUser.role,
+          action: 'USER_UPDATED',
+          patientId: 'SISTEMA',
+          recordId: user.id,
+          recordType: 'USER',
+          oldValue: oldUser ? { name: oldUser.name, role: oldUser.role } : undefined,
+          newValue: { name: updated.name, role: updated.role },
+          details: `Actualización de usuario: ${updated.name}`
+        });
+      });
+
+      if (this.currentUser.id === user.id) {
+        this.setCurrentUser(updated);
+      }
+
+      // Actualizar respaldo y sincronización
+      try {
+        const currentList = await db.users.toArray();
+        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
+      } catch {}
+
+      cloudSyncService.triggerPushSync().catch(() => {});
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Borrado Lógico (Soft Delete) de usuarios: PROHIBIDO DELETE FÍSICO
+   */
+  public async disableUser(userId: string): Promise<{ success: boolean; error?: string }> {
+    if (userId === 'usr-admin-colon' || userId === this.currentUser.id) {
+      return { success: false, error: 'No es posible desactivar al SuperAdmin institucional ni al usuario actualmente en sesión.' };
+    }
+
+    try {
+      const targetUser = await db.users.get(userId);
+      if (!targetUser) return { success: false, error: 'Usuario no encontrado.' };
+
+      const now = new Date().toISOString();
+      const disabled: User = {
+        ...targetUser,
+        isActive: false,
+        isDeleted: true,
+        deletedAt: now,
+        updatedAt: now
+      };
+
+      await db.transaction('rw', db.users, db.auditLogs, async () => {
+        await db.users.put(disabled);
+        await db.auditLogs.add({
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          timestamp: now,
+          userId: this.currentUser.id,
+          userName: this.currentUser.name,
+          userRole: this.currentUser.role,
+          action: 'USER_DISABLED',
+          patientId: 'SISTEMA',
+          recordId: userId,
+          recordType: 'USER',
+          oldValue: { isActive: true },
+          newValue: { isActive: false, deletedAt: now },
+          details: `Desactivación lógica (Soft Delete) del usuario: ${targetUser.name}`
+        });
+      });
+
+      try {
+        const currentList = await db.users.toArray();
+        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
+      } catch {}
+
+      cloudSyncService.triggerPushSync().catch(() => {});
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Restaura un usuario previamente desactivado (Soft Delete Recovery)
+   */
+  public async restoreUser(userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const targetUser = await db.users.get(userId);
+      if (!targetUser) return { success: false, error: 'Usuario no encontrado.' };
+
+      const now = new Date().toISOString();
+      const restored: User = {
+        ...targetUser,
+        isActive: true,
+        isDeleted: false,
+        deletedAt: undefined,
+        updatedAt: now
+      };
+
+      await db.transaction('rw', db.users, db.auditLogs, async () => {
+        await db.users.put(restored);
+        await db.auditLogs.add({
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          timestamp: now,
+          userId: this.currentUser.id,
+          userName: this.currentUser.name,
+          userRole: this.currentUser.role,
+          action: 'USER_RESTORED',
+          patientId: 'SISTEMA',
+          recordId: userId,
+          recordType: 'USER',
+          oldValue: { isActive: false },
+          newValue: { isActive: true },
+          details: `Restauración de usuario médico: ${targetUser.name}`
+        });
+      });
+
+      try {
+        const currentList = await db.users.toArray();
+        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
+      } catch {}
+
+      cloudSyncService.triggerPushSync().catch(() => {});
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Obtiene todos los usuarios. Por defecto solo retorna usuarios activos.
+   */
+  public async getAllUsers(includeInactive: boolean = false): Promise<User[]> {
     try {
       const users = await db.users.toArray();
       if (!users || users.length === 0) {
         await db.users.bulkPut(DEFAULT_USERS);
         return DEFAULT_USERS;
       }
-      return users;
+      if (includeInactive) return users;
+      return users.filter(u => u.isActive !== false && !u.isDeleted);
     } catch {
       return DEFAULT_USERS;
+    }
+  }
+
+  /**
+   * Registra un evento en la tabla de auditoría
+   */
+  public async recordAudit(entry: {
+    action: AuditLogEntry['action'];
+    patientId?: string;
+    recordId?: string;
+    recordType?: string;
+    oldValue?: any;
+    newValue?: any;
+    details: string;
+  }): Promise<void> {
+    try {
+      const now = new Date().toISOString();
+      await db.auditLogs.add({
+        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        timestamp: now,
+        userId: this.currentUser?.id || 'sys',
+        userName: this.currentUser?.name || 'Sistema',
+        userRole: this.currentUser?.role || 'Sistema',
+        patientId: entry.patientId || 'SISTEMA',
+        ...entry
+      });
+    } catch (e) {
+      console.warn('Error registrando log de auditoría:', e);
     }
   }
 
@@ -200,7 +441,7 @@ export class AuthService {
   }
 
   public async switchUserById(id: string): Promise<User> {
-    const all = await this.getAllUsers();
+    const all = await this.getAllUsers(false);
     const found = all.find(u => u.id === id) || DEFAULT_USERS.find(u => u.id === id);
     if (found) {
       this.login(found);
@@ -210,7 +451,7 @@ export class AuthService {
   }
 
   public async authenticate(identifier: string, secret?: string): Promise<{ success: boolean; user?: User; error?: string }> {
-    const all = await this.getAllUsers();
+    const all = await this.getAllUsers(true);
     const cleanId = identifier.trim().toLowerCase();
     const user = all.find(u => 
       u.id.toLowerCase() === cleanId || 
@@ -220,6 +461,10 @@ export class AuthService {
 
     if (!user) {
       return { success: false, error: 'Usuario o médico no encontrado en el sistema hospitalario' };
+    }
+
+    if (user.isActive === false || user.isDeleted) {
+      return { success: false, error: 'Esta cuenta médica se encuentra inactiva. Contacte al Administrador.' };
     }
 
     if (secret && user.pin && user.pin !== secret && user.password !== secret) {
@@ -293,26 +538,34 @@ export const authService = new AuthService();
  * Registra un evento en la pista de auditoría hospitalaria
  */
 export async function recordAuditLog(params: {
-  action: 'CREAR' | 'MODIFICAR' | 'ELIMINAR_SUAVE' | 'RESTAURAR' | 'GENERAR_NOTA' | 'IMPORTAR_HISTORIA';
+  action: AuditAction;
   patientId: string;
+  recordId?: string;
+  recordType?: string;
   fieldPath?: string;
   oldValue?: any;
   newValue?: any;
   details?: string;
+  device?: string;
+  ip?: string;
 }): Promise<AuditLogEntry> {
   const user = authService.getCurrentUser();
   const entry: AuditLogEntry = {
     id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     timestamp: new Date().toISOString(),
-    userId: user.id,
-    userName: user.name,
-    userRole: user.role,
+    userId: user?.id || 'system',
+    userName: user?.name || 'Sistema',
+    userRole: user?.role || 'ADMINISTRADOR',
     action: params.action,
     patientId: params.patientId,
+    recordId: params.recordId,
+    recordType: params.recordType,
     fieldPath: params.fieldPath,
     oldValue: params.oldValue,
     newValue: params.newValue,
-    details: params.details
+    details: params.details,
+    device: params.device || (navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Escritorio PC'),
+    ip: params.ip
   };
 
   try {

@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Smartphone,
   MoreVertical,
+  Menu,
 } from 'lucide-react';
 import { User, Patient, HospitalSettings, HeaderLayoutConfig } from '../../types';
 import { googleDriveService } from '../../services/googleDriveService';
@@ -86,6 +87,7 @@ export const Header: React.FC<Props> = ({
   onOpenAiSuite,
   onTogglePrivacyShield,
   isPrivacyActive,
+  onToggleMobileMenu,
 }) => {
   const isDriveConnected = googleDriveService.isConnected();
   const isSuperAdmin = authService.isSuperAdmin();
@@ -210,6 +212,19 @@ export const Header: React.FC<Props> = ({
     <header className="sticky top-0 z-30 h-[56px] bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-2 sm:px-4 flex items-center justify-between gap-1.5 sm:gap-2.5 select-none">
       {/* Left: Hospital Logo, Name, Current Area & Active Patient Pill */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 overflow-hidden shrink-0 max-w-[55%] sm:max-w-none">
+        {/* Mobile Hamburger Button (☰) */}
+        {onToggleMobileMenu && (
+          <button
+            type="button"
+            onClick={onToggleMobileMenu}
+            className="lg:hidden p-1.5 rounded-xl text-slate-700 hover:text-slate-900 hover:bg-slate-100 active:scale-95 transition-all shrink-0"
+            title="Abrir menú de navegación"
+            aria-label="Abrir menú"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
+
         {/* Hospital Logo */}
         {layout.showHospitalLogo && (
           <button

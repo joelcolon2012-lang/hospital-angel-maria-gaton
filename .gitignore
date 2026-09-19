@@ -13,3 +13,7 @@ build/
 *.log
 .DS_Store
 Thumbs.db
+
+# Scratch and test bundles
+scratch/test_bundle*
+scratch/test_out/

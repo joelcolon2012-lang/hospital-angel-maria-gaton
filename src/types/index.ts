@@ -21,7 +21,7 @@ export type NoteStatus =
   | 'ARCHIVADO';
 
 // Roles de usuario y seguridad hospitalaria
-export type UserRole = 'ADMINISTRADOR' | 'MÉDICO' | 'RESIDENTE' | 'LECTURA';
+export type UserRole = 'ADMINISTRADOR' | 'MÉDICO' | 'RESIDENTE' | 'LECTURA' | 'Sistema';
 
 export interface User {
   id: string;
@@ -35,7 +35,33 @@ export interface User {
   pin?: string;
   password?: string;
   isActive?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export type AuditAction = 
+  | 'CREAR' 
+  | 'MODIFICAR' 
+  | 'ELIMINAR_SUAVE' 
+  | 'RESTAURAR' 
+  | 'GENERAR_NOTA' 
+  | 'IMPORTAR_HISTORIA'
+  | 'USER_CREATED'
+  | 'USER_UPDATED'
+  | 'USER_DISABLED'
+  | 'USER_RESTORED'
+  | 'HISTORY_CREATED'
+  | 'HISTORY_UPDATED'
+  | 'PLANTA_HISTORY_CREATED'
+  | 'PLANTA_HISTORY_UPDATED'
+  | 'MEDICAL_ORDER_CREATED'
+  | 'MEDICAL_ORDER_UPDATED'
+  | 'EVOLUTION_CREATED'
+  | 'PATIENT_UPDATED'
+  | 'STROKE_REGISTERED'
+  | 'STROKE_UPDATED';
 
 export interface AuditLogEntry {
   id: string;
@@ -43,12 +69,16 @@ export interface AuditLogEntry {
   userId: string;
   userName: string;
   userRole: UserRole;
-  action: 'CREAR' | 'MODIFICAR' | 'ELIMINAR_SUAVE' | 'RESTAURAR' | 'GENERAR_NOTA' | 'IMPORTAR_HISTORIA';
+  action: AuditAction;
   patientId: string;
+  recordId?: string;
+  recordType?: string;
   fieldPath?: string;
   oldValue?: any;
   newValue?: any;
   details?: string;
+  device?: string;
+  ip?: string;
 }
 
 export interface Vitals {
@@ -516,3 +546,4 @@ export interface Patient {
 
 export * from './clinicalHistoryPlanta';
 export * from './patientMaster';
+export * from './strokeRegistry';

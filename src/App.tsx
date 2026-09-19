@@ -62,6 +62,11 @@ import { ShareAppModal } from './components/documents/ShareAppModal';
 import { HospitalSettingsModal } from './components/settings/HospitalSettingsModal';
 import { SendToGuardiaModal } from './components/guardia/SendToGuardiaModal';
 import { ClinicalHistoryPlantaModal } from './components/history-planta/ClinicalHistoryPlantaModal';
+import { MobileDrawerMenu } from './components/layout/MobileDrawerMenu';
+import { StrokeAnalyticsDashboard } from './components/stroke/StrokeAnalyticsDashboard';
+import { StrokeRegistryModal } from './components/stroke/StrokeRegistryModal';
+import { StrokeAutoPromptModal } from './components/stroke/StrokeAutoPromptModal';
+import { strokeRegistryService } from './services/strokeRegistryService';
 import { guardiaAppService } from './services/guardiaAppService';
 import { cloudSyncService } from './services/cloudSyncService';
 
@@ -86,8 +91,15 @@ export default function App() {
   const [evolutions, setEvolutions] = useState<PatientEvolution[]>([]);
 
   // Navigation & Dossier
-  const [activeNavTab, setActiveNavTab] = useState<'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia'>('dashboard');
+  const [activeNavTab, setActiveNavTab] = useState<'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia' | 'strokeRegistry'>('dashboard');
   const [activePatient, setActivePatient] = useState<Patient | null>(null);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isStrokeModalOpen, setIsStrokeModalOpen] = useState(false);
+  const [patientForStroke, setPatientForStroke] = useState<Patient | null>(null);
+  const [dismissedStrokePatientIds, setDismissedStrokePatientIds] = useState<Set<string>>(new Set());
+  const [showStrokePrompt, setShowStrokePrompt] = useState(false);
+  const [detectedStrokeTerm, setDetectedStrokeTerm] = useState('Diagnóstico Vascular / EVC');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'barra_superior' | 'usuarios'>('barra_superior');
   const [activeDossierTab, setActiveDossierTab] = useState<
     'vitals' | 'history' | 'studies' | 'labs' | 'diagnostics' | 'orders' | 'evolutions' | 'disposition'
   >('vitals');
@@ -606,6 +618,8 @@ export default function App() {
     ? 'Estudios Pendientes'
     : activeNavTab === 'stats'
     ? 'Estadísticas Clínicas'
+    : activeNavTab === 'strokeRegistry'
+    ? 'Registro de Eventos Cerebrovasculares (EVC)'
     : activeNavTab === 'epidemiologia'
     ? 'Epidemiología & Patologías'
     : activeNavTab === 'search'
@@ -625,6 +639,9 @@ export default function App() {
     } else if (id === 'ward') {
       setActiveNavTab('dashboard');
       setSelectedStatus('ingresados');
+      setActivePatient(null);
+    } else if (id === 'strokeRegistry') {
+      setActiveNavTab('strokeRegistry');
       setActivePatient(null);
     } else if (id === 'epidemiology') {
       setActiveNavTab('epidemiologia');
@@ -658,9 +675,86 @@ export default function App() {
     } else if (id === 'files') {
       setIsGoogleDriveModalOpen(true);
     } else if (id === 'settings') {
+      setSettingsInitialTab('barra_superior');
       setIsHospitalSettingsOpen(true);
     }
   };
+
+  const handleMobileDrawerNavigate = (sectionId: string) => {
+    if (sectionId === 'dashboard') {
+      setActiveNavTab('dashboard');
+      setSelectedStatus('todos');
+      setActivePatient(null);
+    } else if (sectionId === 'patients') {
+      setActiveNavTab('search');
+      setActivePatient(null);
+    } else if (sectionId === 'ward') {
+      setActiveNavTab('dashboard');
+      setSelectedStatus('ingresados');
+      setActivePatient(null);
+    } else if (sectionId === 'history-planta') {
+      if (activePatient) {
+        handleOpenHistoryPlantaForPatient(activePatient);
+      } else if (patients.length > 0) {
+        handleOpenHistoryPlantaForPatient(patients[0]);
+      } else {
+        alert('Debe tener al menos un paciente registrado.');
+      }
+    } else if (sectionId === 'nota-ingreso') {
+      if (activePatient) {
+        setHospitalDocType('emergencia');
+        setIsHospitalNotesOpen(true);
+      } else {
+        alert('Seleccione un paciente para ver su Nota de Ingreso.');
+      }
+    } else if (sectionId === 'evolutions') {
+      if (activePatient) {
+        setActiveDossierTab('evolutions');
+      } else {
+        alert('Seleccione un paciente para revisar o crear evoluciones.');
+      }
+    } else if (sectionId === 'orders') {
+      if (activePatient) {
+        setHospitalDocType('orden');
+        setIsHospitalNotesOpen(true);
+      } else {
+        alert('Seleccione un paciente para revisar u ordenar indicaciones.');
+      }
+    } else if (sectionId === 'stats') {
+      setActiveNavTab('stats');
+      setActivePatient(null);
+    } else if (sectionId === 'epidemiology') {
+      setActiveNavTab('epidemiologia');
+      setActivePatient(null);
+    }
+  };
+
+  // Detección automática de términos de EVC en paciente activo
+  useEffect(() => {
+    if (!activePatient) {
+      setShowStrokePrompt(false);
+      return;
+    }
+    if (dismissedStrokePatientIds.has(activePatient.id)) {
+      setShowStrokePrompt(false);
+      return;
+    }
+
+    const clinicalTexts = [
+      activePatient.chiefComplaint,
+      activePatient.clinicalHistory?.clinicalImpression,
+      ...(activePatient.diagnosesList?.map((d) => d.name) || []),
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    if (strokeRegistryService.detectStrokeKeywords(clinicalTexts)) {
+      setDetectedStrokeTerm('Diagnóstico Vascular Cerebral / EVC');
+      setShowStrokePrompt(true);
+    } else {
+      setShowStrokePrompt(false);
+    }
+  }, [activePatient, dismissedStrokePatientIds]);
 
   // Dossier Tabs Navigation Config
   const dossierTabs = [
@@ -728,6 +822,7 @@ export default function App() {
           }}
           onTogglePrivacyShield={() => setIsPrivacyActive((p) => !p)}
           isPrivacyActive={isPrivacyActive}
+          onToggleMobileMenu={() => setIsMobileDrawerOpen(true)}
         />
 
       {/* Main Content Area */}
@@ -1000,6 +1095,16 @@ export default function App() {
               />
             )}
 
+            {activeNavTab === 'strokeRegistry' && (
+              <StrokeAnalyticsDashboard
+                onBack={() => setActiveNavTab('dashboard')}
+                onSelectPatientById={(patientId) => {
+                  const p = patients.find(x => x.id === patientId);
+                  if (p) setActivePatient(p);
+                }}
+              />
+            )}
+
             {activeNavTab === 'drive' && (
               <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm max-w-2xl mx-auto text-center space-y-4">
                 <div className="w-14 h-14 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center mx-auto text-emerald-600">
@@ -1040,7 +1145,7 @@ export default function App() {
 
       {/* Mobile Fixed Bottom Navigation */}
       <BottomNav
-        activeTab={activeNavTab}
+        activeTab={activeNavTab === 'strokeRegistry' ? 'stats' : activeNavTab}
         onChangeTab={(t) => {
           setActivePatient(null);
           setActiveNavTab(t);
@@ -1113,6 +1218,7 @@ export default function App() {
       <HospitalSettingsModal
         isOpen={isHospitalSettingsOpen}
         onClose={() => setIsHospitalSettingsOpen(false)}
+        initialTab={settingsInitialTab}
       />
 
       {activePatient && (
@@ -1258,6 +1364,63 @@ export default function App() {
           onPatientUpdated={(updated) => {
             setActivePatient(updated);
             setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          }}
+        />
+      )}
+
+      {/* Menú Lateral Desplegable Móvil Táctil (iPhone y Android) */}
+      <MobileDrawerMenu
+        isOpen={isMobileDrawerOpen}
+        onClose={() => setIsMobileDrawerOpen(false)}
+        currentUser={currentUser}
+        patientCounts={patientCounts}
+        onNavigate={handleMobileDrawerNavigate}
+        onOpenNewPatient={() => setIsRegisterModalOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialTab('barra_superior');
+          setIsHospitalSettingsOpen(true);
+        }}
+        onOpenUsersManagement={() => {
+          setSettingsInitialTab('usuarios');
+          setIsHospitalSettingsOpen(true);
+        }}
+        onOpenStrokeRegistry={() => {
+          setActiveNavTab('strokeRegistry');
+          setActivePatient(null);
+        }}
+        onLogout={handleLogout}
+      />
+
+      {/* Detección Automática de Eventos Cerebrovasculares */}
+      {showStrokePrompt && activePatient && (
+        <StrokeAutoPromptModal
+          isOpen={showStrokePrompt}
+          patient={activePatient}
+          detectedTerm={detectedStrokeTerm}
+          onClose={() => {
+            setShowStrokePrompt(false);
+            setDismissedStrokePatientIds((prev) => new Set(prev).add(activePatient.id));
+          }}
+          onAccept={() => {
+            setShowStrokePrompt(false);
+            setDismissedStrokePatientIds((prev) => new Set(prev).add(activePatient.id));
+            setPatientForStroke(activePatient);
+            setIsStrokeModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Modal de Registro y Edición de EVC */}
+      {isStrokeModalOpen && (
+        <StrokeRegistryModal
+          isOpen={isStrokeModalOpen}
+          onClose={() => {
+            setIsStrokeModalOpen(false);
+            setPatientForStroke(null);
+          }}
+          patient={patientForStroke}
+          onSaved={() => {
+            cloudSyncService.scheduleAutoSync();
           }}
         />
       )}

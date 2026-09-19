@@ -16,6 +16,7 @@ import {
   Stethoscope,
   BarChart3,
   LogOut,
+  BrainCircuit,
 } from 'lucide-react';
 
 export type SidebarNavId =
@@ -23,6 +24,7 @@ export type SidebarNavId =
   | 'patients'
   | 'emergencies'
   | 'ward'
+  | 'strokeRegistry'
   | 'epidemiology'
   | 'labs'
   | 'studies'
@@ -77,6 +79,11 @@ export const Sidebar: React.FC<Props> = ({
       label: 'Sala / Internamiento',
       icon: Building2,
       badge: patientCounts?.ward,
+    },
+    {
+      id: 'strokeRegistry' as SidebarNavId,
+      label: 'Registro de EVC',
+      icon: BrainCircuit,
     },
     {
       id: 'epidemiology' as SidebarNavId,

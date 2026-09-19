@@ -27,6 +27,19 @@ import {
   PendingFieldItem
 } from '../types';
 import { authService } from './authService';
+import { cloudSyncService } from './cloudSyncService';
+
+export class ConcurrencyConflictError extends Error {
+  public serverHistory: ClinicalHistoryPlanta;
+  public clientHistory: ClinicalHistoryPlanta;
+
+  constructor(serverHistory: ClinicalHistoryPlanta, clientHistory: ClinicalHistoryPlanta) {
+    super(`Conflicto de edición concurrente: La historia fue guardada previamente por ${serverHistory.updatedBy || 'otro médico'} (Versión ${serverHistory.version}).`);
+    this.name = 'ConcurrencyConflictError';
+    this.serverHistory = serverHistory;
+    this.clientHistory = clientHistory;
+  }
+}
 
 export class ClinicalHistoryPlantaService {
 
@@ -469,8 +482,11 @@ export class ClinicalHistoryPlantaService {
    */
   public async saveHistory(
     history: ClinicalHistoryPlanta, 
-    changeSummary: string = 'Modificación de Historia Clínica Planta'
+    optionsOrSummary: { changeSummary?: string; force?: boolean } | string = 'Modificación de Historia Clínica Planta'
   ): Promise<ClinicalHistoryPlanta> {
+    const changeSummary = typeof optionsOrSummary === 'string' ? optionsOrSummary : (optionsOrSummary.changeSummary || 'Modificación de Historia Clínica Planta');
+    const force = typeof optionsOrSummary === 'object' ? !!optionsOrSummary.force : false;
+
     const activeDoc = authService.getActiveDoctorSignature();
     const now = new Date();
     
@@ -479,9 +495,13 @@ export class ClinicalHistoryPlantaService {
       history.neurologicalExam.narrativeText = this.formatNeurologicalNarrative(history.neurologicalExam);
     }
 
-    // Incrementar versión si ya existe
+    // Comprobar concurrencia optimista
     const existing = await db.clinicalHistoriesPlanta.get(history.id);
-    const newVersion = existing ? (existing.version || 1) + 1 : 1;
+    if (existing && !force && (existing.version || 1) > (history.version || 1)) {
+      throw new ConcurrencyConflictError(existing, history);
+    }
+
+    const newVersion = existing ? Math.max(existing.version || 1, history.version || 1) + 1 : 1;
 
     const updatedHistory: ClinicalHistoryPlanta = {
       ...history,
@@ -506,6 +526,18 @@ export class ClinicalHistoryPlantaService {
       snapshot: JSON.parse(JSON.stringify(updatedHistory))
     };
     await db.clinicalHistoryVersions.put(versionRecord);
+
+    // Auditoría
+    await authService.recordAudit({
+      action: existing ? 'PLANTA_HISTORY_UPDATED' : 'PLANTA_HISTORY_CREATED',
+      patientId: history.patientId,
+      recordId: history.id,
+      recordType: 'CLINICAL_HISTORY_PLANTA',
+      details: `${existing ? 'Actualización' : 'Creación'} de Historia Clínica Planta v${newVersion} (${changeSummary})`
+    });
+
+    // Sincronización en tiempo real a disco y nube
+    cloudSyncService.scheduleAutoSync();
 
     return updatedHistory;
   }

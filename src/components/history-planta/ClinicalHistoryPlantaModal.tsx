@@ -24,6 +24,10 @@ import { ConsistencyReviewModal } from './ConsistencyReviewModal';
 import { HistoryVersionsModal } from './HistoryVersionsModal';
 import { WysiwygPreviewModal } from './WysiwygPreviewModal';
 import { NotaIngresoPlantaModal } from './NotaIngresoPlantaModal';
+import { IntelligentPlantaImportModal } from './IntelligentPlantaImportModal';
+import { VersionConflictModal } from '../common/VersionConflictModal';
+import { ConcurrencyConflictError } from '../../services/clinicalHistoryPlantaService';
+import { Sparkles } from 'lucide-react';
 
 interface ClinicalHistoryPlantaModalProps {
   isOpen: boolean;
@@ -54,6 +58,8 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
   const [showVersionsModal, setShowVersionsModal] = useState<boolean>(false);
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
   const [showNotaIngresoModal, setShowNotaIngresoModal] = useState<boolean>(false);
+  const [showIntelligentImport, setShowIntelligentImport] = useState<boolean>(false);
+  const [conflictData, setConflictData] = useState<{ serverHistory: ClinicalHistoryPlanta; clientHistory: ClinicalHistoryPlanta } | null>(null);
 
   // Listas de revisión
   const [pendingFields, setPendingFields] = useState<PendingFieldItem[]>([]);
@@ -119,8 +125,12 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
         await clinicalHistoryPlantaService.saveHistory(updated, 'Guardado Automático');
         setLastSavedTime(`Guardado ${new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}`);
         setHasUnsavedChanges(false);
-      } catch (err) {
-        console.error('Error en guardado automático:', err);
+      } catch (err: any) {
+        if (err instanceof ConcurrencyConflictError) {
+          setConflictData({ serverHistory: err.serverHistory, clientHistory: err.clientHistory });
+        } else {
+          console.error('Error en guardado automático:', err);
+        }
       } finally {
         setIsAutosaving(false);
       }
@@ -137,11 +147,44 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
       setHasUnsavedChanges(false);
       setLastSavedTime('Guardado');
       alert('¡Historia Clínica Planta guardada con éxito!');
-    } catch (err) {
-      alert('Error al guardar la Historia Clínica.');
+    } catch (err: any) {
+      if (err instanceof ConcurrencyConflictError) {
+        setConflictData({ serverHistory: err.serverHistory, clientHistory: err.clientHistory });
+      } else {
+        alert('Error al guardar la Historia Clínica: ' + (err?.message || 'Error desconocido'));
+      }
     } finally {
       setIsAutosaving(false);
     }
+  };
+
+  // Resolución de conflictos de concurrencia
+  const handleResolveUseServer = () => {
+    if (conflictData) {
+      setHistory(conflictData.serverHistory);
+      updateAnalysis(conflictData.serverHistory);
+      setConflictData(null);
+      setHasUnsavedChanges(false);
+      alert('Datos actualizados con la versión más reciente del servidor.');
+    }
+  };
+
+  const handleResolveForceOverwrite = async () => {
+    if (conflictData) {
+      try {
+        const saved = await clinicalHistoryPlantaService.saveHistory(conflictData.clientHistory, { force: true, changeSummary: 'Resolución de conflicto: Sobrescrito por médico' });
+        setHistory(saved);
+        setConflictData(null);
+        setHasUnsavedChanges(false);
+        alert('Sus cambios fueron guardados exitosamente como una nueva versión.');
+      } catch (e: any) {
+        alert('Error forzando guardado: ' + e.message);
+      }
+    }
+  };
+
+  const handleResolveCancel = () => {
+    setConflictData(null);
   };
 
   // Sincronizar desde ingreso
@@ -251,6 +294,16 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
         {/* Barra de Acciones Fijas */}
         <div className="flex items-center space-x-2">
           
+          <button
+            onClick={() => setShowIntelligentImport(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+            title="Importar desde Nota de Emergencia, Historia Anterior o Archivo"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span className="hidden sm:inline">Importación Inteligente</span>
+            <span className="sm:hidden">Importar</span>
+          </button>
+
           {/* Indicador de autosave */}
           <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mr-2">
             {isAutosaving ? (
@@ -1559,6 +1612,36 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
           history={history}
           patient={patient}
           onPatientUpdated={onPatientUpdated}
+        />
+      )}
+
+      {showIntelligentImport && (
+        <IntelligentPlantaImportModal
+          isOpen={showIntelligentImport}
+          onClose={() => setShowIntelligentImport(false)}
+          patient={patient}
+          admissionId={admissionId}
+          onApplyImportedHistory={(imported) => {
+            setHistory(imported);
+            triggerAutosave(imported);
+            alert('¡Historia de Planta actualizada desde la importación asistida!');
+          }}
+          onCreateBlankHistory={() => {
+            const blank = clinicalHistoryPlantaService.createInitialHistory(patient, admissionId);
+            setHistory(blank);
+            triggerAutosave(blank);
+          }}
+        />
+      )}
+
+      {conflictData && (
+        <VersionConflictModal
+          isOpen={!!conflictData}
+          serverHistory={conflictData.serverHistory}
+          clientHistory={conflictData.clientHistory}
+          onUseServerData={handleResolveUseServer}
+          onForceOverwrite={handleResolveForceOverwrite}
+          onCancel={handleResolveCancel}
         />
       )}
 
