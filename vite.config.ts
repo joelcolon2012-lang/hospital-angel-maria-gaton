@@ -2,6 +2,22 @@ import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
+import { GeminiBackend } from './src/server/geminiBackend';
+
+function geminiApiPlugin(): Plugin {
+  GeminiBackend.setRootDir(__dirname);
+  const middleware = GeminiBackend.createMiddleware();
+
+  return {
+    name: 'gemini-secure-api-middleware',
+    configureServer(server) {
+      server.middlewares.use(middleware);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(middleware);
+    }
+  };
+}
 
 function hospitalDatabasePlugin(): Plugin {
   const dbDir = path.resolve(__dirname, 'database');
@@ -16,10 +32,7 @@ function hospitalDatabasePlugin(): Plugin {
     }
   }
 
-  return {
-    name: 'hospital-database-sync-middleware',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
+  const dbMiddleware = (req: any, res: any, next: any) => {
         const url = req.url || '';
 
         // API Health
@@ -107,14 +120,22 @@ function hospitalDatabasePlugin(): Plugin {
         }
 
         next();
-      });
+  };
+
+  return {
+    name: 'hospital-database-sync-middleware',
+    configureServer(server) {
+      server.middlewares.use(dbMiddleware);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(dbMiddleware);
     }
   };
 }
 
 export default defineConfig({
   base: './',
-  plugins: [react(), hospitalDatabasePlugin()],
+  plugins: [react(), hospitalDatabasePlugin(), geminiApiPlugin()],
   server: {
     port: 3000,
     host: true,

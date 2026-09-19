@@ -54,6 +54,7 @@ import { quickOptionsService, DEFAULT_QUICK_OPTIONS } from '../../services/quick
 import { CustomNormalExamModal } from './CustomNormalExamModal';
 import { authService } from '../../services/authService';
 import { GeminiClinicalService } from '../../services/ai/GeminiClinicalService';
+import { geminiService } from '../../services/ai/geminiService';
 
 export const DEFAULT_HEADER_LAYOUT: HeaderLayoutConfig = {
   showHospitalLogo: true,
@@ -78,7 +79,7 @@ export const DEFAULT_HOSPITAL_SETTINGS: HospitalSettings = {
   isDarkMode: false,
   headerLayout: DEFAULT_HEADER_LAYOUT,
   geminiApiKey: '',
-  geminiModel: 'gemini-1.5-flash',
+  geminiModel: 'gemini-flash-auto',
 };
 
 type SettingsTab = 
@@ -134,6 +135,8 @@ export const HospitalSettingsModal: React.FC<Props> = ({
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   // Estado del Editor de Plantillas Oficiales (Secciones 15 & 16)
   const [selectedTemplateId, setSelectedTemplateId] = useState<OfficialTemplateId>('nota_emergencia');
@@ -208,6 +211,24 @@ export const HospitalSettingsModal: React.FC<Props> = ({
         setQuickOptions(opts);
       } catch (e) {
         console.warn('Error cargando opciones rápidas:', e);
+      }
+
+      // 5. Cargar modelos compatibles de Google Gemini
+      try {
+        setIsLoadingModels(true);
+        const models = await geminiService.getAvailableGeminiModels();
+        setAvailableModels(models);
+        if (models.length > 0) {
+          const current = settings.geminiModel;
+          if (!current || current === 'gemini-flash-auto' || !models.includes(current)) {
+            const best = geminiService.selectBestGeminiModel(models);
+            setSettings(s => ({ ...s, geminiModel: best }));
+          }
+        }
+      } catch (e) {
+        console.warn('Error cargando modelos de Gemini:', e);
+      } finally {
+        setIsLoadingModels(false);
       }
     };
 
@@ -284,13 +305,18 @@ export const HospitalSettingsModal: React.FC<Props> = ({
       }
       localStorage.setItem('hospital_general_settings', JSON.stringify(settings));
 
-      // Guardar clave API de Gemini de forma persistente
-      if (settings.geminiApiKey !== undefined) {
-        localStorage.setItem('hospital_gemini_api_key', settings.geminiApiKey);
+      // Guardar clave API en servidor backend de forma segura (sin exponer en localStorage)
+      if (settings.geminiApiKey !== undefined && settings.geminiApiKey.trim()) {
+        await geminiService.saveServerApiKey(settings.geminiApiKey.trim());
       }
       if (settings.geminiModel) {
-        localStorage.setItem('hospital_gemini_model', settings.geminiModel);
+        geminiService.setActiveModel(settings.geminiModel);
       }
+      // Limpiar cualquier residuo previo en localStorage
+      try {
+        localStorage.removeItem('hospital_gemini_api_key');
+        localStorage.removeItem('hospital_gemini_model');
+      } catch {}
 
       // 3. Aplicar estilos
       document.documentElement.style.setProperty('--primary-color', settings.themeColor);
@@ -321,12 +347,15 @@ export const HospitalSettingsModal: React.FC<Props> = ({
     setGeminiTestResult(null);
     try {
       const keyToTest = settings.geminiApiKey?.trim();
-      const res = await GeminiClinicalService.testConnection(keyToTest);
+      const res = await geminiService.testGeminiConnection(keyToTest || undefined);
       setGeminiTestResult(res);
+      if (res.model) {
+        setSettings(s => ({ ...s, geminiModel: res.model }));
+      }
     } catch (err: any) {
       setGeminiTestResult({
         success: false,
-        message: 'Error al conectar con los servidores de Google Gemini: ' + err.message,
+        message: 'No se pudo establecer conexión con Gemini. El sistema intentará utilizar otro modelo disponible.',
       });
     } finally {
       setIsTestingGemini(false);
@@ -887,23 +916,46 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Puedes obtener tu clave gratuita o institucional en Google AI Studio (<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-teal-700 font-bold underline">aistudio.google.com</a>).
+                    Al guardar, la clave se almacena de forma segura exclusivamente en el servidor backend (<code>GEMINI_API_KEY</code> en <code>.env</code>). Nunca se expone en el código cliente.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Modelo Principal de Gemini:
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Modelo Activo de Gemini:
+                      </label>
+                      {isLoadingModels && (
+                        <span className="text-[10px] text-teal-600 font-semibold animate-pulse">
+                          Consultando modelos...
+                        </span>
+                      )}
+                    </div>
                     <select
-                      value={settings.geminiModel || 'gemini-1.5-flash'}
+                      value={settings.geminiModel || geminiService.getActiveModel()}
                       disabled={!isSuperAdmin}
-                      onChange={(e) => setSettings({ ...settings, geminiModel: e.target.value as any })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSettings({ ...settings, geminiModel: val });
+                        geminiService.setActiveModel(val);
+                      }}
                       className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#0F4C5C]"
                     >
-                      <option value="gemini-1.5-flash">Gemini 1.5 Flash (Ultrarrápido • Recomendado para Emergencias)</option>
-                      <option value="gemini-1.5-pro">Gemini 1.5 Pro (Máximo Razonamiento Multimodal y Detalle)</option>
+                      {availableModels.length === 0 ? (
+                        <option value={settings.geminiModel || 'gemini-2.5-flash'}>
+                          {settings.geminiModel || 'gemini-2.5-flash'} (Selección Automática Flash)
+                        </option>
+                      ) : (
+                        availableModels.map((m) => {
+                          const isFlash = m.toLowerCase().includes('flash');
+                          return (
+                            <option key={m} value={m}>
+                              {m} {isFlash ? '⚡ (Recomendado Ultrarrápido)' : '🧠 (Alta Capacidad)'}
+                            </option>
+                          );
+                        })
+                      )}
                     </select>
                   </div>
 

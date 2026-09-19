@@ -23,6 +23,7 @@ import {
   parseHemogramFromText,
   parseChemistryFromText
 } from './VisionLabParser';
+import { geminiService } from './geminiService';
 import { interpretHemogram, interpretChemistry } from './ClinicalLabInterpreter';
 import { GeminiClinicalService } from './GeminiClinicalService';
 
@@ -35,11 +36,10 @@ export class VisionLabOcrEngine {
     patientContext?: { age?: number; sex?: string }
   ): Promise<HemogramExtractionResult> {
     const base64Data = await this.resolveBase64(fileOrBase64);
-    const apiKey = GeminiClinicalService.getApiKey();
 
-    if (apiKey && base64Data) {
+    if (base64Data) {
       try {
-        const geminiResult = await this.extractHemogramWithGeminiVision(base64Data, apiKey);
+        const geminiResult = await this.extractHemogramWithGeminiVision(base64Data);
         if (geminiResult && geminiResult.parameters.some(p => p.isIdentified)) {
           return geminiResult;
         }
@@ -68,11 +68,10 @@ export class VisionLabOcrEngine {
     patientContext?: { age?: number; sex?: string }
   ): Promise<ChemistryExtractionResult> {
     const base64Data = await this.resolveBase64(fileOrBase64);
-    const apiKey = GeminiClinicalService.getApiKey();
 
-    if (apiKey && base64Data) {
+    if (base64Data) {
       try {
-        const geminiResult = await this.extractChemistryWithGeminiVision(base64Data, apiKey);
+        const geminiResult = await this.extractChemistryWithGeminiVision(base64Data);
         if (geminiResult && geminiResult.parameters.some(p => p.isIdentified)) {
           return geminiResult;
         }
@@ -95,8 +94,7 @@ export class VisionLabOcrEngine {
    * Extracción de alta fidelidad con Gemini Vision para Hemograma
    */
   private static async extractHemogramWithGeminiVision(
-    base64Url: string,
-    apiKey: string
+    base64Url: string
   ): Promise<HemogramExtractionResult> {
     const cleanBase64 = base64Url.includes(',') ? base64Url.split(',')[1] : base64Url;
     const mimeType = base64Url.includes('data:') ? base64Url.split(';')[0].replace('data:', '') : 'image/jpeg';
@@ -128,34 +126,27 @@ REGLAS CRÍTICAS:
   "bas": null o número (Basófilos en %)
 }`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data: cleanBase64 } }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.05,
-          maxOutputTokens: 800,
-          responseMimeType: 'application/json'
+    const geminiRes = await geminiService.generateContent({
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType, data: cleanBase64 } }
+          ]
         }
-      })
+      ],
+      generationConfig: {
+        temperature: 0.05,
+        maxOutputTokens: 800,
+        responseMimeType: 'application/json'
+      }
     });
 
-    if (!res.ok) {
-      throw new Error(`Gemini Vision HTTP ${res.status}`);
+    if (!geminiRes.success || !geminiRes.text) {
+      throw new Error(geminiRes.error || 'Gemini Vision Error');
     }
 
-    const data = await res.json();
-    const rawJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    const parsed = JSON.parse(rawJsonText);
+    const parsed = JSON.parse(geminiRes.text);
 
     // Mapear a los 14 parámetros ordenados canónicos
     const keyMap: Record<string, any> = {
@@ -231,8 +222,7 @@ REGLAS CRÍTICAS:
    * Extracción con Gemini Vision para Química Clínica
    */
   private static async extractChemistryWithGeminiVision(
-    base64Url: string,
-    apiKey: string
+    base64Url: string
   ): Promise<ChemistryExtractionResult> {
     const cleanBase64 = base64Url.includes(',') ? base64Url.split(',')[1] : base64Url;
     const mimeType = base64Url.includes('data:') ? base64Url.split(';')[0].replace('data:', '') : 'image/jpeg';
@@ -275,34 +265,27 @@ REGLAS ESTRICTAS:
   "lipasa": null o número (U/L)
 }`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data: cleanBase64 } }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.05,
-          maxOutputTokens: 1000,
-          responseMimeType: 'application/json'
+    const geminiRes = await geminiService.generateContent({
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType, data: cleanBase64 } }
+          ]
         }
-      })
+      ],
+      generationConfig: {
+        temperature: 0.05,
+        maxOutputTokens: 1000,
+        responseMimeType: 'application/json'
+      }
     });
 
-    if (!res.ok) {
-      throw new Error(`Gemini Vision HTTP ${res.status}`);
+    if (!geminiRes.success || !geminiRes.text) {
+      throw new Error(geminiRes.error || 'Gemini Vision Error');
     }
 
-    const data = await res.json();
-    const rawJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    const parsed = JSON.parse(rawJsonText);
+    const parsed = JSON.parse(geminiRes.text);
 
     const keyMap: Record<string, any> = {
       GLUCOSA: parsed.glucosa,

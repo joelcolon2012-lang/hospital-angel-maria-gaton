@@ -29,6 +29,7 @@ import {
 } from '../types/clinicalHistoryPlanta';
 import { VisionLabOcrEngine } from './ai/VisionLabOcrEngine';
 import { GeminiClinicalService } from './ai/GeminiClinicalService';
+import { geminiService } from './ai/geminiService';
 
 export type ConfidenceLevel = 'ALTA' | 'MEDIA' | 'BAJA';
 
@@ -128,32 +129,21 @@ export class HistoryPlantaImportEngine {
     if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') {
       try {
         const base64 = await this.fileToBase64(file);
-        const apiKey = GeminiClinicalService.getApiKey();
+        const prompt = `Eres un transcriptor clínico hospitalario experto. Transcribe con fidelidad absoluta TODO el texto clínico visible en esta imagen de nota de emergencia o historia clínica: Datos de filiación, motivo, HDA, antecedentes, examen físico cefalocaudal, signos vitales, diagnósticos y tratamiento. No inventes nada.`;
+        const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
 
-        if (apiKey) {
-          const prompt = `Eres un transcriptor clínico hospitalario experto. Transcribe con fidelidad absoluta TODO el texto clínico visible en esta imagen de nota de emergencia o historia clínica: Datos de filiación, motivo, HDA, antecedentes, examen físico cefalocaudal, signos vitales, diagnósticos y tratamiento. No inventes nada.`;
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType: file.type || 'image/jpeg', data: base64.split(',')[1] || base64 } }
-                ]
-              }],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
-            })
-          });
+        const geminiRes = await geminiService.generateContent({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: file.type || 'image/jpeg', data: cleanBase64 } }
+            ]
+          }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
+        });
 
-          if (res.ok) {
-            const data = await res.json();
-            const extracted = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            if (extracted.trim().length > 20) {
-              return { text: extracted, fileType: ext };
-            }
-          }
+        if (geminiRes.success && geminiRes.text && geminiRes.text.trim().length > 20) {
+          return { text: geminiRes.text, fileType: ext };
         }
       } catch (err) {
         console.warn('Error en transcripción de imagen:', err);

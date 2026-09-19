@@ -252,7 +252,7 @@ export interface HospitalSettings {
   isDarkMode: boolean;
   headerLayout?: HeaderLayoutConfig;
   geminiApiKey?: string;
-  geminiModel?: 'gemini-1.5-flash' | 'gemini-1.5-pro';
+  geminiModel?: string;
   normalPhysicalExam?: Record<string, string>; // MI EXAMEN FÍSICO NORMAL PERSONALIZABLE
   customFormOptions?: Record<string, string[]>;
   activeTemplates?: Record<string, OfficialHospitalTemplate>;
