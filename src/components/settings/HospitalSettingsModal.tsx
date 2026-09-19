@@ -39,7 +39,8 @@ import {
   Server,
   Activity,
   Globe,
-  Lock
+  Lock,
+  ExternalLink
 } from 'lucide-react';
 import { 
   HospitalSettings, 
@@ -919,11 +920,21 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                       Frontend en GitHub Pages vinculado al backend independiente seguro en Render (sin exposición de claves).
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                  <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
                       <Lock className="w-3 h-3 text-emerald-700" />
                       Zero Client-Secrets
                     </span>
+                    <a
+                      href="https://render.com/deploy?repo=https://github.com/joelcolon2012-lang/hospital-angel-maria-gaton"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-slate-900 hover:bg-black text-white shadow-xs transition-all active:scale-95 cursor-pointer"
+                      title="Desplegar backend automáticamente en Render con un solo clic"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Crear en Render (1 Clic)</span>
+                    </a>
                   </div>
                 </div>
 

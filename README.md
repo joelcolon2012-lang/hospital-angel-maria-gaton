@@ -2,6 +2,8 @@
 
 Aplicación Web Progresiva (PWA) móvil, estructurada y de alto rendimiento diseñada específicamente para el trabajo médico en salas de urgencias y emergencias hospitalarias.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/joelcolon2012-lang/hospital-angel-maria-gaton)
+
 ---
 
 ## 🌟 Características Principales
