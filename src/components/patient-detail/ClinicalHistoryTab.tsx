@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Patient, ClinicalHistory } from '../../types';
 import {
   ChevronDown,
@@ -75,6 +75,12 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
       diagnosticAndTherapeuticPlan: '',
     }
   );
+
+  useEffect(() => {
+    if (patient && patient.clinicalHistory) {
+      setHistory(patient.clinicalHistory);
+    }
+  }, [patient?.id, patient?.clinicalHistory]);
 
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -230,34 +236,41 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
 
   // Cargar Examen Físico Normal Personalizado del Hospital (16 Sistemas Oficiales)
   const handleLoadNormalExam = async () => {
-    const customNormal = await getCustomNormalPhysicalExam();
-    const loadedExam = {
-      ...history.physicalExam,
-      general: customNormal.general || 'Paciente en aceptables condiciones generales, alerta, consciente, orientado en tiempo, espacio y persona, cooperador, normocoloreado, hidratado, eupneico.',
-      head: customNormal.head || 'Normocéfalo, sin hematomas ni hundimientos, adecuada implantación pilosa.',
-      eyes: customNormal.eyes || 'Pupilas isocóricas y fotorreactivas a la luz de 3 mm bilateral, escleras anictéricas, conjuntivas normocoloreadas.',
-      ears: customNormal.ears || 'Pabellones auriculares bien implantados, conductos auditivos externos permeables, sin otorragia ni otorrea.',
-      nose: customNormal.nose || 'Fosas nasales permeables, sin secreciones patológicas, mucosa normocoloreada, sin epistaxis.',
-      mouth: customNormal.mouth || 'Mucosa oral húmeda y normocoloreada, lengua móvil y centrada, piezas dentales en regular estado, faringe no congestiva.',
-      neck: customNormal.neck || 'Simétrico, móvil, no doloroso, sin ingurgitación yugular a 45°, sin adenopatías palpables, pulsos carotídeos rítmicos.',
-      thorax: customNormal.thorax || 'Tórax simétrico, normoexpansible, sin deformidades torácicas ni dolor costal.',
-      lungs: customNormal.lungs || 'Campos pulmonares normoventilados bilateralmente, murmullo vesicular conservado sin estertores ni sibilancias.',
-      heart: customNormal.heart || 'Ruidos cardíacos rítmicos y regulares, R1 y R2 normofonéticos en los 4 focos, sin soplos ni galopes.',
-      abdominal: customNormal.abdominal || 'Abdomen blando, depresible, no doloroso a la palpación superficial ni profunda, RHA normoactivos, sin visceromegalias ni irritación peritoneal.',
-      genitals: customNormal.genitals || 'Genitales externos acordes a edad y sexo, sin lesiones evidentes ni secreciones patológicas.',
-      skin: customNormal.skin || 'Piel normotérmica, elástica, turgencia conservada, llenado capilar menor de 2 segundos, sin lesiones activas, rash ni petequias.',
-      upperExtremities: customNormal.upperExtremities || 'Simétricas, móviles, tono y fuerza muscular 5/5, pulsos radiales presentes y simétricos, sin edema ni deformidades.',
-      lowerExtremities: customNormal.lowerExtremities || 'Simétricas, sin deformidades, arcos de movilidad conservados, fuerza 5/5 bilateral, pulsos pedios palpables, sin edema periférico.',
-      neurological: customNormal.neurological || 'Alerta, consciente, Glasgow 15/15, orientado en 3 esferas, pares craneales íntegros sin déficit motor focal, marcha estable.',
-      // Compatibilidad previa
-      cardiovascular: customNormal.heart || '',
-      respiratory: customNormal.lungs || customNormal.thorax || '',
-      extremities: [customNormal.upperExtremities, customNormal.lowerExtremities].filter(Boolean).join(' | '),
-      otherFindings: '',
-    };
-    const updated = { ...history, physicalExam: loadedExam };
-    setHistory(updated);
-    onUpdateHistory(updated);
+    try {
+      const customNormal = await getCustomNormalPhysicalExam();
+      const loadedExam: any = {
+        ...history.physicalExam,
+      };
+
+      OFFICIAL_16_SYSTEMS.forEach((sys) => {
+        loadedExam[sys.id] = (customNormal && customNormal[sys.id]) ? customNormal[sys.id] : sys.defaultNormal;
+      });
+
+      // Backward compatibility fields
+      loadedExam.cardiovascular = loadedExam.heart || loadedExam.thorax || '';
+      loadedExam.respiratory = loadedExam.lungs || loadedExam.thorax || '';
+      loadedExam.extremities = [loadedExam.upperExtremities, loadedExam.lowerExtremities].filter(Boolean).join(' | ');
+      loadedExam.otherFindings = loadedExam.otherFindings || '';
+
+      const updated = { ...history, physicalExam: loadedExam };
+      setHistory(updated);
+      onUpdateHistory(updated);
+      setOpenSections((prev) => ({ ...prev, examen: true }));
+      setSavedFeedback(true);
+      setTimeout(() => setSavedFeedback(false), 3000);
+    } catch (err) {
+      console.error('Error al cargar examen físico normal:', err);
+      const fallbackExam: any = { ...history.physicalExam };
+      OFFICIAL_16_SYSTEMS.forEach((sys) => {
+        fallbackExam[sys.id] = sys.defaultNormal;
+      });
+      const updated = { ...history, physicalExam: fallbackExam };
+      setHistory(updated);
+      onUpdateHistory(updated);
+      setOpenSections((prev) => ({ ...prev, examen: true }));
+      setSavedFeedback(true);
+      setTimeout(() => setSavedFeedback(false), 3000);
+    }
   };
 
   // Limpiar Sección 3: Examen Físico
@@ -699,6 +712,13 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
                 </button>
               </div>
             </div>
+
+            {savedFeedback && (
+              <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200 shadow-sm">
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>¡Examen Físico Normal cargado exitosamente en los 16 sistemas!</span>
+              </div>
+            )}
 
             {/* 16 Acápites Cefalocaudales Oficiales */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">

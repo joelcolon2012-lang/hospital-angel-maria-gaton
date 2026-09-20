@@ -28,6 +28,7 @@ import { IntelligentPlantaImportModal } from './IntelligentPlantaImportModal';
 import { VersionConflictModal } from '../common/VersionConflictModal';
 import { ConcurrencyConflictError } from '../../services/clinicalHistoryPlantaService';
 import { Sparkles } from 'lucide-react';
+import { getCustomNormalPhysicalExam } from '../../services/clinicalNormalTemplateService';
 
 interface ClinicalHistoryPlantaModalProps {
   isOpen: boolean;
@@ -1303,10 +1304,41 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
 
           {/* SECCIÓN 12: EXAMEN FÍSICO POR SISTEMAS */}
           <section id="sec-examen-fisico" className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm scroll-mt-6">
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide border-b border-slate-100 pb-3 mb-4 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-teal-500"></span>
-              12. Examen Físico por Sistemas (Orden Cefalocaudal Estricto)
-            </h3>
+            <div className="border-b border-slate-100 pb-3 mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-teal-500"></span>
+                12. Examen Físico por Sistemas (Orden Cefalocaudal Estricto)
+              </h3>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!history) return;
+                  const customNormal = await getCustomNormalPhysicalExam();
+                  const updatedPe = {
+                    ...history.physicalExam,
+                    head: customNormal.head || 'Normocéfalo, sin hematomas ni hundimientos, adecuada implantación pilosa.',
+                    eyes: customNormal.eyes || 'Pupilas isocóricas y fotorreactivas a la luz de 3 mm bilateral, escleras anictéricas, conjuntivas normocoloreadas.',
+                    ears: customNormal.ears || 'Pabellones auriculares bien implantados, conductos auditivos externos permeables, sin otorragia ni otorrea.',
+                    nose: customNormal.nose || 'Fosas nasales permeables, sin secreciones patológicas, mucosa normocoloreada, sin epistaxis.',
+                    mouth: customNormal.mouth || 'Mucosa oral húmeda y normocoloreada, lengua móvil y centrada, piezas dentales en regular estado, faringe no congestiva.',
+                    neck: customNormal.neck || 'Simétrico, móvil, no doloroso, sin ingurgitación yugular a 45°, sin adenopatías palpables, pulsos carotídeos rítmicos.',
+                    thorax: customNormal.thorax || 'Tórax simétrico, normoexpansible, sin deformidades torácicas ni dolor costal.',
+                    lungs: customNormal.lungs || 'Campos pulmonares normoventilados bilateralmente, murmullo vesicular conservado sin estertores ni sibilancias.',
+                    heart: customNormal.heart || 'Ruidos cardíacos rítmicos y regulares, R1 y R2 normofonéticos en los 4 focos, sin soplos ni galopes.',
+                    abdomen: customNormal.abdominal || 'Abdomen blando, depresible, no doloroso a la palpación superficial ni profunda, RHA normoactivos, sin visceromegalias ni irritación peritoneal.',
+                    externalGenitals: customNormal.genitals || 'Genitales externos acordes a edad y sexo, sin lesiones evidentes ni secreciones patológicas.',
+                    skin: customNormal.skin || 'Piel normotérmica, elástica, turgencia conservada, llenado capilar menor de 2 segundos, sin lesiones activas, rash ni petequias.',
+                    upperExtremities: customNormal.upperExtremities || 'Simétricas, móviles, tono y fuerza muscular 5/5, pulsos radiales presentes y simétricos, sin edema ni deformidades.',
+                    lowerExtremities: customNormal.lowerExtremities || 'Simétricas, sin deformidades, arcos de movilidad conservados, fuerza 5/5 bilateral, pulsos pedios palpables, sin edema periférico.',
+                  };
+                  triggerAutosave({ ...history, physicalExam: updatedPe });
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 px-3 py-1.5 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
+                <span>CARGAR EXAMEN FÍSICO NORMAL</span>
+              </button>
+            </div>
             <div className="space-y-3 text-xs">
               {Object.entries(history.physicalExam).map(([key, val]) => {
                 if (key === 'neurological') return null; // Se maneja en la sección 13
