@@ -138,6 +138,7 @@ export default function App() {
   const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
   const [isSendToGuardiaOpen, setIsSendToGuardiaOpen] = useState(false);
   const [patientForGuardia, setPatientForGuardia] = useState<Patient | null>(null);
+  const [focusedGuardiaPatientId, setFocusedGuardiaPatientId] = useState<string | null>(null);
   const [isHistoryPlantaOpen, setIsHistoryPlantaOpen] = useState(false);
   const [patientForHistoryPlanta, setPatientForHistoryPlanta] = useState<Patient | null>(null);
   const [sidebarNav, setSidebarNav] = useState<SidebarNavId>('dashboard');
@@ -621,10 +622,12 @@ export default function App() {
     setTimeout(() => setSyncStatus('saved'), 800);
   };
 
-  // Transferencia & Admisión a Guardia Clínica (Medicina Interna)
+  // Redirección directa a Guardia de Medicina Interna cargando al paciente en tiempo real
   const handleOpenGuardiaForPatient = (p: Patient) => {
-    setPatientForGuardia(p);
-    setIsSendToGuardiaOpen(true);
+    setFocusedGuardiaPatientId(p.id);
+    setActivePatient(null);
+    setActiveNavTab('guardia');
+    setSidebarNav('ward');
   };
 
   const handleOpenHistoryPlantaForPatient = (p?: Patient) => {
@@ -1230,6 +1233,7 @@ export default function App() {
                 pendingTasks={pendingTasks}
                 evolutions={evolutions}
                 currentUser={currentUser}
+                initialPatientId={focusedGuardiaPatientId || undefined}
                 onSelectPatientDossier={(patient, tab = 'vitals') => {
                   setActivePatient(patient);
                   setActiveDossierTab(tab);

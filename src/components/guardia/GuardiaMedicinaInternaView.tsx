@@ -23,6 +23,11 @@ import { FastPatientDrawer } from './FastPatientDrawer';
 import { AddPendingModal } from './AddPendingModal';
 import { AddLabModal } from './AddLabModal';
 import { TrendChartModal } from './TrendChartModal';
+import { AdmitPatientModal } from './AdmitPatientModal';
+import { AddOrderModal } from './AddOrderModal';
+import { QuickEvolutionModal } from './QuickEvolutionModal';
+import { QuickDiagnosisModal } from './QuickDiagnosisModal';
+import { QuickEditChiefComplaintModal } from './QuickEditChiefComplaintModal';
 
 interface Props {
   patients: Patient[];
@@ -31,6 +36,7 @@ interface Props {
   pendingTasks: PendingTask[];
   evolutions: PatientEvolution[];
   currentUser?: User;
+  initialPatientId?: string;
   onSelectPatientDossier?: (patient: Patient, tab?: 'vitals' | 'history' | 'studies' | 'labs' | 'diagnostics' | 'orders' | 'evolutions' | 'disposition') => void;
   onOpenEvolutionModal?: (patient: Patient) => void;
   onOpenOrderModal?: (patient: Patient) => void;
@@ -62,6 +68,7 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
   pendingTasks,
   evolutions,
   currentUser,
+  initialPatientId,
   onSelectPatientDossier,
   onOpenEvolutionModal,
   onOpenOrderModal,
@@ -99,8 +106,42 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
   // Sugerencias descartadas por el usuario en esta sesión
   const [discardedSuggestions, setDiscardedSuggestions] = useState<Set<string>>(new Set());
 
+  // Estados de modales de acción directa en guardia (Ingreso, Diagnóstico, Órdenes, Evolución, Motivo)
+  const [isAdmitPatientOpen, setIsAdmitPatientOpen] = useState<boolean>(false);
+  const [admitBedCode, setAdmitBedCode] = useState<string | undefined>();
+  const [selectedActionPatient, setSelectedActionPatient] = useState<Patient | null>(null);
+  const [isAddOrderOpen, setIsAddOrderOpen] = useState<boolean>(false);
+  const [isQuickEvolutionOpen, setIsQuickEvolutionOpen] = useState<boolean>(false);
+  const [isQuickDiagnosisOpen, setIsQuickDiagnosisOpen] = useState<boolean>(false);
+  const [isEditComplaintOpen, setIsEditComplaintOpen] = useState<boolean>(false);
+
   // Notificación de pulso de actualización remota (Sección 30)
   const [lastRemoteUpdate, setLastRemoteUpdate] = useState<RowUpdateNotification | null>(null);
+
+  // Auto-foco y carga en tiempo real cuando se redirige desde el Dashboard para un paciente específico
+  useEffect(() => {
+    if (initialPatientId) {
+      const target = patients.find((p) => p.id === initialPatientId);
+      if (target) {
+        setDrawerPatient(target);
+        const norm = normalizeBedCode(target.cubicle || '');
+        if (norm) {
+          const room = norm.split(' ')[0];
+          if (room) setSelectedWard(room);
+        }
+      }
+    }
+  }, [initialPatientId, patients]);
+
+  // Si el paciente en el drawer se actualiza remotamente, mantener sus datos frescos
+  useEffect(() => {
+    if (drawerPatient) {
+      const updated = patients.find((p) => p.id === drawerPatient.id);
+      if (updated && updated !== drawerPatient) {
+        setDrawerPatient(updated);
+      }
+    }
+  }, [patients, drawerPatient]);
 
   // Guardar preferencia de modo guardia
   const handleToggleGuardMode = () => {
@@ -584,6 +625,10 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
             setLabPreselectedPatientId(undefined);
             setIsAddLabOpen(true);
           }}
+          onOpenAdmitPatient={() => {
+            setAdmitBedCode(undefined);
+            setIsAdmitPatientOpen(true);
+          }}
           onExportWord={handleExportWord}
           onPrintPdf={handlePrintPdf}
           onRefresh={handleManualRefresh}
@@ -608,6 +653,26 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
             onOpenAddLab={(patient) => {
               setLabPreselectedPatientId(patient.id);
               setIsAddLabOpen(true);
+            }}
+            onOpenAdmitToBed={(bed) => {
+              setAdmitBedCode(bed.code);
+              setIsAdmitPatientOpen(true);
+            }}
+            onOpenAddOrder={(patient) => {
+              setSelectedActionPatient(patient);
+              setIsAddOrderOpen(true);
+            }}
+            onOpenQuickEvolution={(patient) => {
+              setSelectedActionPatient(patient);
+              setIsQuickEvolutionOpen(true);
+            }}
+            onOpenQuickDiagnosis={(patient) => {
+              setSelectedActionPatient(patient);
+              setIsQuickDiagnosisOpen(true);
+            }}
+            onOpenEditComplaint={(patient) => {
+              setSelectedActionPatient(patient);
+              setIsEditComplaintOpen(true);
             }}
             onOpenTrendModal={(patientName, paramName, pLabs) => {
               setTrendModal({
@@ -643,6 +708,10 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
             onOpenAddPending={(patient) => {
               setPendingPreselectedPatientId(patient.id);
               setIsAddPendingOpen(true);
+            }}
+            onOpenAdmitToBed={(bed) => {
+              setAdmitBedCode(bed.code);
+              setIsAdmitPatientOpen(true);
             }}
           />
         )}
@@ -702,6 +771,75 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
         patientName={trendModal.patientName}
         parameterName={trendModal.parameterName}
         labs={trendModal.labs}
+      />
+
+      {/* Modal para Ingresar o Asignar Paciente Directo a Cama de Guardia */}
+      <AdmitPatientModal
+        isOpen={isAdmitPatientOpen}
+        onClose={() => setIsAdmitPatientOpen(false)}
+        availableBeds={allBeds}
+        preselectedBedCode={admitBedCode}
+        existingPatients={patients}
+        currentUser={currentUser}
+        onSuccess={async () => {
+          await onRefreshData();
+        }}
+      />
+
+      {/* Modal para Prescribir Órdenes Médicas / Antibióticos [D-X] */}
+      <AddOrderModal
+        isOpen={isAddOrderOpen}
+        onClose={() => {
+          setIsAddOrderOpen(false);
+          setSelectedActionPatient(null);
+        }}
+        patient={selectedActionPatient}
+        currentUser={currentUser}
+        onOrderSaved={async () => {
+          await onRefreshData();
+        }}
+      />
+
+      {/* Modal para Nota Rápida de Evolución Médica de Guardia */}
+      <QuickEvolutionModal
+        isOpen={isQuickEvolutionOpen}
+        onClose={() => {
+          setIsQuickEvolutionOpen(false);
+          setSelectedActionPatient(null);
+        }}
+        patient={selectedActionPatient}
+        currentUser={currentUser}
+        onEvolutionSaved={async () => {
+          await onRefreshData();
+        }}
+      />
+
+      {/* Modal para Agregar Diagnóstico Nosológico Clínico */}
+      <QuickDiagnosisModal
+        isOpen={isQuickDiagnosisOpen}
+        onClose={() => {
+          setIsQuickDiagnosisOpen(false);
+          setSelectedActionPatient(null);
+        }}
+        patient={selectedActionPatient}
+        currentUser={currentUser}
+        onDiagnosisSaved={async () => {
+          await onRefreshData();
+        }}
+      />
+
+      {/* Modal para Edición Rápida de Motivo de Consulta / Ingreso */}
+      <QuickEditChiefComplaintModal
+        isOpen={isEditComplaintOpen}
+        onClose={() => {
+          setIsEditComplaintOpen(false);
+          setSelectedActionPatient(null);
+        }}
+        patient={selectedActionPatient}
+        currentUser={currentUser}
+        onSaved={async () => {
+          await onRefreshData();
+        }}
       />
     </div>
   );

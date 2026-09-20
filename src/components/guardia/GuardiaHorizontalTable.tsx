@@ -56,6 +56,11 @@ interface Props {
   onOpenEvolutionModal?: (patient: Patient) => void;
   onOpenOrderModal?: (patient: Patient) => void;
   onOpenHistoryModal?: (patient: Patient) => void;
+  onOpenAdmitToBed?: (bed: GuardiaClinicalBed) => void;
+  onOpenAddOrder?: (patient: Patient) => void;
+  onOpenQuickEvolution?: (patient: Patient) => void;
+  onOpenQuickDiagnosis?: (patient: Patient) => void;
+  onOpenEditComplaint?: (patient: Patient) => void;
   onConfirmSuggestedDiagnosis: (patient: Patient, diagName: string) => void;
   onDiscardSuggestedDiagnosis: (patient: Patient, diagName: string) => void;
 }
@@ -75,6 +80,11 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
   onOpenEvolutionModal,
   onOpenOrderModal,
   onOpenHistoryModal,
+  onOpenAdmitToBed,
+  onOpenAddOrder,
+  onOpenQuickEvolution,
+  onOpenQuickDiagnosis,
+  onOpenEditComplaint,
   onConfirmSuggestedDiagnosis,
   onDiscardSuggestedDiagnosis
 }) => {
@@ -266,8 +276,22 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
                         )}
                       </div>
                     ) : (
-                      <div className="py-3 text-center text-emerald-600 font-bold text-xs">
-                        Cama Disponible
+                      <div className="py-2 text-center space-y-1.5">
+                        <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                          DISPONIBLE
+                        </span>
+                        <div>
+                          {onOpenAdmitToBed && (
+                            <button
+                              onClick={() => onOpenAdmitToBed(bed)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold shadow-xs transition-all active:scale-95 cursor-pointer"
+                              title={`Ingresar o asignar paciente a la cama ${bed.code}`}
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>+ Ingresar / Asignar</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </td>
@@ -277,10 +301,21 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
                   {/* ========================================================== */}
                   <td className="px-3 py-3 border-r border-slate-200 align-top">
                     {pat ? (
-                      <div className="text-slate-800 text-[11px] leading-relaxed">
-                        <p className={isExpanded ? '' : 'line-clamp-3'}>
-                          {chiefComplaint || 'Sin motivo de consulta registrado en historia.'}
-                        </p>
+                      <div className="text-slate-800 text-[11px] leading-relaxed group">
+                        <div className="flex items-start justify-between gap-1">
+                          <p className={isExpanded ? '' : 'line-clamp-3'}>
+                            {chiefComplaint || 'Sin motivo de consulta registrado en historia.'}
+                          </p>
+                          {onOpenEditComplaint && (
+                            <button
+                              onClick={() => onOpenEditComplaint(pat)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-400 hover:text-teal-700 hover:bg-teal-50 transition-opacity shrink-0 cursor-pointer"
+                              title="Editar motivo de consulta"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                         {chiefComplaint.length > 90 && (
                           <button
                             onClick={() => toggleRowExpand(bed.code)}
@@ -312,6 +347,17 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
                             ))
                           ) : (
                             <span className="text-slate-400 italic text-[11px]">Diagnóstico en estudio</span>
+                          )}
+
+                          {onOpenQuickDiagnosis && (
+                            <button
+                              onClick={() => onOpenQuickDiagnosis(pat)}
+                              className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-900 border border-slate-200 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Agregar diagnóstico nosológico al paciente"
+                            >
+                              <Plus className="w-3 h-3 text-teal-600" />
+                              <span>+ Diagnóstico</span>
+                            </button>
                           )}
                         </div>
 
@@ -462,6 +508,17 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
                             Sin paraclínicas recientes
                           </div>
                         )}
+
+                        <div className="pt-1 mt-1 border-t border-slate-100">
+                          <button
+                            onClick={() => onOpenAddLab(pat)}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer"
+                            title="Cargar analítica de laboratorio"
+                          >
+                            <Plus className="w-3 h-3 text-teal-600" />
+                            <span>+ Analítica</span>
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <span className="text-slate-400 italic text-[11px]">--</span>
@@ -473,35 +530,50 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
                   {/* ========================================================== */}
                   <td className="px-3 py-3 border-r border-slate-200 align-top space-y-1.5">
                     {pat ? (
-                      patOrders.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {patOrders.slice(0, isExpanded ? 8 : 4).map(ord => (
-                            <div key={ord.id} className="text-[11px] leading-snug flex items-start justify-between gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200/60">
-                              <div>
-                                <span className="font-bold text-slate-900">{ord.name}</span>{' '}
-                                <span className="text-slate-600 text-[10px] font-mono">
-                                  {ord.dose} {ord.frequency}
-                                </span>
+                      <div>
+                        {patOrders.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {patOrders.slice(0, isExpanded ? 8 : 4).map(ord => (
+                              <div key={ord.id} className="text-[11px] leading-snug flex items-start justify-between gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200/60">
+                                <div>
+                                  <span className="font-bold text-slate-900">{ord.name}</span>{' '}
+                                  <span className="text-slate-600 text-[10px] font-mono">
+                                    {ord.dose} {ord.frequency}
+                                  </span>
+                                </div>
+                                {ord.treatmentDay && (
+                                  <span className="px-1.5 py-0.2 bg-blue-100 text-blue-900 font-mono font-extrabold rounded text-[9px] shrink-0 border border-blue-200">
+                                    D-{ord.treatmentDay}
+                                  </span>
+                                )}
                               </div>
-                              {ord.treatmentDay && (
-                                <span className="px-1.5 py-0.2 bg-blue-100 text-blue-900 font-mono font-extrabold rounded text-[9px] shrink-0 border border-blue-200">
-                                  D-{ord.treatmentDay}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                          {patOrders.length > 4 && (
+                            ))}
+                            {patOrders.length > 4 && (
+                              <button
+                                onClick={() => toggleRowExpand(bed.code)}
+                                className="text-[10px] font-bold text-teal-700 hover:underline block"
+                              >
+                                {isExpanded ? 'Ocultar órdenes' : `+ ${patOrders.length - 4} órdenes más...`}
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px] block py-1">Sin tratamiento indicado</span>
+                        )}
+
+                        {onOpenAddOrder && (
+                          <div className="pt-1 mt-1 border-t border-slate-100">
                             <button
-                              onClick={() => toggleRowExpand(bed.code)}
-                              className="text-[10px] font-bold text-teal-700 hover:underline"
+                              onClick={() => onOpenAddOrder(pat)}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
+                              title="Prescribir indicación médica o antibiótico"
                             >
-                              {isExpanded ? 'Ocultar órdenes' : `+ ${patOrders.length - 4} órdenes más...`}
+                              <Plus className="w-3 h-3 text-blue-600" />
+                              <span>+ Indicación / Antibiótico</span>
                             </button>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 italic text-[11px]">Sin tratamiento indicado</span>
-                      )
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-slate-400 italic text-[11px]">--</span>
                     )}
@@ -594,42 +666,59 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
                   {/* ========================================================== */}
                   <td className="px-2 py-3 text-center align-top">
                     {pat ? (
-                      <div className="flex flex-col gap-1 items-center">
-                        {onOpenEvolutionModal && (
+                      <div className="flex flex-col gap-1 items-stretch">
+                        {(onOpenQuickEvolution || onOpenEvolutionModal) && (
                           <button
-                            onClick={() => onOpenEvolutionModal(pat)}
+                            onClick={() => (onOpenQuickEvolution ? onOpenQuickEvolution(pat) : onOpenEvolutionModal?.(pat))}
                             title="Añadir nota de evolución de guardia"
-                            className="px-2 py-1 bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-700 font-bold rounded text-[10px] w-full transition-colors"
+                            className="px-2 py-1 bg-teal-50 hover:bg-teal-600 hover:text-white text-teal-800 font-bold rounded text-[10px] w-full transition-colors border border-teal-200 cursor-pointer"
                           >
-                            Evolución
+                            + Evolución
                           </button>
                         )}
-                        {onOpenOrderModal && (
+                        {(onOpenAddOrder || onOpenOrderModal) && (
                           <button
-                            onClick={() => onOpenOrderModal(pat)}
-                            title="Modificar órdenes médicas"
-                            className="px-2 py-1 bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-700 font-bold rounded text-[10px] w-full transition-colors"
+                            onClick={() => (onOpenAddOrder ? onOpenAddOrder(pat) : onOpenOrderModal?.(pat))}
+                            title="Prescribir órdenes médicas / antibióticos"
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-800 font-bold rounded text-[10px] w-full transition-colors border border-blue-200 cursor-pointer"
                           >
-                            Órdenes
+                            + Orden
                           </button>
                         )}
                         <button
                           onClick={() => onOpenAddLab(pat)}
                           title="Cargar analítica de laboratorio"
-                          className="px-2 py-1 bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-700 font-bold rounded text-[10px] w-full transition-colors"
+                          className="px-2 py-1 bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-800 font-bold rounded text-[10px] w-full transition-colors border border-purple-200 cursor-pointer"
                         >
-                          Lab
+                          + Lab
                         </button>
-                        {onOpenHistoryModal && (
+                        {onOpenHistoryModal ? (
                           <button
                             onClick={() => onOpenHistoryModal(pat)}
                             title="Ver historia clínica"
-                            className="px-2 py-1 bg-slate-100 hover:bg-teal-700 hover:text-white text-slate-700 font-bold rounded text-[10px] w-full transition-colors"
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-700 hover:text-white text-slate-700 font-bold rounded text-[10px] w-full transition-colors cursor-pointer"
                           >
                             Historia
                           </button>
+                        ) : (
+                          <button
+                            onClick={() => onSelectPatient(pat)}
+                            title="Ver expediente del paciente"
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-700 hover:text-white text-slate-700 font-bold rounded text-[10px] w-full transition-colors cursor-pointer"
+                          >
+                            Expediente
+                          </button>
                         )}
                       </div>
+                    ) : onOpenAdmitToBed ? (
+                      <button
+                        onClick={() => onOpenAdmitToBed(bed)}
+                        className="px-2 py-1.5 bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-800 font-bold rounded text-[10px] w-full border border-emerald-300 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        title={`Ingresar o asignar paciente a la cama ${bed.code}`}
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Asignar</span>
+                      </button>
                     ) : (
                       <span className="text-slate-300 text-xs">--</span>
                     )}

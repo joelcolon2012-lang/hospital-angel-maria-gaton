@@ -1,6 +1,6 @@
 import React from 'react';
 import { Patient, GuardiaClinicalBed, PendingTask, LabResult } from '../../types';
-import { Bed, User, Activity, AlertCircle, Clock, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Bed, User, Activity, AlertCircle, Clock, CheckCircle2, ShieldAlert, Plus } from 'lucide-react';
 
 interface Props {
   beds: GuardiaClinicalBed[];
@@ -9,6 +9,7 @@ interface Props {
   labs: LabResult[];
   onSelectPatient: (patient: Patient) => void;
   onOpenAddPending: (patient: Patient) => void;
+  onOpenAdmitToBed?: (bed: GuardiaClinicalBed) => void;
 }
 
 export const GuardiaBedCardView: React.FC<Props> = ({
@@ -17,7 +18,8 @@ export const GuardiaBedCardView: React.FC<Props> = ({
   pendingTasks,
   labs,
   onSelectPatient,
-  onOpenAddPending
+  onOpenAddPending,
+  onOpenAdmitToBed
 }) => {
   // Agrupar camas por sala/pabellón
   const roomsMap = new Map<string, GuardiaClinicalBed[]>();
@@ -55,10 +57,16 @@ export const GuardiaBedCardView: React.FC<Props> = ({
                 return (
                   <div
                     key={bed.code}
-                    onClick={() => pat && onSelectPatient(pat)}
+                    onClick={() => {
+                      if (pat) {
+                        onSelectPatient(pat);
+                      } else if (onOpenAdmitToBed) {
+                        onOpenAdmitToBed(bed);
+                      }
+                    }}
                     className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
                       !isOccupied
-                        ? 'bg-emerald-50/50 border-emerald-200 hover:border-emerald-300'
+                        ? 'bg-emerald-50/50 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50'
                         : hasUrgentTask
                         ? 'bg-rose-50/50 border-rose-300 hover:border-rose-400'
                         : 'bg-slate-50/80 border-slate-200 hover:border-teal-400 shadow-xs'
@@ -109,8 +117,23 @@ export const GuardiaBedCardView: React.FC<Props> = ({
                         )}
                       </div>
                     ) : (
-                      <div className="text-center py-2 text-emerald-600 font-bold text-xs flex items-center justify-center gap-1.5">
-                        <Bed className="w-4 h-4" /> Cama Lista para Ingreso
+                      <div className="py-2 flex flex-col items-center justify-center gap-2">
+                        <span className="text-emerald-700 font-medium text-xs flex items-center gap-1.5">
+                          <Bed className="w-4 h-4 text-emerald-600" /> Cama Lista para Ingreso
+                        </span>
+                        {onOpenAdmitToBed && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenAdmitToBed(bed);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-extrabold shadow-xs transition-colors cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Ingresar / Asignar</span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

@@ -46,6 +46,7 @@ interface Props {
   onSearchChange: (q: string) => void;
   onOpenAddPending: () => void;
   onOpenAddLab: () => void;
+  onOpenAdmitPatient: () => void;
   onExportWord: () => void;
   onPrintPdf: () => void;
   onRefresh: () => void;
@@ -76,6 +77,7 @@ export const GuardiaHeader: React.FC<Props> = ({
   onSearchChange,
   onOpenAddPending,
   onOpenAddLab,
+  onOpenAdmitPatient,
   onExportWord,
   onPrintPdf,
   onRefresh,
@@ -273,6 +275,15 @@ export const GuardiaHeader: React.FC<Props> = ({
               className="w-full pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-600 focus:outline-hidden"
             />
           </div>
+
+          <button
+            onClick={onOpenAdmitPatient}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
+            title="Ingresar nuevo paciente o asignar paciente a cama de guardia"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>+ Ingresar Paciente</span>
+          </button>
 
           <button
             onClick={onOpenAddLab}
