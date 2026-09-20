@@ -183,10 +183,18 @@ export default function App() {
       setOrders(oList);
       setEvolutions(eList);
 
-      // Keep active patient updated if open
+      // Keep active patient updated if open (sin interrumpir la escritura activa del usuario)
       if (activePatient) {
-        const updatedActive = pList.find((p) => p.id === activePatient.id);
-        if (updatedActive) setActivePatient(updatedActive);
+        const isUserActivelyTyping =
+          typeof document !== 'undefined' &&
+          (document.activeElement?.tagName === 'INPUT' ||
+           document.activeElement?.tagName === 'TEXTAREA' ||
+           (document.activeElement as HTMLElement)?.isContentEditable);
+
+        if (!isUserActivelyTyping) {
+          const updatedActive = pList.find((p) => p.id === activePatient.id);
+          if (updatedActive) setActivePatient(updatedActive);
+        }
       }
 
       if (pList.length > 0) {

@@ -122,18 +122,21 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
 
   // Actualiza listas de pendientes, ortografía e inconsistencias
   const updateAnalysis = (h: ClinicalHistoryPlanta) => {
-    const pend = clinicalHistoryPlantaService.getPendingFields(h);
-    setPendingFields(pend);
+    try {
+      const pend = clinicalHistoryPlantaService.getPendingFields(h);
+      setPendingFields(pend);
 
-    const alerts = clinicalHistoryConsistencyService.reviewConsistency(h);
-    setConsistencyAlerts(alerts);
+      const alerts = clinicalHistoryConsistencyService.reviewConsistency(h);
+      setConsistencyAlerts(alerts);
+    } catch (err) {
+      console.warn('Error en análisis de historia de planta:', err);
+    }
   };
 
-  // Guardado con debounce automático (3s)
+  // Guardado con debounce automático (escritura ultra fluida a 60fps sin lag)
   const triggerAutosave = (updated: ClinicalHistoryPlanta) => {
     setHistory(updated);
     setHasUnsavedChanges(true);
-    updateAnalysis(updated);
 
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(async () => {
@@ -142,6 +145,8 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
         await clinicalHistoryPlantaService.saveHistory(updated, 'Guardado Automático');
         setLastSavedTime(`Guardado ${new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}`);
         setHasUnsavedChanges(false);
+        // Actualizar análisis solo cuando el usuario hace pausa en la escritura
+        updateAnalysis(updated);
       } catch (err: any) {
         if (err instanceof ConcurrencyConflictError) {
           setConflictData({ serverHistory: err.serverHistory, clientHistory: err.clientHistory });
@@ -151,7 +156,7 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
       } finally {
         setIsAutosaving(false);
       }
-    }, 2500);
+    }, 1500);
   };
 
   // Guardar manual inmediato
@@ -163,6 +168,7 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
       setHistory(saved);
       setHasUnsavedChanges(false);
       setLastSavedTime('Guardado');
+      updateAnalysis(saved);
       alert('¡Historia Clínica Planta guardada con éxito!');
     } catch (err: any) {
       if (err instanceof ConcurrencyConflictError) {

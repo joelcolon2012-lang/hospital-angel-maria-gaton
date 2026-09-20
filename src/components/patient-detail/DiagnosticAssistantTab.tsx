@@ -45,6 +45,15 @@ export const DiagnosticAssistantTab: React.FC<Props> = ({
     '';
 
   const [enteredDiagnosis, setEnteredDiagnosis] = useState(initialDiag);
+  const patientIdRef = React.useRef<string>(patient?.id || '');
+
+  React.useEffect(() => {
+    if (patient && patient.id !== patientIdRef.current) {
+      patientIdRef.current = patient.id;
+      setEnteredDiagnosis(patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || '');
+    }
+  }, [patient?.id]);
+
   const [selectedScaleItems, setSelectedScaleItems] = useState<Record<string, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);

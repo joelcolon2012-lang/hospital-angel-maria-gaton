@@ -76,11 +76,49 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
     }
   );
 
+  const debounceTimerRef = React.useRef<any>(null);
+  const patientIdRef = React.useRef<string>(patient?.id || '');
+  const latestHistoryRef = React.useRef<ClinicalHistory>(history);
+  latestHistoryRef.current = history;
+
+  // Sincronizar hacia el padre con debounce (600ms) para escritura ultra-fluida sin lag ni reseteo de cursor
+  const syncToParent = React.useCallback(
+    (updated: ClinicalHistory, immediate = false) => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (immediate) {
+        onUpdateHistory(updated);
+      } else {
+        debounceTimerRef.current = setTimeout(() => {
+          onUpdateHistory(updated);
+        }, 600);
+      }
+    },
+    [onUpdateHistory]
+  );
+
+  // Solo actualizar el estado local cuando cambia el ID del paciente, NO en cada keystroke
   useEffect(() => {
-    if (patient && patient.clinicalHistory) {
-      setHistory(patient.clinicalHistory);
+    if (patient && patient.id !== patientIdRef.current) {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        onUpdateHistory(latestHistoryRef.current);
+      }
+      patientIdRef.current = patient.id;
+      if (patient.clinicalHistory) {
+        setHistory(patient.clinicalHistory);
+      }
     }
-  }, [patient?.id, patient?.clinicalHistory]);
+  }, [patient?.id, onUpdateHistory]);
+
+  // Al desmontar, asegurar que los cambios pendientes se guarden
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        onUpdateHistory(latestHistoryRef.current);
+      }
+    };
+  }, [onUpdateHistory]);
 
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -103,7 +141,7 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
   const handleFieldChange = (field: keyof ClinicalHistory, val: any) => {
     const updated = { ...history, [field]: val };
     setHistory(updated);
-    onUpdateHistory(updated);
+    syncToParent(updated);
   };
 
   const handleExamChange = (examField: keyof ClinicalHistory['physicalExam'], val: string) => {
@@ -127,7 +165,7 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
       physicalExam: updatedExam,
     };
     setHistory(updated);
-    onUpdateHistory(updated);
+    syncToParent(updated);
   };
 
   const appendToField = (field: keyof ClinicalHistory, phrase: string) => {

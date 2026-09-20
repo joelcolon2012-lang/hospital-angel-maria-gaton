@@ -60,9 +60,54 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
     comorbidities: [],
   });
 
+  const debounceTimerRef = React.useRef<any>(null);
+  const patientIdRef = React.useRef<string>(patient?.id || '');
+  const latestVitalsRef = React.useRef<Vitals>(vitals);
+  latestVitalsRef.current = vitals;
+
+  // Sincronizar hacia el padre con debounce (500ms) para escritura fluida
+  const syncToParent = React.useCallback(
+    (updated: Vitals, immediate = false) => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (immediate) {
+        onUpdateVitals(updated);
+      } else {
+        debounceTimerRef.current = setTimeout(() => {
+          onUpdateVitals(updated);
+        }, 500);
+      }
+    },
+    [onUpdateVitals]
+  );
+
+  // Solo actualizar el estado local cuando cambia el paciente seleccionado
+  React.useEffect(() => {
+    if (patient && patient.id !== patientIdRef.current) {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        onUpdateVitals(latestVitalsRef.current);
+      }
+      patientIdRef.current = patient.id;
+      if (patient.vitals) {
+        setVitals(patient.vitals);
+      }
+    }
+  }, [patient?.id, onUpdateVitals]);
+
+  // Al desmontar, asegurar que los cambios se guarden
+  React.useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        onUpdateVitals(latestVitalsRef.current);
+      }
+    };
+  }, [onUpdateVitals]);
+
   const [newAllergy, setNewAllergy] = useState('');
   const [newComorbidity, setNewComorbidity] = useState('');
   const [savedFeedback, setSavedFeedback] = useState(false);
+
   const handleSelectScenario = (scenarioId: string) => {
     const found = CLINICAL_SCENARIOS.find(s => s.id === scenarioId);
     if (!found) return;
@@ -74,11 +119,11 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
       map: Math.round((sbp + 2 * dbp) / 3),
     };
     setVitals(updated);
-    onUpdateVitals(updated);
+    syncToParent(updated, true);
   };
 
   const handleSaveAndDownload = () => {
-    onUpdateVitals(vitals);
+    syncToParent(vitals, true);
     const filename = `Signos_Triaje_${patient.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
     const data = {
       patientId: patient.id,
@@ -124,7 +169,7 @@ export const TriageVitalsTab: React.FC<Props> = ({ patient, onUpdateVitals }) =>
     }
 
     setVitals(updated);
-    onUpdateVitals(updated);
+    syncToParent(updated);
   };
 
   const addAllergy = () => {
