@@ -83,7 +83,12 @@ export class GeminiService {
       return envUrl.trim().replace(/\/$/, '');
     }
 
-    // 3. Fallback relativo (para desarrollo local con Vite proxy o servidor local)
+    // 3. URL de producción en Render por defecto para GitHub Pages y entornos remotos
+    if (typeof window !== 'undefined' && (window.location.hostname.includes('github.io') || (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'))) {
+      return 'https://hospital-angel-maria-gaton-backend.onrender.com';
+    }
+
+    // 4. Fallback relativo (para desarrollo local con Vite proxy o servidor local)
     return '';
   }
 
@@ -166,18 +171,17 @@ export class GeminiService {
   }
 
   /**
-   * Selecciona el mejor modelo compatible (priorizando gemini-2.5-flash)
+   * Selecciona el mejor modelo compatible (priorizando gemini-3.8-flash y modelos Flash modernos)
    */
   public selectBestGeminiModel(modelsList?: string[]): string {
-    const list = modelsList || this.cachedModels;
-    if (!list || list.length === 0) {
-      return 'gemini-2.5-flash';
+    const rawList = modelsList || this.cachedModels;
+    if (!rawList || rawList.length === 0) {
+      return 'gemini-3.8-flash';
     }
 
-    if (list.includes('gemini-2.5-flash')) {
-      this.selectedModel = 'gemini-2.5-flash';
-      return 'gemini-2.5-flash';
-    }
+    // Filtrar modelos deprecados por Google para nuevas cuentas
+    const valid = rawList.filter(m => !/1\.5-flash|2\.5-flash$/i.test(m));
+    const list = valid.length > 0 ? valid : rawList;
 
     const scoreModel = (name: string): number => {
       let score = 0;
@@ -185,28 +189,28 @@ export class GeminiService {
 
       if (lower.includes('flash')) {
         score += 1000;
-        if (lower.includes('3.5')) score += 350;
-        else if (lower.includes('3.0') || lower.includes('3-')) score += 300;
-        else if (lower.includes('2.5')) score += 250;
-        else if (lower.includes('2.0') || lower.includes('2-')) score += 200;
+        if (lower.includes('3.8')) score += 400;
+        else if (lower.includes('3.6')) score += 395;
+        else if (lower.includes('3.7')) score += 380;
+        else if (lower.includes('3.5')) score += 350;
         else if (lower.includes('flash-latest')) score += 280;
         else score += 100;
       } else if (lower.includes('pro')) {
         score += 500;
-        if (lower.includes('2.5')) score += 250;
-        else if (lower.includes('2.0')) score += 200;
       }
+
+      if (lower.includes('preview') || lower.includes('exp')) score -= 50;
 
       return score;
     };
 
     const sorted = [...list].sort((a, b) => scoreModel(b) - scoreModel(a));
-    this.selectedModel = sorted[0] || 'gemini-2.5-flash';
+    this.selectedModel = sorted[0] || 'gemini-3.8-flash';
     return this.selectedModel;
   }
 
   public getActiveModel(): string {
-    return this.selectedModel || 'gemini-2.5-flash';
+    return this.selectedModel || 'gemini-3.8-flash';
   }
 
   public setActiveModel(model: string): void {

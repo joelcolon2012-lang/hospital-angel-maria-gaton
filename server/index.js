@@ -117,40 +117,36 @@ async function fetchCompatibleModels(apiKey) {
   }
 }
 
-// Helper: Seleccionar mejor modelo disponible (prioridad: gemini-2.5-flash)
+// Helper: Seleccionar mejor modelo disponible (prioridad: gemini-3.8-flash / gemini-3.6-flash / Flash estables)
 function selectBestModel(availableModels) {
   if (!availableModels || availableModels.length === 0) {
-    return 'gemini-2.5-flash';
+    return 'gemini-3.8-flash';
   }
 
-  // 1. Si gemini-2.5-flash está presente, usarlo prioritariamente como solicitado
-  if (availableModels.includes('gemini-2.5-flash')) {
-    return 'gemini-2.5-flash';
-  }
+  // Filtrar modelos deprecados por Google para nuevas cuentas
+  const valid = availableModels.filter(m => !/1\.5-flash|2\.5-flash$/i.test(m));
+  const list = valid.length > 0 ? valid : availableModels;
 
-  // 2. Si no, buscar otros modelos Flash modernos
   const score = (m) => {
     const lower = m.toLowerCase();
     let pts = 0;
     if (lower.includes('flash')) {
       pts += 1000;
-      if (lower.includes('3.5')) pts += 350;
-      else if (lower.includes('3.0') || lower.includes('3-')) pts += 300;
-      else if (lower.includes('2.5')) pts += 250;
-      else if (lower.includes('2.0') || lower.includes('2-')) pts += 200;
+      if (lower.includes('3.8')) pts += 400;
+      else if (lower.includes('3.6')) pts += 395;
+      else if (lower.includes('3.7')) pts += 380;
+      else if (lower.includes('3.5')) pts += 350;
       else if (lower.includes('flash-latest')) pts += 280;
       else pts += 100;
     } else if (lower.includes('pro')) {
       pts += 500;
-      if (lower.includes('2.5')) pts += 250;
-      else if (lower.includes('2.0')) pts += 200;
     }
     if (lower.includes('exp') || lower.includes('preview')) pts -= 50;
     return pts;
   };
 
-  const sorted = [...availableModels].sort((a, b) => score(b) - score(a));
-  return sorted[0] || 'gemini-2.5-flash';
+  const sorted = [...list].sort((a, b) => score(b) - score(a));
+  return sorted[0] || 'gemini-3.8-flash';
 }
 
 // 1. Endpoint: GET /
@@ -216,23 +212,41 @@ app.post('/api/gemini/test', async (req, res) => {
   try {
     // 1. Obtener modelos compatibles
     const models = await fetchCompatibleModels(apiKey);
-    const modelToUse = selectBestModel(models);
+    const initialModel = selectBestModel(models);
 
-    // 2. Inicializar SDK y enviar petición mínima real
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelToUse });
 
-    // Prompt estricto de prueba mínima: "Responde únicamente: OK"
-    const result = await model.generateContent('Responde únicamente: OK');
-    const response = await result.response;
-    const text = response.text() || '';
+    const tryTestModel = async (modelName, isRetry = false) => {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent('Responde únicamente: OK');
+        const response = await result.response;
+        const text = response.text() || '';
 
-    return res.json({
-      success: true,
-      model: modelToUse,
-      message: 'Conexión con Google Gemini establecida correctamente.',
-      rawOutput: text.trim()
-    });
+        return {
+          success: true,
+          model: modelName,
+          message: 'Conexión con Google Gemini establecida correctamente.',
+          rawOutput: text.trim()
+        };
+      } catch (err) {
+        const status = err.status || err.statusCode || (err.response && err.response.status);
+        const msg = (err.message || '').toLowerCase();
+
+        // Si falló por 404 o sobrecarga y no es reintento final, probar el siguiente modelo Flash
+        if (!isRetry && (status === 404 || status === 503 || msg.includes('not found') || msg.includes('not supported') || msg.includes('high demand') || msg.includes('unavailable'))) {
+          const remainingModels = models.filter(m => m !== modelName);
+          const nextModel = selectBestModel(remainingModels);
+          if (nextModel && nextModel !== modelName) {
+            return await tryTestModel(nextModel, true);
+          }
+        }
+        throw err;
+      }
+    };
+
+    const outcome = await tryTestModel(initialModel);
+    return res.json(outcome);
   } catch (err) {
     const translated = translateGeminiError(err);
     return res.status(translated.status).json({
