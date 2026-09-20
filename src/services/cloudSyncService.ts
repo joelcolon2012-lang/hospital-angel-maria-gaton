@@ -434,7 +434,7 @@ class CloudSyncService {
     // Hidratar Dexie
     try {
       this.isProcessingSync = true;
-      await this.hydrateDexie(remoteData, hasOnlyMockData);
+      await this.hydrateDexie(remoteData);
       this.lastLocalTimestamp = Math.max(remoteTimestamp, this.lastLocalTimestamp);
       try {
         localStorage.setItem('hr_colon_last_local_timestamp', String(this.lastLocalTimestamp));
@@ -456,22 +456,13 @@ class CloudSyncService {
   }
 
   /**
-   * Hidrata la base de datos Dexie con los datos suministrados
-   * Si purgeMockData es true, elimina primero los 4 casos dummy para que solo queden los pacientes reales
+   * Hidrata la base de datos Dexie con los datos suministrados (Fusión no destructiva)
    */
-  public async hydrateDexie(data: HospitalMasterData, purgeMockData: boolean = false): Promise<void> {
+  public async hydrateDexie(data: HospitalMasterData): Promise<void> {
     if (!data.patients) return;
 
     await db.transaction('rw', [db.patients, db.studies, db.labs, db.orders, db.evolutions, db.users, db.auditLogs, db.clinicalHistoriesPlanta, db.strokeRegistry], async () => {
-      // 1. Si purgeMockData es true, limpiar casos modelo previos
-      if (purgeMockData) {
-        await db.patients.clear();
-        await db.studies.clear();
-        await db.labs.clear();
-        await db.orders.clear();
-        await db.evolutions.clear();
-      }
-
+      // Fusión no destructiva: NUNCA borrar datos existentes, siempre conservar y actualizar
       const localPatients = await db.patients.toArray();
       const localMap = new Map(localPatients.map((p) => [p.id, p]));
 
