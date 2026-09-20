@@ -81,21 +81,36 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
     setIsLoading(true);
 
     const load = async () => {
-      let current = await clinicalHistoryPlantaService.getHistory(patient.id, admissionId);
-      if (!current) {
-        current = clinicalHistoryPlantaService.createInitialHistory(patient, admissionId);
-        await clinicalHistoryPlantaService.saveHistory(current, 'Creación Inicial');
-      } else {
-        // Verificar si existen cambios centrales en el paciente (ej. sala o nombre actualizados)
-        if (patient.fullName && current.generalData.nombre !== patient.fullName.toUpperCase()) {
-          setShowSyncBanner(true);
+      try {
+        let current = await clinicalHistoryPlantaService.getHistory(patient.id, admissionId);
+        if (!current) {
+          current = clinicalHistoryPlantaService.createInitialHistory(patient, admissionId);
+          try {
+            await clinicalHistoryPlantaService.saveHistory(current, 'Creación Inicial');
+          } catch (saveErr) {
+            console.warn('Advertencia guardando historia inicial:', saveErr);
+          }
+        } else {
+          // Verificar si existen cambios centrales en el paciente (ej. sala o nombre actualizados)
+          if (patient.fullName && current.generalData && current.generalData.nombre !== patient.fullName.toUpperCase()) {
+            setShowSyncBanner(true);
+          }
         }
-      }
 
-      setHistory(current);
-      updateAnalysis(current);
-      setLastSavedTime('Guardado');
-      setIsLoading(false);
+        setHistory(current);
+        try {
+          updateAnalysis(current);
+        } catch (analysisErr) {
+          console.warn('Error en análisis de campos:', analysisErr);
+        }
+        setLastSavedTime('Guardado');
+      } catch (err) {
+        console.error('Error cargando historia de planta:', err);
+        const fallback = clinicalHistoryPlantaService.createInitialHistory(patient, admissionId);
+        setHistory(fallback);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     load();
@@ -230,13 +245,14 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
   if (!isOpen) return null;
 
   if (isLoading || !history) {
-    return (
-      <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center">
+    return createPortal(
+      <div className="fixed inset-0 z-[99999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center">
         <div className="bg-white p-6 rounded-2xl shadow-2xl flex items-center space-x-4">
           <RefreshCw className="w-6 h-6 animate-spin text-teal-600" />
           <span className="text-sm font-semibold text-slate-700">Cargando Historia Clínica Planta...</span>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
