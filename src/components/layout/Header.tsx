@@ -26,6 +26,7 @@ import {
 import { User, Patient, HospitalSettings, HeaderLayoutConfig } from '../../types';
 import { googleDriveService } from '../../services/googleDriveService';
 import { authService } from '../../services/authService';
+import { centralSyncService, CentralSyncStatus } from '../../services/centralSyncService';
 import { db } from '../../db/dexieDb';
 import { SmartMedicalSearchBar } from './SmartMedicalSearchBar';
 import { ClinicalAiTopBar } from '../ai/ClinicalAiTopBar';
@@ -33,6 +34,7 @@ import { ClinicalAiTopBar } from '../ai/ClinicalAiTopBar';
 interface Props {
   currentUser?: User;
   onOpenLoginModal?: () => void;
+  onOpenUserProfile?: () => void;
   onLogout?: () => void;
   onOpenGuardiaApp?: () => void;
   syncStatus?: 'saving' | 'saved' | 'offline';
@@ -71,6 +73,7 @@ const DEFAULT_HEADER_LAYOUT: HeaderLayoutConfig = {
 export const Header: React.FC<Props> = ({
   currentUser,
   onOpenLoginModal,
+  onOpenUserProfile,
   onLogout,
   onOpenGuardiaApp,
   syncStatus = 'saved',
@@ -105,6 +108,15 @@ export const Header: React.FC<Props> = ({
     isDarkMode: false,
     headerLayout: DEFAULT_HEADER_LAYOUT,
   }));
+
+  const [centralStatus, setCentralStatus] = React.useState<CentralSyncStatus>(() => centralSyncService.getStatus());
+
+  React.useEffect(() => {
+    const unsub = centralSyncService.subscribe((s) => {
+      setCentralStatus(s);
+    });
+    return () => unsub();
+  }, []);
 
   const [deferredPrompt, setDeferredPrompt] = React.useState<any>(null);
   const [showPwaModal, setShowPwaModal] = React.useState(false);
@@ -350,20 +362,25 @@ export const Header: React.FC<Props> = ({
 
           {/* Autosave / Cloud Sync Status Pill */}
           {layout.showCloudSyncStatus && (
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-medium text-slate-600">
+            <div
+              onClick={onOpenCloudSyncModal}
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-medium text-slate-700 cursor-pointer hover:bg-slate-200 transition-colors shadow-2xs"
+              title={`Servidor central: ${centralStatus.backendUrl} | Dispositivos conectados: ${centralStatus.connectedDevices} | Última sincronización: ${centralStatus.lastSyncedAt}`}
+            >
               <span
                 className={`w-2 h-2 rounded-full ${
-                  syncStatus === 'saving'
+                  centralStatus.state === 'syncing'
                     ? 'bg-amber-400 animate-ping'
-                    : syncStatus === 'saved'
-                    ? 'bg-emerald-500'
-                    : 'bg-red-400'
+                    : centralStatus.state === 'connected'
+                    ? 'bg-emerald-500 shadow-2xs'
+                    : 'bg-rose-500'
                 }`}
               />
-              <span>
-                {syncStatus === 'saving' && 'Guardando...'}
-                {syncStatus === 'saved' && 'Sincronizado'}
-                {syncStatus === 'offline' && 'Local'}
+              <span className="font-semibold">
+                {centralStatus.state === 'syncing' && 'Sincronizando...'}
+                {centralStatus.state === 'connected' && 'En Línea (Realtime)'}
+                {centralStatus.state === 'offline' && 'Modo Local'}
+                {centralStatus.state === 'error' && 'Sin Conexión'}
               </span>
             </div>
           )}
@@ -467,21 +484,21 @@ export const Header: React.FC<Props> = ({
           {isPrivacyActive ? <Lock className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
         </button>
 
-        {/* User RBAC Avatar */}
+        {/* User RBAC Avatar & Profile */}
         {currentUser && (
           <div className="flex items-center gap-1">
             <button
-              onClick={onOpenLoginModal}
-              className="flex items-center gap-1 sm:gap-1.5 pl-1 pr-1 sm:pr-2 py-0.5 sm:py-1 rounded-full hover:bg-slate-100 border border-slate-200 transition-all select-none cursor-pointer"
-              title={`Médico activo: ${currentUser.name} (${currentUser.role}) — Clic para cambiar`}
+              onClick={onOpenUserProfile || onOpenLoginModal}
+              className="flex items-center gap-1 sm:gap-1.5 pl-1 pr-1 sm:pr-2 py-0.5 sm:py-1 rounded-full hover:bg-slate-100 border border-slate-200 transition-all select-none cursor-pointer group shadow-2xs"
+              title={`Médico activo: ${currentUser.name} (${currentUser.role}) — Clic para abrir Mi Perfil / PIN / Foto`}
             >
               <img
                 src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
                 alt={currentUser.name}
-                className="w-6 h-6 rounded-full object-cover border border-slate-300 shadow-2xs"
+                className="w-6 h-6 rounded-full object-cover border border-slate-300 shadow-2xs group-hover:scale-105 transition-transform"
               />
               <div className="hidden xl:flex flex-col text-left">
-                <span className="text-[11px] font-bold text-slate-800 max-w-[80px] truncate leading-none">
+                <span className="text-[11px] font-bold text-slate-800 max-w-[85px] truncate leading-none">
                   {currentUser.name.split(' ')[0]}
                 </span>
                 <span className="text-[9px] text-teal-700 font-semibold uppercase leading-none mt-0.5">
@@ -489,6 +506,17 @@ export const Header: React.FC<Props> = ({
                 </span>
               </div>
             </button>
+
+            {onOpenLoginModal && (
+              <button
+                type="button"
+                onClick={onOpenLoginModal}
+                className="hidden xl:block p-1 text-slate-400 hover:text-[#0F4C5C] hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                title="Cambiar de Médico en Sesión"
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+              </button>
+            )}
 
             {onLogout && (
               <button
@@ -525,18 +553,26 @@ export const Header: React.FC<Props> = ({
                 {/* Médico en turno */}
                 {currentUser && (
                   <div className="px-3 py-2 bg-slate-50 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <div
+                      className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
+                      onClick={() => {
+                        setIsMobileToolsOpen(false);
+                        if (onOpenUserProfile) onOpenUserProfile();
+                        else if (onOpenLoginModal) onOpenLoginModal();
+                      }}
+                      title="Editar Mi Perfil / PIN"
+                    >
                       <img
                         src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
                         alt={currentUser.name}
-                        className="w-7 h-7 rounded-full object-cover border border-slate-300"
+                        className="w-8 h-8 rounded-full object-cover border border-slate-300 shrink-0"
                       />
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-slate-900 leading-tight">
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-bold text-slate-900 leading-tight truncate">
                           {currentUser.name}
                         </span>
                         <span className="text-[10px] text-teal-700 font-semibold uppercase">
-                          {currentUser.isSuperAdmin ? 'SuperAdmin' : currentUser.role}
+                          {currentUser.isSuperAdmin ? 'SuperAdmin' : currentUser.role} • Mi Perfil
                         </span>
                       </div>
                     </div>
@@ -546,7 +582,7 @@ export const Header: React.FC<Props> = ({
                           setIsMobileToolsOpen(false);
                           onOpenLoginModal();
                         }}
-                        className="text-[11px] font-bold text-[#0F4C5C] hover:underline"
+                        className="text-[11px] font-bold text-[#0F4C5C] hover:underline shrink-0 ml-2 cursor-pointer"
                       >
                         Cambiar
                       </button>

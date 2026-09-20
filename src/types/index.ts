@@ -529,6 +529,8 @@ export interface Patient {
   service?: string;
   isDeleted?: boolean;
   isArchived?: boolean;
+  deletedAt?: string;
+  version?: number;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;

@@ -1,6 +1,7 @@
 import { User, UserRole, AuditLogEntry, AuditAction } from '../types';
 import { db } from '../db/dexieDb';
 import { cloudSyncService } from './cloudSyncService';
+import { centralSyncService } from './centralSyncService';
 
 export const DEFAULT_USERS: User[] = [
   {
@@ -151,7 +152,7 @@ export class AuthService {
   }
 
   /**
-   * Registro atómico y transaccionado de nuevo médico con persistencia inmediata
+   * Registro atómico de nuevo médico con persistencia en Backend Central y Realtime
    */
   public async registerNewUser(data: {
     name: string;
@@ -163,126 +164,90 @@ export class AuthService {
     avatarUrl?: string;
   }): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
-      const all = await this.getAllUsers(true); // Incluyendo inactivos para evitar duplicar exequátur
       const cleanName = data.name.trim();
       const cleanExeq = data.exequatur.trim();
+      const creator = this.currentUser?.name || 'Dr. Joel Colón';
 
-      // Verificar si ya existe usuario con el mismo exequátur o nombre
-      const existing = all.find(u => 
-        (u.exequatur && u.exequatur.trim().toLowerCase() === cleanExeq.toLowerCase()) ||
-        u.name.trim().toLowerCase() === cleanName.toLowerCase()
-      );
-
-      if (existing) {
-        if (existing.isDeleted || existing.isActive === false) {
-          return { 
-            success: false, 
-            error: `El médico ${cleanName} (${cleanExeq}) se encuentra desactivado en el sistema. Puede reactivarlo desde el panel de Administración.` 
-          };
-        }
-        return { 
-          success: false, 
-          error: `Ya existe un médico registrado con el nombre o exequátur: ${cleanName} (${cleanExeq}). Por favor inicie sesión o utilice sus credenciales.` 
-        };
-      }
-
-      const now = new Date().toISOString();
-      const newUser: User = {
-        id: 'usr-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+      const payload = {
         name: cleanName,
-        email: data.email?.trim() || `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}@hospitalangelgaton.gob.do`,
         role: data.role,
-        isSuperAdmin: false,
         specialty: data.specialty.trim() || 'Médico Especialista',
         exequatur: cleanExeq,
+        email: data.email?.trim() || `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}@hospitalangelgaton.gob.do`,
         pin: data.pin.trim(),
-        password: data.pin.trim(),
-        isActive: true,
-        isDeleted: false,
-        createdAt: now,
-        updatedAt: now,
         avatarUrl: data.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80',
+        isActive: true,
+        isDeleted: false
       };
 
-      // Transacción atómica: insertar usuario y registrar en tabla de auditoría
-      await db.transaction('rw', db.users, db.auditLogs, async () => {
-        await db.users.put(newUser);
-        await db.auditLogs.add({
-          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          timestamp: now,
-          userId: this.currentUser?.id || newUser.id,
-          userName: this.currentUser?.name || newUser.name,
-          userRole: this.currentUser?.role || newUser.role,
-          action: 'USER_CREATED',
-          patientId: 'SISTEMA',
-          recordId: newUser.id,
-          recordType: 'USER',
-          newValue: { name: newUser.name, role: newUser.role, exequatur: newUser.exequatur },
-          details: `Registro de nuevo usuario: ${newUser.name} (${newUser.role})`
-        });
-      });
+      const newUser = await centralSyncService.createUser(payload, creator);
 
-      // Guardar respaldo inmediato en localStorage para tolerar desconexión
-      try {
-        const currentList = await db.users.toArray();
-        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
-      } catch {}
-
+      await db.users.put(newUser);
       this.login(newUser);
-
-      // Sincronizar inmediatamente a disco duro (/api/sync) y a Google Drive en la Nube
-      cloudSyncService.triggerPushSync().catch(() => {});
 
       return { success: true, user: newUser };
     } catch (err: any) {
-      return { success: false, error: 'Error registrando nuevo médico: ' + err.message };
+      console.error('[registerNewUser Error]', err);
+      return { success: false, error: 'Error registrando nuevo médico: ' + (err.message || 'Error desconocido') };
     }
   }
 
   /**
-   * Actualiza datos de un usuario mediante transacción segura
+   * Actualiza datos de un usuario en el backend central y la réplica local
    */
   public async updateUser(user: User): Promise<{ success: boolean; error?: string }> {
     try {
-      const now = new Date().toISOString();
-      const updated: User = {
-        ...user,
-        updatedAt: now
-      };
+      const editor = this.currentUser?.name || 'Dr. Joel Colón';
+      const updated = await centralSyncService.updateUser(user.id, user, editor);
 
-      await db.transaction('rw', db.users, db.auditLogs, async () => {
-        const oldUser = await db.users.get(user.id);
-        await db.users.put(updated);
-        await db.auditLogs.add({
-          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          timestamp: now,
-          userId: this.currentUser.id,
-          userName: this.currentUser.name,
-          userRole: this.currentUser.role,
-          action: 'USER_UPDATED',
-          patientId: 'SISTEMA',
-          recordId: user.id,
-          recordType: 'USER',
-          oldValue: oldUser ? { name: oldUser.name, role: oldUser.role } : undefined,
-          newValue: { name: updated.name, role: updated.role },
-          details: `Actualización de usuario: ${updated.name}`
-        });
-      });
-
+      await db.users.put(updated);
       if (this.currentUser.id === user.id) {
         this.setCurrentUser(updated);
       }
 
-      // Actualizar respaldo y sincronización
-      try {
-        const currentList = await db.users.toArray();
-        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
-      } catch {}
-
-      cloudSyncService.triggerPushSync().catch(() => {});
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      // Fallback local si no hay red
+      try {
+        const now = new Date().toISOString();
+        const updated = { ...user, updatedAt: now };
+        await db.users.put(updated);
+        if (this.currentUser.id === user.id) {
+          this.setCurrentUser(updated);
+        }
+        return { success: true };
+      } catch (fallbackErr: any) {
+        return { success: false, error: err.message };
+      }
+    }
+  }
+
+  /**
+   * Restablecimiento seguro de contraseña/PIN sin exponer contraseñas en texto plano
+   */
+  public async resetPassword(userId: string, newPassword: string, confirmPassword: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const editor = this.currentUser?.name || 'Dr. Joel Colón';
+      await centralSyncService.resetUserPassword(userId, newPassword, confirmPassword, editor);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Error restableciendo contraseña' };
+    }
+  }
+
+  /**
+   * Actualización persistente de foto de perfil
+   */
+  public async updateUserPhoto(userId: string, avatarUrl: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    try {
+      const editor = this.currentUser?.name || 'Dr. Joel Colón';
+      const updated = await centralSyncService.uploadUserPhoto(userId, avatarUrl, editor);
+      if (this.currentUser.id === userId) {
+        this.setCurrentUser(updated);
+      }
+      return { success: true, user: updated };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Error actualizando foto de perfil' };
     }
   }
 
@@ -295,42 +260,17 @@ export class AuthService {
     }
 
     try {
-      const targetUser = await db.users.get(userId);
-      if (!targetUser) return { success: false, error: 'Usuario no encontrado.' };
+      const editor = this.currentUser?.name || 'Dr. Joel Colón';
+      await centralSyncService.toggleUserStatus(userId, false, editor);
 
-      const now = new Date().toISOString();
-      const disabled: User = {
-        ...targetUser,
-        isActive: false,
-        isDeleted: true,
-        deletedAt: now,
-        updatedAt: now
-      };
+      const target = await db.users.get(userId);
+      if (target) {
+        target.isActive = false;
+        target.isDeleted = true;
+        target.deletedAt = new Date().toISOString();
+        await db.users.put(target);
+      }
 
-      await db.transaction('rw', db.users, db.auditLogs, async () => {
-        await db.users.put(disabled);
-        await db.auditLogs.add({
-          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          timestamp: now,
-          userId: this.currentUser.id,
-          userName: this.currentUser.name,
-          userRole: this.currentUser.role,
-          action: 'USER_DISABLED',
-          patientId: 'SISTEMA',
-          recordId: userId,
-          recordType: 'USER',
-          oldValue: { isActive: true },
-          newValue: { isActive: false, deletedAt: now },
-          details: `Desactivación lógica (Soft Delete) del usuario: ${targetUser.name}`
-        });
-      });
-
-      try {
-        const currentList = await db.users.toArray();
-        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
-      } catch {}
-
-      cloudSyncService.triggerPushSync().catch(() => {});
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -342,42 +282,17 @@ export class AuthService {
    */
   public async restoreUser(userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const targetUser = await db.users.get(userId);
-      if (!targetUser) return { success: false, error: 'Usuario no encontrado.' };
+      const editor = this.currentUser?.name || 'Dr. Joel Colón';
+      await centralSyncService.toggleUserStatus(userId, true, editor);
 
-      const now = new Date().toISOString();
-      const restored: User = {
-        ...targetUser,
-        isActive: true,
-        isDeleted: false,
-        deletedAt: undefined,
-        updatedAt: now
-      };
+      const target = await db.users.get(userId);
+      if (target) {
+        target.isActive = true;
+        target.isDeleted = false;
+        target.deletedAt = undefined;
+        await db.users.put(target);
+      }
 
-      await db.transaction('rw', db.users, db.auditLogs, async () => {
-        await db.users.put(restored);
-        await db.auditLogs.add({
-          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          timestamp: now,
-          userId: this.currentUser.id,
-          userName: this.currentUser.name,
-          userRole: this.currentUser.role,
-          action: 'USER_RESTORED',
-          patientId: 'SISTEMA',
-          recordId: userId,
-          recordType: 'USER',
-          oldValue: { isActive: false },
-          newValue: { isActive: true },
-          details: `Restauración de usuario médico: ${targetUser.name}`
-        });
-      });
-
-      try {
-        const currentList = await db.users.toArray();
-        localStorage.setItem('hr_colon_users_backup', JSON.stringify(currentList));
-      } catch {}
-
-      cloudSyncService.triggerPushSync().catch(() => {});
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message };

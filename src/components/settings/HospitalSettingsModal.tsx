@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Building2,
   Image as ImageIcon,
@@ -40,7 +41,11 @@ import {
   Activity,
   Globe,
   Lock,
-  ExternalLink
+  ExternalLink,
+  Edit3,
+  Camera,
+  UserCheck,
+  UserX
 } from 'lucide-react';
 import { 
   HospitalSettings, 
@@ -136,6 +141,24 @@ export const HospitalSettingsModal: React.FC<Props> = ({
   const [newUserPin, setNewUserPin] = useState('1234');
   const [userSuccessMsg, setUserSuccessMsg] = useState('');
 
+  // Estado Edición de Usuario & Restablecimiento de Contraseña
+  const [editingUser, setEditingUser] = useState<UserType | null>(null);
+  const [resetPwdUser, setResetPwdUser] = useState<UserType | null>(null);
+  const [newPasswordVal, setNewPasswordVal] = useState('');
+  const [confirmPasswordVal, setConfirmPasswordVal] = useState('');
+  const [userModalError, setUserModalError] = useState('');
+  const [userModalSuccess, setUserModalSuccess] = useState('');
+  const editUserPhotoRef = useRef<HTMLInputElement>(null);
+
+  const refreshUsersList = async () => {
+    try {
+      const uList = await authService.getAllUsers(true);
+      setUsers(uList);
+    } catch (e) {
+      console.warn('Error cargando usuarios:', e);
+    }
+  };
+
   // Estado Gemini AI & Telemetría Backend
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -158,7 +181,7 @@ export const HospitalSettingsModal: React.FC<Props> = ({
   // Modal de Examen Normal
   const [isNormalExamOpen, setIsNormalExamOpen] = useState(false);
 
-  // Cargar configuración completa desde Dexie DB y localStorage al abrir
+  // Cargar configuración completa desde Dexie DB y backend al abrir
   useEffect(() => {
     if (!isOpen) return;
 
@@ -195,13 +218,8 @@ export const HospitalSettingsModal: React.FC<Props> = ({
         console.warn('Error cargando identidad:', e);
       }
 
-      // 2. Cargar usuarios del sistema hospitalario
-      try {
-        const uList = await authService.getAllUsers();
-        setUsers(uList);
-      } catch (e) {
-        console.warn('Error cargando usuarios:', e);
-      }
+      // 2. Cargar usuarios del sistema hospitalario (incluyendo inactivos para administración)
+      await refreshUsersList();
 
       // 3. Cargar plantillas hospitalarias
       try {
@@ -239,6 +257,16 @@ export const HospitalSettingsModal: React.FC<Props> = ({
     };
 
     loadAllConfig();
+
+    const handleRealtimeChange = () => {
+      refreshUsersList();
+    };
+    window.addEventListener('hospital_central_data_changed', handleRealtimeChange);
+    window.addEventListener('hospital_user_changed', handleRealtimeChange);
+    return () => {
+      window.removeEventListener('hospital_central_data_changed', handleRealtimeChange);
+      window.removeEventListener('hospital_user_changed', handleRealtimeChange);
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -383,7 +411,7 @@ export const HospitalSettingsModal: React.FC<Props> = ({
     }
   };
 
-  // Agregar nuevo médico/usuario
+  // Agregar nuevo médico/usuario con backend central y persistencia
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSuperAdmin) {
@@ -395,29 +423,113 @@ export const HospitalSettingsModal: React.FC<Props> = ({
       return;
     }
 
-    const newUser: UserType = {
-      id: 'usr-' + Date.now().toString(36),
-      name: newUserName.trim(),
-      email: `${newUserName.toLowerCase().replace(/[^a-z0-9]/g, '')}@hospitalangelgaton.gob.do`,
-      role: newUserRole,
-      isSuperAdmin: false,
-      specialty: newUserSpecialty.trim() || 'Médico de Emergencias',
-      exequatur: newUserExequatur.trim(),
-      pin: newUserPin.trim() || '1234',
-      isActive: true,
-      avatarUrl: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80',
-    };
+    try {
+      const res = await authService.registerNewUser({
+        name: newUserName.trim(),
+        role: newUserRole,
+        specialty: newUserSpecialty.trim() || 'Médico Especialista',
+        exequatur: newUserExequatur.trim(),
+        pin: newUserPin.trim() || '1234',
+        avatarUrl: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80'
+      });
 
-    await authService.saveUser(newUser);
-    const updatedUsers = await authService.getAllUsers();
-    setUsers(updatedUsers);
+      if (!res.success) {
+        alert(res.error || 'Error registrando médico.');
+        return;
+      }
 
-    setNewUserName('');
-    setNewUserSpecialty('');
-    setNewUserExequatur('');
-    setNewUserPin('1234');
-    setUserSuccessMsg(`Médico ${newUser.name} registrado exitosamente con firma oficial.`);
-    setTimeout(() => setUserSuccessMsg(''), 4000);
+      await refreshUsersList();
+      setNewUserName('');
+      setNewUserSpecialty('');
+      setNewUserExequatur('');
+      setNewUserPin('1234');
+      setUserSuccessMsg(`Médico ${newUserName.trim()} registrado exitosamente en el backend central.`);
+      setTimeout(() => setUserSuccessMsg(''), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Error registrando usuario');
+    }
+  };
+
+  // Guardar edición de usuario
+  const handleEditUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setUserModalError('');
+    setUserModalSuccess('');
+
+    try {
+      const res = await authService.updateUser(editingUser);
+      if (res.success) {
+        setUserModalSuccess('¡Usuario actualizado exitosamente en el servidor central!');
+        await refreshUsersList();
+        setTimeout(() => {
+          setEditingUser(null);
+          setUserModalSuccess('');
+        }, 1200);
+      } else {
+        setUserModalError(res.error || 'Error al actualizar usuario.');
+      }
+    } catch (e: any) {
+      setUserModalError(e.message || 'Error al actualizar usuario.');
+    }
+  };
+
+  // Restablecer contraseña de usuario
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPwdUser) return;
+    setUserModalError('');
+    setUserModalSuccess('');
+
+    if (newPasswordVal.length < 4) {
+      setUserModalError('La contraseña o PIN debe tener al menos 4 caracteres.');
+      return;
+    }
+    if (newPasswordVal !== confirmPasswordVal) {
+      setUserModalError('Las contraseñas no coinciden. Verifique e intente nuevamente.');
+      return;
+    }
+
+    try {
+      const res = await authService.resetPassword(resetPwdUser.id, newPasswordVal, confirmPasswordVal);
+      if (res.success) {
+        setUserModalSuccess('¡Contraseña/PIN restablecido exitosamente!');
+        setTimeout(() => {
+          setResetPwdUser(null);
+          setNewPasswordVal('');
+          setConfirmPasswordVal('');
+          setUserModalSuccess('');
+        }, 1200);
+      } else {
+        setUserModalError(res.error || 'Error al restablecer contraseña.');
+      }
+    } catch (e: any) {
+      setUserModalError(e.message || 'Error al restablecer contraseña.');
+    }
+  };
+
+  // Cambiar estado activo/inactivo (Soft Delete)
+  const handleToggleUserStatus = async (targetUser: UserType) => {
+    if (!isSuperAdmin) {
+      alert('Solo el SuperAdmin institucional puede cambiar el estado de acceso de los usuarios.');
+      return;
+    }
+    const isCurrentlyActive = targetUser.isActive !== false && !targetUser.isDeleted;
+    const action = isCurrentlyActive ? 'desactivar' : 'reactivar';
+    if (!window.confirm(`¿Desea ${action} el acceso al médico ${targetUser.name}?`)) return;
+
+    try {
+      if (isCurrentlyActive) {
+        await authService.disableUser(targetUser.id);
+      } else {
+        await authService.restoreUser(targetUser.id);
+      }
+      await refreshUsersList();
+      setUserSuccessMsg(`Estado del médico ${targetUser.name} actualizado.`);
+      setTimeout(() => setUserSuccessMsg(''), 3000);
+    } catch (e: any) {
+      alert(e.message);
+    }
   };
 
   // -------------------------------------------------------------
@@ -1239,53 +1351,127 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {users.map((u) => {
                     const isColon = u.isSuperAdmin || u.id === 'usr-admin-colon';
+                    const isActive = u.isActive !== false && !u.isDeleted;
                     return (
                       <div
                         key={u.id}
-                        className={`p-3.5 rounded-2xl border flex items-start gap-3 transition-all ${
-                          isColon
+                        className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-3 transition-all ${
+                          !isActive
+                            ? 'bg-slate-100/70 border-slate-300 opacity-70'
+                            : isColon
                             ? 'bg-amber-50/60 border-amber-300/80 shadow-xs'
                             : 'bg-white border-slate-200'
                         }`}
                       >
-                        <img
-                          src={u.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-                          alt={u.name}
-                          className="w-10 h-10 rounded-xl object-cover border border-slate-200 shrink-0"
-                        />
+                        <div className="flex items-start gap-3">
+                          <img
+                            src={u.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
+                            alt={u.name}
+                            className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0 shadow-2xs"
+                          />
 
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <div className="flex items-center justify-between gap-1">
-                            <h6 className="font-bold text-xs text-slate-900 truncate flex items-center gap-1.5">
-                              <span>{u.name}</span>
-                              {isColon && (
-                                <span title="SuperAdmin del Sistema">
-                                  <Crown className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center justify-between gap-1 flex-wrap">
+                              <h6 className="font-bold text-xs text-slate-900 truncate flex items-center gap-1.5">
+                                <span>{u.name}</span>
+                                {isColon && (
+                                  <span title="SuperAdmin del Sistema">
+                                    <Crown className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  </span>
+                                )}
+                              </h6>
+                              <div className="flex items-center gap-1">
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${
+                                  isActive
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : 'bg-rose-100 text-rose-800 border border-rose-300'
+                                }`}>
+                                  {isActive ? 'Activo' : 'Inactivo'}
                                 </span>
-                              )}
-                            </h6>
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wide ${
-                              u.role === 'ADMINISTRADOR'
-                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                : u.role === 'MÉDICO'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                : u.role === 'RESIDENTE'
-                                ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                                : 'bg-slate-100 text-slate-700 border border-slate-300'
-                            }`}>
-                              {u.role}
-                            </span>
-                          </div>
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${
+                                  u.role === 'ADMINISTRADOR'
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    : u.role === 'MÉDICO'
+                                    ? 'bg-teal-100 text-teal-800 border border-teal-300'
+                                    : u.role === 'RESIDENTE'
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                    : 'bg-slate-100 text-slate-700 border border-slate-300'
+                                }`}>
+                                  {u.role}
+                                </span>
+                              </div>
+                            </div>
 
-                          <p className="text-[11px] text-slate-600 truncate">{u.specialty}</p>
+                            <p className="text-[11px] text-slate-600 truncate">{u.specialty || 'Médico General'}</p>
 
-                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                            <span className="font-mono font-bold text-slate-700">{u.exequatur || 'Sin Exeq.'}</span>
-                            <span className="text-[10px] bg-slate-100 px-1.5 py-0.2 rounded text-slate-600">
-                              PIN: {u.pin ? '••••' : 'No asignado'}
-                            </span>
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                              <span className="font-mono font-bold text-slate-700">{u.exequatur || 'Sin Exeq.'}</span>
+                              <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono">
+                                PIN: {u.pin ? '••••' : 'No asignado'}
+                              </span>
+                            </div>
                           </div>
                         </div>
+
+                        {/* Botones de acción de usuario */}
+                        {isSuperAdmin && (
+                          <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingUser({ ...u });
+                                setUserModalError('');
+                                setUserModalSuccess('');
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-[#0F4C5C] bg-[#0F4C5C]/10 hover:bg-[#0F4C5C]/20 rounded-lg transition-all cursor-pointer"
+                              title="Editar datos, especialidad, exequátur y foto"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>Editar</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResetPwdUser(u);
+                                setNewPasswordVal('');
+                                setConfirmPasswordVal('');
+                                setUserModalError('');
+                                setUserModalSuccess('');
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-800 bg-amber-100/80 hover:bg-amber-200/80 rounded-lg transition-all cursor-pointer"
+                              title="Restablecer contraseña o PIN de acceso"
+                            >
+                              <Key className="w-3 h-3" />
+                              <span>Contraseña</span>
+                            </button>
+
+                            {!isColon && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserStatus(u)}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                                  isActive
+                                    ? 'text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200'
+                                    : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+                                }`}
+                                title={isActive ? 'Desactivar acceso' : 'Reactivar acceso'}
+                              >
+                                {isActive ? (
+                                  <>
+                                    <UserX className="w-3 h-3" />
+                                    <span>Desactivar</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <UserCheck className="w-3 h-3" />
+                                    <span>Reactivar</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1753,6 +1939,249 @@ export const HospitalSettingsModal: React.FC<Props> = ({
         isOpen={isNormalExamOpen}
         onClose={() => setIsNormalExamOpen(false)}
       />
+
+      {/* MODAL PORTAL: Editar Médico / Usuario */}
+      {editingUser && createPortal(
+        <div className="fixed inset-0 z-[99995] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#0F4C5C]/10 text-[#0F4C5C] flex items-center justify-center">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Editar Perfil Médico</h3>
+                  <p className="text-[11px] text-slate-500">Actualizar datos oficiales y credenciales</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="w-8 h-8 rounded-full bg-slate-200/60 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditUserSubmit} className="p-6 space-y-4">
+              {userModalError && (
+                <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-bold text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{userModalError}</span>
+                </div>
+              )}
+              {userModalSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{userModalSuccess}</span>
+                </div>
+              )}
+
+              {/* Foto de Perfil con subida */}
+              <div className="flex items-center gap-4 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                <div className="relative group">
+                  <img
+                    src={editingUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
+                    alt={editingUser.name}
+                    className="w-16 h-16 rounded-2xl object-cover border-2 border-white shadow-md"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => editUserPhotoRef.current?.click()}
+                    className="absolute inset-0 bg-slate-900/50 rounded-2xl opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white transition-opacity cursor-pointer"
+                  >
+                    <Camera className="w-5 h-5" />
+                    <span className="text-[9px] font-bold">Cambiar</span>
+                  </button>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-xs font-bold text-slate-800">Fotografía Oficial</h4>
+                  <p className="text-[11px] text-slate-500">Se muestra en la barra superior y firma de recetas</p>
+                  <button
+                    type="button"
+                    onClick={() => editUserPhotoRef.current?.click()}
+                    className="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-300 shadow-2xs transition-all cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Subir Foto</span>
+                  </button>
+                  <input
+                    ref={editUserPhotoRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          setEditingUser({ ...editingUser, avatarUrl: reader.result as string });
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nombre Completo:</label>
+                <input
+                  type="text"
+                  value={editingUser.name}
+                  onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                  required
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-medium focus:ring-2 focus:ring-[#0F4C5C] outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Rol:</label>
+                  <select
+                    value={editingUser.role}
+                    disabled={editingUser.isSuperAdmin || editingUser.id === 'usr-admin-colon'}
+                    onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as UserRole })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-medium focus:ring-2 focus:ring-[#0F4C5C] outline-none disabled:bg-slate-100"
+                  >
+                    <option value="MÉDICO">MÉDICO</option>
+                    <option value="RESIDENTE">RESIDENTE</option>
+                    <option value="ADMINISTRADOR">ADMINISTRADOR</option>
+                    <option value="LECTURA">LECTURA</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Exequátur:</label>
+                  <input
+                    type="text"
+                    value={editingUser.exequatur || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, exequatur: e.target.value })}
+                    required
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-medium focus:ring-2 focus:ring-[#0F4C5C] outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Especialidad Clínica:</label>
+                <input
+                  type="text"
+                  value={editingUser.specialty || ''}
+                  onChange={(e) => setEditingUser({ ...editingUser, specialty: e.target.value })}
+                  placeholder="Ej: Medicina Interna / Emergenciología"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-medium focus:ring-2 focus:ring-[#0F4C5C] outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-[#0F4C5C] hover:bg-[#134E5E] text-white text-xs font-bold rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Guardar Cambios</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* MODAL PORTAL: Restablecer Contraseña / PIN */}
+      {resetPwdUser && createPortal(
+        <div className="fixed inset-0 z-[99995] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Restablecer Contraseña / PIN</h3>
+                  <p className="text-[11px] text-slate-500">Dr(a). {resetPwdUser.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetPwdUser(null)}
+                className="w-8 h-8 rounded-full bg-slate-200/60 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleResetPasswordSubmit} className="p-6 space-y-4">
+              <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed">
+                Por razones de seguridad criptográfica, las contraseñas anteriores no se muestran. Ingrese y confirme la nueva clave o PIN de acceso para este médico.
+              </div>
+
+              {userModalError && (
+                <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-bold text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{userModalError}</span>
+                </div>
+              )}
+              {userModalSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{userModalSuccess}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nueva Contraseña o PIN:</label>
+                <input
+                  type="password"
+                  value={newPasswordVal}
+                  onChange={(e) => setNewPasswordVal(e.target.value)}
+                  placeholder="Mínimo 4 caracteres"
+                  required
+                  autoFocus
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-mono font-bold focus:ring-2 focus:ring-[#0F4C5C] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Confirmar Nueva Contraseña:</label>
+                <input
+                  type="password"
+                  value={confirmPasswordVal}
+                  onChange={(e) => setConfirmPasswordVal(e.target.value)}
+                  placeholder="Repita la nueva contraseña"
+                  required
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-mono font-bold focus:ring-2 focus:ring-[#0F4C5C] outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setResetPwdUser(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-[#0F4C5C] hover:bg-[#134E5E] text-white text-xs font-bold rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer"
+                >
+                  <Key className="w-4 h-4" />
+                  <span>Actualizar Contraseña</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

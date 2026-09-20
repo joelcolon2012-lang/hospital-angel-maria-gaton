@@ -20,6 +20,8 @@ import { BottomNav } from './components/layout/BottomNav';
 import { PrivacyShield } from './components/layout/PrivacyShield';
 import { authService, recordAuditLog } from './services/authService';
 import { LoginModal } from './components/auth/LoginModal';
+import { UserProfileModal } from './components/auth/UserProfileModal';
+import { centralSyncService } from './services/centralSyncService';
 import { PreviousHistoryImportModal } from './components/documents/PreviousHistoryImportModal';
 import { User } from './types';
 
@@ -131,6 +133,7 @@ export default function App() {
   const [isMedicalOrderPrintOpen, setIsMedicalOrderPrintOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isHospitalSettingsOpen, setIsHospitalSettingsOpen] = useState(false);
+  const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
   const [isSendToGuardiaOpen, setIsSendToGuardiaOpen] = useState(false);
   const [patientForGuardia, setPatientForGuardia] = useState<Patient | null>(null);
   const [isHistoryPlantaOpen, setIsHistoryPlantaOpen] = useState(false);
@@ -219,13 +222,16 @@ export default function App() {
       // 1. Cargar datos locales inmediatamente (para visualización instantánea)
       await refreshData();
 
-      // 2. Traer novedades de la nube y otros dispositivos
+      // 2. Inicializar sincronización con backend central en Render (SSE y persistencia indestructible)
+      centralSyncService.init();
+
+      // 3. Traer novedades de la nube y otros dispositivos
       const hadUpdates = await cloudSyncService.pullLatestData();
       if (hadUpdates) {
         await refreshData();
       }
 
-      // 3. Sincronizar hacia la nube SOLO si hay pacientes reales creados localmente y no acabamos de recibir actualización remota
+      // 4. Sincronizar hacia la nube SOLO si hay pacientes reales creados localmente y no acabamos de recibir actualización remota
       const localData = await cloudSyncService.getLocalMasterData();
       const hasRealPatients = localData.patients.some((p) => !p.id.startsWith('pat-00'));
       if (hasRealPatients && !hadUpdates) {
@@ -235,12 +241,20 @@ export default function App() {
 
     initializeDataAndSync();
 
-    // 4. Suscribirse a cambios de otros dispositivos vía polling/nube
+    // 5. Suscribirse a cambios en tiempo real del backend central y de otros dispositivos vía SSE
+    const handleCentralDataChange = () => {
+      refreshData();
+    };
+    window.addEventListener('hospital_central_data_changed', handleCentralDataChange);
+
     const unsubscribe = cloudSyncService.subscribe(() => {
       refreshData();
     });
 
-    return () => unsubscribe();
+    return () => {
+      window.removeEventListener('hospital_central_data_changed', handleCentralDataChange);
+      unsubscribe();
+    };
   }, []);
 
   // Escuchar cambios de estado de autenticación y de usuario activo
@@ -362,7 +376,8 @@ export default function App() {
       console.error('Error saving patient locally:', err);
     }
 
-    // 5. Empujar a la nube asíncronamente sin bloquear la UI
+    // 5. Empujar al backend central y a la nube asíncronamente sin bloquear la UI
+    centralSyncService.createPatient(newP).catch(console.warn);
     cloudSyncService.triggerPushSync().catch((err) => {
       console.warn('Background sync warning:', err);
     });
@@ -414,7 +429,8 @@ export default function App() {
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     await saveLocalBackup();
 
-    // 4. Empujar inmediatamente a la nube central
+    // 4. Empujar inmediatamente al backend central y a la nube
+    centralSyncService.updatePatient(updated).catch(console.warn);
     await cloudSyncService.triggerPushSync();
   };
 
@@ -425,6 +441,7 @@ export default function App() {
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     await saveLocalBackup();
+    centralSyncService.updatePatient(updated).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -439,6 +456,7 @@ export default function App() {
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     await saveLocalBackup();
+    centralSyncService.updatePatient(updated).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -449,6 +467,7 @@ export default function App() {
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     await saveLocalBackup();
+    centralSyncService.updatePatient(updated).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -464,6 +483,7 @@ export default function App() {
     setActivePatient(updated);
     setPatients((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     await saveLocalBackup();
+    centralSyncService.updatePatient(updated).catch(console.warn);
     await cloudSyncService.triggerPushSync();
   };
 
@@ -518,6 +538,7 @@ export default function App() {
     } as MedicalOrder;
     await db.orders.add(fullOrder);
     setOrders((prev) => [fullOrder, ...prev]);
+    centralSyncService.createOrder(fullOrder).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -549,6 +570,7 @@ export default function App() {
     } as PatientEvolution;
     await db.evolutions.add(fullEvo);
     setEvolutions((prev) => [fullEvo, ...prev]);
+    centralSyncService.createEvolution(fullEvo).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -846,6 +868,7 @@ export default function App() {
         <Header
           currentUser={currentUser}
           onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          onOpenUserProfile={() => setIsUserProfileModalOpen(true)}
           onLogout={handleLogout}
           syncStatus={syncStatus}
           activeAreaTitle={activeAreaTitle}
@@ -1343,6 +1366,16 @@ export default function App() {
           onUserChanged={(u) => setCurrentUser(u)}
         />
       )}
+
+      {/* Modal Mi Perfil (Médicos activos pueden editar datos, PIN y foto) */}
+      <UserProfileModal
+        isOpen={isUserProfileModalOpen}
+        onClose={() => setIsUserProfileModalOpen(false)}
+        currentUser={currentUser}
+        onUserUpdated={(u) => {
+          setCurrentUser(u);
+        }}
+      />
 
       <PatientAIAnalysisModal
         isOpen={isAiAnalysisModalOpen}
