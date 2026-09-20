@@ -76,7 +76,7 @@ export const Sidebar: React.FC<Props> = ({
     },
     {
       id: 'ward' as SidebarNavId,
-      label: 'Sala / Internamiento',
+      label: 'Guardia MI / Sala',
       icon: Building2,
       badge: patientCounts?.ward,
     },

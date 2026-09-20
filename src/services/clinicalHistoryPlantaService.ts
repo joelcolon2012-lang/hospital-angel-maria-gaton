@@ -28,6 +28,7 @@ import {
 } from '../types';
 import { authService } from './authService';
 import { cloudSyncService } from './cloudSyncService';
+import { centralSyncService } from './centralSyncService';
 
 export class ConcurrencyConflictError extends Error {
   public serverHistory: ClinicalHistoryPlanta;
@@ -537,6 +538,7 @@ export class ClinicalHistoryPlantaService {
     });
 
     // Sincronización en tiempo real a disco y nube
+    centralSyncService.saveHistoryPlantaCentral(updatedHistory, activeDoc.name || history.updatedBy).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
 
     return updatedHistory;

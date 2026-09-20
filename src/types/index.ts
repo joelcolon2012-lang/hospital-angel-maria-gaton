@@ -577,3 +577,75 @@ export interface AISearchResponse {
   error?: string;
 }
 
+// =========================================================================
+// MÓDULO DE GUARDIA CLÍNICA — MEDICINA INTERNA
+// =========================================================================
+export type PendingPriority = 'URGENTE' | 'ALTA' | 'NORMAL' | 'BAJA';
+export type PendingStatus = 'PENDIENTE' | 'EN PROCESO' | 'REALIZADO' | 'CANCELADO';
+export type PendingCategory = 
+  | 'Laboratorio'
+  | 'Imagen'
+  | 'Interconsulta'
+  | 'Procedimiento'
+  | 'Transfusión'
+  | 'Hemodiálisis'
+  | 'Egreso'
+  | 'Cirugía'
+  | 'Medicamento'
+  | 'Otro';
+
+export interface PendingTask {
+  id: string;
+  patientId: string;
+  bedCode: string;
+  patientName?: string;
+  service?: 'MEDICINA_INTERNA_I' | 'MEDICINA_INTERNA_II' | string;
+  description: string;
+  priority: PendingPriority;
+  category: PendingCategory;
+  date: string;
+  time: string;
+  createdBy: string;
+  responsible?: string;
+  status: PendingStatus;
+  completedAt?: string;
+  completedBy?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BedStatusCode = 
+  | 'OCUPADA'
+  | 'DISPONIBLE'
+  | 'RESERVADA'
+  | 'AISLAMIENTO'
+  | 'FUERA_DE_SERVICIO';
+
+export interface GuardiaClinicalBed {
+  code: string; // ej. "307 C1" o "307-C1"
+  room: string; // "307"
+  bedNumber: 'C1' | 'C2';
+  service: 'MEDICINA_INTERNA_I' | 'MEDICINA_INTERNA_II';
+  status: BedStatusCode;
+  patientId?: string;
+  patientName?: string;
+  triageLevel?: TriageLevel;
+  isIsolated?: boolean;
+}
+
+export interface SuggestedLabDiagnosis {
+  id: string;
+  patientId: string;
+  name: string;
+  severity?: 'LEVE' | 'MODERADO' | 'SEVERO';
+  criteria: string;
+  parameters: string[];
+  status: 'SUGERIDO' | 'CONFIRMADO' | 'MODIFICADO' | 'DESCARTADO' | 'RESUELTO';
+  suggestedAt: string;
+  confirmedAt?: string;
+  confirmedBy?: string;
+  resolvedAt?: string;
+}
+
+

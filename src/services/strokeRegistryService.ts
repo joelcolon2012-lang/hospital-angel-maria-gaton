@@ -19,6 +19,7 @@ import {
 } from '../types/strokeRegistry';
 import { authService, recordAuditLog } from './authService';
 import { cloudSyncService } from './cloudSyncService';
+import { centralSyncService } from './centralSyncService';
 
 export class StrokeRegistryService {
   /**
@@ -154,6 +155,7 @@ export class StrokeRegistryService {
     });
 
     // Sincronizar cambios en tiempo real
+    centralSyncService.saveStrokeCentral(fullRecord, user.name).catch(() => {});
     cloudSyncService.triggerPushSync().catch(() => {});
 
     return fullRecord;

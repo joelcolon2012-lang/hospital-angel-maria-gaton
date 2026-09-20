@@ -16,7 +16,9 @@ import {
   PatientEvolution, 
   ClinicalHistoryPlanta, 
   MedicalStudy, 
-  LabResult 
+  LabResult,
+  PendingTask,
+  PendingStatus
 } from '../types';
 
 export type CentralSyncState = 'connected' | 'syncing' | 'offline' | 'error';
@@ -40,6 +42,7 @@ class CentralSyncService {
   private isProcessingSync = false;
   private lastSyncedTime = '';
   private connectedDevices = 1;
+  private pollingTimer: any = null;
   private listeners: Array<(status: CentralSyncStatus) => void> = [];
 
   constructor() {
@@ -113,6 +116,15 @@ class CentralSyncService {
 
     this.initRealtimeStream();
     this.pullCentralMasterData();
+
+    // Polling adaptativo en segundo plano cada 5 segundos para garantizar sincronización infalible
+    if (!this.pollingTimer) {
+      this.pollingTimer = setInterval(() => {
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+          this.pullCentralMasterData();
+        }
+      }, 5000);
+    }
 
     // Reconectar cuando la pestaña vuelve a ser visible o el teléfono se desbloquea
     window.addEventListener('visibilitychange', () => {
@@ -247,6 +259,126 @@ class CentralSyncService {
         } catch {}
       });
 
+      this.eventSource.addEventListener('pending.created', async (e: MessageEvent) => {
+        try {
+          const { task } = JSON.parse(e.data);
+          if (task && task.id) {
+            await db.pendingTasks.put(task);
+            this.notifyDataChanged('pending.created', task);
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('pending.updated', async (e: MessageEvent) => {
+        try {
+          const { task } = JSON.parse(e.data);
+          if (task && task.id) {
+            await db.pendingTasks.put(task);
+            this.notifyDataChanged('pending.updated', task);
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('pending.completed', async (e: MessageEvent) => {
+        try {
+          const { task } = JSON.parse(e.data);
+          if (task && task.id) {
+            await db.pendingTasks.put(task);
+            this.notifyDataChanged('pending.completed', task);
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('pending.deleted', async (e: MessageEvent) => {
+        try {
+          const { taskId } = JSON.parse(e.data);
+          if (taskId) {
+            await db.pendingTasks.delete(taskId);
+            this.notifyDataChanged('pending.deleted', { taskId });
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('lab.created', async (e: MessageEvent) => {
+        try {
+          const { lab } = JSON.parse(e.data);
+          if (lab && lab.id) {
+            await db.labs.put(lab);
+            this.notifyDataChanged('lab.created', lab);
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('order.updated', async (e: MessageEvent) => {
+        try {
+          const { order } = JSON.parse(e.data);
+          if (order && order.id) {
+            await db.orders.put(order);
+            this.notifyDataChanged('order.updated', order);
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('order.deleted', async (e: MessageEvent) => {
+        try {
+          const { orderId } = JSON.parse(e.data);
+          if (orderId) {
+            await db.orders.delete(orderId);
+            this.notifyDataChanged('order.deleted', { orderId });
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('evolution.deleted', async (e: MessageEvent) => {
+        try {
+          const { evolutionId } = JSON.parse(e.data);
+          if (evolutionId) {
+            await db.evolutions.delete(evolutionId);
+            this.notifyDataChanged('evolution.deleted', { evolutionId });
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('lab.deleted', async (e: MessageEvent) => {
+        try {
+          const { labId } = JSON.parse(e.data);
+          if (labId) {
+            await db.labs.delete(labId);
+            this.notifyDataChanged('lab.deleted', { labId });
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('study.created', async (e: MessageEvent) => {
+        try {
+          const { study } = JSON.parse(e.data);
+          if (study && study.id) {
+            await db.studies.put(study);
+            this.notifyDataChanged('study.created', study);
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('study.deleted', async (e: MessageEvent) => {
+        try {
+          const { studyId } = JSON.parse(e.data);
+          if (studyId) {
+            await db.studies.delete(studyId);
+            this.notifyDataChanged('study.deleted', { studyId });
+          }
+        } catch {}
+      });
+
+      this.eventSource.addEventListener('stroke.updated', async (e: MessageEvent) => {
+        try {
+          const { record } = JSON.parse(e.data);
+          if (record && record.id) {
+            await db.strokeRegistry.put(record);
+            this.notifyDataChanged('stroke.updated', record);
+          }
+        } catch {}
+      });
+
       this.eventSource.addEventListener('sync.completed', () => {
         this.pullCentralMasterData();
       });
@@ -309,7 +441,8 @@ class CentralSyncService {
           db.studies, 
           db.labs, 
           db.clinicalHistoriesPlanta, 
-          db.strokeRegistry
+          db.strokeRegistry,
+          db.pendingTasks
         ], async () => {
           // Fusionar pacientes conservando los datos más recientes
           if (master.patients.length > 0) {
@@ -335,6 +468,9 @@ class CentralSyncService {
           }
           if (master.strokeRegistry && master.strokeRegistry.length > 0) {
             await db.strokeRegistry.bulkPut(master.strokeRegistry);
+          }
+          if (master.pendingTasks && master.pendingTasks.length > 0) {
+            await db.pendingTasks.bulkPut(master.pendingTasks);
           }
         });
 
@@ -701,6 +837,204 @@ class CentralSyncService {
       }
     } catch {}
     return evo;
+  }
+
+  public async savePendingTaskCentral(task: PendingTask, user: string): Promise<PendingTask> {
+    await db.pendingTasks.put(task);
+    this.notifyDataChanged('pending.created', task);
+    try {
+      const res = await fetch(`${this.backendUrl}/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-name': user },
+        body: JSON.stringify(task)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.task) {
+          await db.pendingTasks.put(json.task);
+          return json.task;
+        }
+      }
+    } catch {}
+    return task;
+  }
+
+  public async updatePendingTaskStatusCentral(taskId: string, status: PendingStatus, user: string): Promise<void> {
+    const existing = await db.pendingTasks.get(taskId);
+    if (existing) {
+      existing.status = status;
+      existing.updatedAt = new Date().toISOString();
+      if (status === 'REALIZADO') {
+        existing.completedAt = new Date().toISOString();
+        existing.completedBy = user;
+      }
+      await db.pendingTasks.put(existing);
+      this.notifyDataChanged(status === 'REALIZADO' ? 'pending.completed' : 'pending.updated', existing);
+    }
+    try {
+      await fetch(`${this.backendUrl}/api/tasks/${taskId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-user-name': user },
+        body: JSON.stringify({ status })
+      });
+    } catch {}
+  }
+
+  public async deletePendingTaskCentral(taskId: string, user: string): Promise<void> {
+    await db.pendingTasks.delete(taskId);
+    this.notifyDataChanged('pending.deleted', { taskId });
+    try {
+      await fetch(`${this.backendUrl}/api/tasks/${taskId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-name': user }
+      });
+    } catch {}
+  }
+
+  public async deleteLabCentral(labId: string, user?: string): Promise<void> {
+    const effectiveUser = user || 'Dr. Joel Colón';
+    await db.labs.delete(labId);
+    this.notifyDataChanged('lab.deleted', { labId });
+    try {
+      await fetch(`${this.backendUrl}/api/labs/${labId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-name': effectiveUser }
+      });
+    } catch {}
+  }
+
+  public async updateOrderCentral(orderId: string, updates: Partial<MedicalOrder>, user?: string): Promise<void> {
+    const effectiveUser = user || 'Dr. Joel Colón';
+    await db.orders.update(orderId, updates);
+    const existing = await db.orders.get(orderId);
+    if (existing) {
+      this.notifyDataChanged('order.updated', existing);
+      try {
+        await fetch(`${this.backendUrl}/api/orders/${orderId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-user-name': effectiveUser },
+          body: JSON.stringify(existing)
+        });
+      } catch {}
+    }
+  }
+
+  public async deleteOrderCentral(orderId: string, user?: string): Promise<void> {
+    const effectiveUser = user || 'Dr. Joel Colón';
+    await db.orders.delete(orderId);
+    this.notifyDataChanged('order.deleted', { orderId });
+    try {
+      await fetch(`${this.backendUrl}/api/orders/${orderId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-name': effectiveUser }
+      });
+    } catch {}
+  }
+
+  public async deleteEvolutionCentral(evoId: string, user?: string): Promise<void> {
+    const effectiveUser = user || 'Dr. Joel Colón';
+    await db.evolutions.delete(evoId);
+    this.notifyDataChanged('evolution.deleted', { evoId });
+    try {
+      await fetch(`${this.backendUrl}/api/evolutions/${evoId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-name': effectiveUser }
+      });
+    } catch {}
+  }
+
+  public async saveStudyCentral(study: MedicalStudy, user?: string): Promise<MedicalStudy> {
+    const effectiveUser = user || study.doctorName || study.registeredBy || 'Dr. Joel Colón';
+    await db.studies.put(study);
+    this.notifyDataChanged('study.created', study);
+    try {
+      const res = await fetch(`${this.backendUrl}/api/studies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-name': effectiveUser },
+        body: JSON.stringify(study)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.study) {
+          await db.studies.put(json.study);
+          return json.study;
+        }
+      }
+    } catch {}
+    return study;
+  }
+
+  public async deleteStudyCentral(studyId: string, user?: string): Promise<void> {
+    const effectiveUser = user || 'Dr. Joel Colón';
+    await db.studies.delete(studyId);
+    this.notifyDataChanged('study.deleted', { studyId });
+    try {
+      await fetch(`${this.backendUrl}/api/studies/${studyId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-name': effectiveUser }
+      });
+    } catch {}
+  }
+
+  public async saveStrokeCentral(strokeData: any, user?: string): Promise<any> {
+    const effectiveUser = user || 'Dr. Joel Colón';
+    await db.strokeRegistry.put(strokeData);
+    this.notifyDataChanged('stroke.updated', strokeData);
+    try {
+      const res = await fetch(`${this.backendUrl}/api/stroke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-name': effectiveUser },
+        body: JSON.stringify(strokeData)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.record) {
+          await db.strokeRegistry.put(json.record);
+          return json.record;
+        }
+      }
+    } catch {}
+    return strokeData;
+  }
+
+  public async triggerPushSync(): Promise<boolean> {
+    try {
+      const [patients, users, orders, evolutions, studies, labs, clinicalHistoriesPlanta, strokeRegistry, pendingTasks] = await Promise.all([
+        db.patients.toArray(),
+        db.users.toArray(),
+        db.orders.toArray(),
+        db.evolutions.toArray(),
+        db.studies.toArray(),
+        db.labs.toArray(),
+        db.clinicalHistoriesPlanta.toArray(),
+        db.strokeRegistry.toArray(),
+        db.pendingTasks.toArray(),
+      ]);
+
+      const payload = {
+        patients,
+        users,
+        orders,
+        evolutions,
+        studies,
+        labs,
+        clinicalHistoriesPlanta,
+        strokeRegistry,
+        pendingTasks,
+        deviceOrigin: typeof navigator !== 'undefined' ? `${navigator.userAgent}` : 'Web Client'
+      };
+
+      const res = await fetch(`${this.backendUrl}/api/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-device-origin': 'Cliente Sincronizado' },
+        body: JSON.stringify({ data: payload })
+      });
+
+      return res.ok;
+    } catch (e) {
+      console.warn('[CentralSync] Error en triggerPushSync:', e);
+      return false;
+    }
   }
 }
 

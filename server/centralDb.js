@@ -103,6 +103,7 @@ class CentralDatabaseManager {
       labs: [],
       orders: [],
       evolutions: [],
+      pendingTasks: [],
       users: [...SEED_USERS],
       auditLogs: [],
       clinicalHistoriesPlanta: [],
@@ -132,6 +133,7 @@ class CentralDatabaseManager {
           this.memoryData.labs = data.labs || [];
           this.memoryData.orders = data.orders || [];
           this.memoryData.evolutions = data.evolutions || [];
+          this.memoryData.pendingTasks = data.pendingTasks || [];
           this.memoryData.auditLogs = data.auditLogs || [];
           this.memoryData.clinicalHistoriesPlanta = data.clinicalHistoriesPlanta || [];
           this.memoryData.strokeRegistry = data.strokeRegistry || [];
@@ -654,6 +656,223 @@ class CentralDatabaseManager {
   }
 
   // ==========================================
+  // PENDIENTES DE GUARDIA CLÍNICA
+  // ==========================================
+  getPendingTasks(patientId = null) {
+    if (patientId) {
+      return this.memoryData.pendingTasks.filter(t => t.patientId === patientId);
+    }
+    return [...this.memoryData.pendingTasks];
+  }
+
+  async savePendingTask(taskData, user = 'Dr. Joel Colón') {
+    const now = new Date().toISOString();
+    let task = null;
+
+    if (taskData.id) {
+      const index = this.memoryData.pendingTasks.findIndex(t => t.id === taskData.id);
+      if (index !== -1) {
+        task = {
+          ...this.memoryData.pendingTasks[index],
+          ...taskData,
+          updatedAt: now,
+          updatedBy: user
+        };
+        this.memoryData.pendingTasks[index] = task;
+      }
+    }
+
+    if (!task) {
+      task = {
+        ...taskData,
+        id: taskData.id || generateUUID('tsk'),
+        status: taskData.status || 'PENDIENTE',
+        priority: taskData.priority || 'NORMAL',
+        createdAt: taskData.createdAt || now,
+        updatedAt: now,
+        createdBy: user
+      };
+      this.memoryData.pendingTasks.unshift(task);
+    }
+
+    this.recordAuditLogSync({
+      action: taskData.id ? 'MODIFICAR' : 'CREAR',
+      entity: 'PENDIENTE',
+      entityId: task.id,
+      patientId: task.patientId || '',
+      userName: user,
+      details: `Pendiente (${task.priority}): "${task.description}" [${task.status}]`
+    });
+
+    await this.persistToDisk();
+    return task;
+  }
+
+  async updatePendingTaskStatus(id, status, user = 'Dr. Joel Colón') {
+    const index = this.memoryData.pendingTasks.findIndex(t => t.id === id);
+    if (index === -1) throw new Error('Pendiente no encontrado.');
+
+    const now = new Date().toISOString();
+    const task = this.memoryData.pendingTasks[index];
+    task.status = status;
+    task.updatedAt = now;
+    task.updatedBy = user;
+
+    if (status === 'REALIZADO') {
+      task.completedAt = now;
+      task.completedBy = user;
+    } else {
+      delete task.completedAt;
+      delete task.completedBy;
+    }
+
+    this.memoryData.pendingTasks[index] = task;
+
+    this.recordAuditLogSync({
+      action: 'MODIFICAR',
+      entity: 'PENDIENTE',
+      entityId: id,
+      patientId: task.patientId || '',
+      userName: user,
+      details: `Estado de pendiente actualizado a ${status}: "${task.description}"`
+    });
+
+    await this.persistToDisk();
+    return task;
+  }
+
+  async deletePendingTask(id, user = 'Dr. Joel Colón') {
+    const index = this.memoryData.pendingTasks.findIndex(t => t.id === id);
+    if (index === -1) return false;
+
+    const task = this.memoryData.pendingTasks[index];
+    this.memoryData.pendingTasks.splice(index, 1);
+
+    this.recordAuditLogSync({
+      action: 'ELIMINAR_SUAVE',
+      entity: 'PENDIENTE',
+      entityId: id,
+      patientId: task.patientId || '',
+      userName: user,
+      details: `Pendiente eliminado: "${task.description}"`
+    });
+
+  async deleteOrder(id, user = 'Dr. Joel Colón') {
+    const index = this.memoryData.orders.findIndex(o => o.id === id);
+    if (index === -1) return false;
+    const ord = this.memoryData.orders[index];
+    this.memoryData.orders.splice(index, 1);
+    this.recordAuditLogSync({
+      action: 'ELIMINAR_SUAVE',
+      entity: 'ORDEN_MEDICA',
+      entityId: id,
+      patientId: ord.patientId || '',
+      userName: user,
+      details: `Orden médica eliminada: "${ord.description || id}"`
+    });
+    await this.persistToDisk();
+    return true;
+  }
+
+  async deleteEvolution(id, user = 'Dr. Joel Colón') {
+    const index = this.memoryData.evolutions.findIndex(e => e.id === id);
+    if (index === -1) return false;
+    const evo = this.memoryData.evolutions[index];
+    this.memoryData.evolutions.splice(index, 1);
+    this.recordAuditLogSync({
+      action: 'ELIMINAR_SUAVE',
+      entity: 'EVOLUCION',
+      entityId: id,
+      patientId: evo.patientId || '',
+      userName: user,
+      details: `Evolución clínica eliminada: "${id}"`
+    });
+    await this.persistToDisk();
+    return true;
+  }
+
+  async deleteLabResult(id, user = 'Dr. Joel Colón') {
+    const index = this.memoryData.labs.findIndex(l => l.id === id);
+    if (index === -1) return false;
+    const lab = this.memoryData.labs[index];
+    this.memoryData.labs.splice(index, 1);
+    this.recordAuditLogSync({
+      action: 'ELIMINAR_SUAVE',
+      entity: 'LABORATORIO',
+      entityId: id,
+      patientId: lab.patientId || '',
+      userName: user,
+      details: `Resultado de laboratorio eliminado: "${lab.title || id}"`
+    });
+    await this.persistToDisk();
+    return true;
+  }
+
+  getStudiesByPatientId(patientId) {
+    return this.memoryData.studies.filter(s => s.patientId === patientId);
+  }
+
+  async saveStudy(studyData, user = 'Dr. Joel Colón') {
+    const now = new Date().toISOString();
+    let study = null;
+
+    if (studyData.id) {
+      const index = this.memoryData.studies.findIndex(s => s.id === studyData.id);
+      if (index !== -1) {
+        study = { ...this.memoryData.studies[index], ...studyData, updatedAt: now, updatedBy: user };
+        this.memoryData.studies[index] = study;
+      }
+    }
+
+    if (!study) {
+      study = {
+        ...studyData,
+        id: studyData.id || generateUUID('std'),
+        timestamp: studyData.timestamp || now,
+        registeredBy: user,
+        doctorName: user
+      };
+      this.memoryData.studies.unshift(study);
+    }
+
+    await this.persistToDisk();
+    return study;
+  }
+
+  async deleteStudy(id, user = 'Dr. Joel Colón') {
+    const index = this.memoryData.studies.findIndex(s => s.id === id);
+    if (index === -1) return false;
+    const std = this.memoryData.studies[index];
+    this.memoryData.studies.splice(index, 1);
+    this.recordAuditLogSync({
+      action: 'ELIMINAR_SUAVE',
+      entity: 'ESTUDIO',
+      entityId: id,
+      patientId: std.patientId || '',
+      userName: user,
+      details: `Estudio médico eliminado: "${std.title || id}"`
+    });
+    await this.persistToDisk();
+    return true;
+  }
+
+  async saveStrokeRecord(strokeData, user = 'Dr. Joel Colón') {
+    const now = new Date().toISOString();
+    const id = strokeData.id || strokeData.patientId || generateUUID('strk');
+    const index = this.memoryData.strokeRegistry.findIndex(s => s.id === id || s.patientId === strokeData.patientId);
+    let record = null;
+    if (index !== -1) {
+      record = { ...this.memoryData.strokeRegistry[index], ...strokeData, updatedAt: now, updatedBy: user };
+      this.memoryData.strokeRegistry[index] = record;
+    } else {
+      record = { ...strokeData, id, createdAt: now, updatedAt: now, registeredBy: user };
+      this.memoryData.strokeRegistry.unshift(record);
+    }
+    await this.persistToDisk();
+    return record;
+  }
+
+  // ==========================================
   // AUDITORÍA CENTRAL
   // ==========================================
   getAuditLogs(limit = 100) {
@@ -737,13 +956,14 @@ class CentralDatabaseManager {
       }
     }
 
-    // 3. Fusionar órdenes, evoluciones, estudios, laboratorios, historia de planta
-    ['orders', 'evolutions', 'studies', 'labs', 'clinicalHistoriesPlanta', 'strokeRegistry'].forEach(key => {
+    // 3. Fusionar órdenes, evoluciones, estudios, laboratorios, historia de planta, tareas pendientes
+    ['orders', 'evolutions', 'studies', 'labs', 'clinicalHistoriesPlanta', 'strokeRegistry', 'pendingTasks'].forEach(key => {
       if (Array.isArray(incomingData[key])) {
-        const map = new Map(this.memoryData[key].map(item => [item.id || item.patientId, item]));
+        const map = new Map((this.memoryData[key] || []).map(item => [item.id || item.patientId, item]));
         for (const item of incomingData[key]) {
           const itemId = item.id || item.patientId;
           if (!map.has(itemId)) {
+            if (!this.memoryData[key]) this.memoryData[key] = [];
             this.memoryData[key].unshift(item);
             changesApplied++;
           } else {
@@ -757,6 +977,8 @@ class CentralDatabaseManager {
     });
 
     if (changesApplied > 0) {
+      this.memoryData.version = (this.memoryData.version || 1) + 1;
+      this.memoryData.lastUpdated = Date.now();
       await this.persistToDisk();
     }
 
@@ -773,6 +995,7 @@ class CentralDatabaseManager {
         labs: this.memoryData.labs,
         orders: this.memoryData.orders,
         evolutions: this.memoryData.evolutions,
+        pendingTasks: this.memoryData.pendingTasks || [],
         users: this.getAllUsers(false),
         auditLogs: this.memoryData.auditLogs.slice(0, 100),
         clinicalHistoriesPlanta: this.memoryData.clinicalHistoriesPlanta,

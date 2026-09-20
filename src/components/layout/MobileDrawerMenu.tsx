@@ -149,7 +149,7 @@ export const MobileDrawerMenu: React.FC<MobileDrawerMenuProps> = ({
           >
             <div className="flex items-center gap-3">
               <Activity className="w-4 h-4 text-emerald-600" />
-              <span>Guardia Médica (Piso)</span>
+              <span>Guardia Medicina Interna</span>
             </div>
             {patientCounts?.ward ? (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">

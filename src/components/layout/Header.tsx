@@ -446,15 +446,15 @@ export const Header: React.FC<Props> = ({
             {isPrivacyActive ? <Lock className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
           </button>
 
-          {/* Guardia Clínica App Button */}
+          {/* Guardia Clínica MI Button */}
           {onOpenGuardiaApp && (
             <button
               onClick={onOpenGuardiaApp}
-              className="p-1.5 sm:px-2.5 sm:py-1 rounded-xl bg-[#0F4C5C] text-white hover:bg-teal-800 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs border border-teal-600"
-              title="Abrir la Clínica Guard App (Medicina Interna I y II - Salas 301 a 316)"
+              className="p-1.5 sm:px-3 sm:py-1 rounded-xl bg-[#0F4C5C] text-white hover:bg-teal-800 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs border border-teal-600"
+              title="Módulo de Guardia Clínica de Medicina Interna (Salas 301 a 317)"
             >
               <ShieldCheck className="w-4 h-4 text-emerald-300" />
-              <span className="hidden xl:inline">Guardia Clínica</span>
+              <span className="hidden sm:inline font-bold">Guardia MI</span>
             </button>
           )}
 
@@ -649,7 +649,7 @@ export const Header: React.FC<Props> = ({
                     </button>
                   )}
 
-                  {/* Guardia Clínica App */}
+                  {/* Guardia Clínica MI */}
                   {onOpenGuardiaApp && (
                     <button
                       onClick={() => {
@@ -662,8 +662,8 @@ export const Header: React.FC<Props> = ({
                         <ShieldCheck className="w-4 h-4 text-[#0F4C5C]" />
                       </div>
                       <div>
-                        <div className="text-[#0F4C5C] font-bold">Guardia Clínica App</div>
-                        <div className="text-[10px] text-slate-500 font-normal">Medicina Interna Salas 301 a 316</div>
+                        <div className="text-[#0F4C5C] font-bold">Guardia Medicina Interna</div>
+                        <div className="text-[10px] text-slate-500 font-normal">Camas y Salas 301 a 317</div>
                       </div>
                     </button>
                   )}

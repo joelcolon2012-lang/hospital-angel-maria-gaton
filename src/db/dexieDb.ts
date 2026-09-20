@@ -11,7 +11,8 @@ import {
   SourceDocument,
   ClinicalNoteRecord,
   StrokeRecord,
-  AISearchHistoryItem
+  AISearchHistoryItem,
+  PendingTask
 } from '../types';
 
 export interface AppSetting {
@@ -26,6 +27,7 @@ export class EmergencyDatabase extends Dexie {
   problems!: Table<ClinicalProblem, string>;
   orders!: Table<MedicalOrder, string>;
   evolutions!: Table<PatientEvolution, string>;
+  pendingTasks!: Table<PendingTask, string>;
   settings!: Table<AppSetting, string>;
   auditLogs!: Table<AuditLogEntry, string>;
   users!: Table<User, string>;
@@ -102,6 +104,25 @@ export class EmergencyDatabase extends Dexie {
       problems: 'id, patientId, status, createdAt',
       orders: 'id, patientId, type, status, createdAt',
       evolutions: 'id, patientId, timestamp',
+      settings: 'id',
+      auditLogs: 'id, timestamp, userId, patientId, action, recordId',
+      users: 'id, email, role, isActive, isDeleted',
+      sourceDocuments: 'id, patientId, uploadedAt',
+      clinicalNotes: 'id, patientId, noteType, status, createdAt',
+      clinicalHistoriesPlanta: 'id, patientId, admissionId, status, version, createdAt, updatedAt',
+      clinicalHistoryVersions: 'id, clinicalHistoryId, patientId, admissionId, version, createdAt',
+      strokeRegistry: 'id, patientId, strokeType, eventDate, inHospitalMortality, createdAt, updatedAt',
+      aiSearchHistory: 'id, userId, timestamp, mode'
+    });
+
+    this.version(6).stores({
+      patients: 'id, internalCode, fullName, idDocument, medicalRecordNumber, cubicle, status, triageLevel, arrivalDateTime, isDeleted, isArchived',
+      studies: 'id, patientId, category, status, createdAt',
+      labs: 'id, patientId, panel, flag, timestamp',
+      problems: 'id, patientId, status, createdAt',
+      orders: 'id, patientId, type, status, createdAt',
+      evolutions: 'id, patientId, timestamp',
+      pendingTasks: 'id, patientId, bedCode, priority, status, category, date, time, createdAt',
       settings: 'id',
       auditLogs: 'id, timestamp, userId, patientId, action, recordId',
       users: 'id, email, role, isActive, isDeleted',

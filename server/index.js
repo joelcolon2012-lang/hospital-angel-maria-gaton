@@ -452,6 +452,42 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
+app.put('/api/orders/:id', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const order = await centralDb.saveOrder({ ...req.body, id: req.params.id }, user);
+
+    broadcastRealtimeEvent('order.updated', {
+      patientId: order.patientId,
+      order,
+      updatedBy: user,
+      timestamp: order.updatedAt || new Date().toISOString()
+    });
+
+    res.json({ success: true, order });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/orders/:id', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const ok = await centralDb.deleteOrder(req.params.id, user);
+    if (!ok) return res.status(404).json({ success: false, error: 'Orden no encontrada' });
+
+    broadcastRealtimeEvent('order.deleted', {
+      orderId: req.params.id,
+      deletedBy: user,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: 'Orden médica eliminada exitosamente' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/evolutions/:patientId', (req, res) => {
   const evolutions = centralDb.getEvolutionsByPatientId(req.params.patientId);
   res.json({ success: true, count: evolutions.length, evolutions });
@@ -470,6 +506,211 @@ app.post('/api/evolutions', async (req, res) => {
     });
 
     res.status(201).json({ success: true, evolution: evo });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/evolutions/:id', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const ok = await centralDb.deleteEvolution(req.params.id, user);
+    if (!ok) return res.status(404).json({ success: false, error: 'Evolución no encontrada' });
+
+    broadcastRealtimeEvent('evolution.deleted', {
+      evolutionId: req.params.id,
+      deletedBy: user,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: 'Evolución eliminada exitosamente' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =========================================================================
+// 6B. ENDPOINTS REST: PENDIENTES DE GUARDIA, LABORATORIOS & ESTUDIOS
+// =========================================================================
+app.get('/api/tasks', (req, res) => {
+  const patientId = req.query.patientId || null;
+  const tasks = centralDb.getPendingTasks(patientId);
+  res.json({ success: true, count: tasks.length, tasks });
+});
+
+app.post('/api/tasks', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const task = await centralDb.savePendingTask(req.body, user);
+
+    broadcastRealtimeEvent('pending.created', {
+      task,
+      patientId: task.patientId,
+      createdBy: user,
+      timestamp: task.createdAt
+    });
+
+    res.status(201).json({ success: true, task });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/tasks/:id', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const task = await centralDb.savePendingTask({ ...req.body, id: req.params.id }, user);
+
+    broadcastRealtimeEvent('pending.updated', {
+      task,
+      patientId: task.patientId,
+      updatedBy: user,
+      timestamp: task.updatedAt
+    });
+
+    res.json({ success: true, task });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.patch('/api/tasks/:id/status', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ success: false, error: 'Status es requerido' });
+
+    const task = await centralDb.updatePendingTaskStatus(req.params.id, status, user);
+
+    const eventName = status === 'REALIZADO' ? 'pending.completed' : 'pending.updated';
+    broadcastRealtimeEvent(eventName, {
+      taskId: task.id,
+      task,
+      patientId: task.patientId,
+      status,
+      updatedBy: user,
+      timestamp: task.updatedAt
+    });
+
+    res.json({ success: true, task });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/tasks/:id', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const ok = await centralDb.deletePendingTask(req.params.id, user);
+    if (!ok) return res.status(404).json({ success: false, error: 'Pendiente no encontrado' });
+
+    broadcastRealtimeEvent('pending.deleted', {
+      taskId: req.params.id,
+      deletedBy: user,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: 'Pendiente eliminado exitosamente' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/labs/:patientId', (req, res) => {
+  const labs = centralDb.memoryData.labs.filter(l => l.patientId === req.params.patientId);
+  res.json({ success: true, count: labs.length, labs });
+});
+
+app.post('/api/labs', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const lab = await centralDb.saveLabResult(req.body, user);
+
+    broadcastRealtimeEvent('lab.created', {
+      lab,
+      patientId: lab.patientId,
+      registeredBy: user,
+      timestamp: lab.timestamp
+    });
+
+    res.status(201).json({ success: true, lab });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/labs/:id', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const ok = await centralDb.deleteLabResult(req.params.id, user);
+    if (!ok) return res.status(404).json({ success: false, error: 'Laboratorio no encontrado' });
+
+    broadcastRealtimeEvent('lab.deleted', {
+      labId: req.params.id,
+      deletedBy: user,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: 'Laboratorio eliminado exitosamente' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/studies/:patientId', (req, res) => {
+  const studies = centralDb.getStudiesByPatientId(req.params.patientId);
+  res.json({ success: true, count: studies.length, studies });
+});
+
+app.post('/api/studies', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const study = await centralDb.saveStudy(req.body, user);
+
+    broadcastRealtimeEvent('study.created', {
+      study,
+      patientId: study.patientId,
+      registeredBy: user,
+      timestamp: study.timestamp
+    });
+
+    res.status(201).json({ success: true, study });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/studies/:id', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const ok = await centralDb.deleteStudy(req.params.id, user);
+    if (!ok) return res.status(404).json({ success: false, error: 'Estudio no encontrado' });
+
+    broadcastRealtimeEvent('study.deleted', {
+      studyId: req.params.id,
+      deletedBy: user,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: 'Estudio eliminado exitosamente' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/stroke', async (req, res) => {
+  try {
+    const user = req.headers['x-user-name'] || 'Dr. Joel Colón';
+    const record = await centralDb.saveStrokeRecord(req.body, user);
+
+    broadcastRealtimeEvent('stroke.updated', {
+      record,
+      patientId: record.patientId,
+      registeredBy: user,
+      timestamp: record.updatedAt
+    });
+
+    res.json({ success: true, record });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }

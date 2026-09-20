@@ -23,7 +23,8 @@ import { LoginModal } from './components/auth/LoginModal';
 import { UserProfileModal } from './components/auth/UserProfileModal';
 import { centralSyncService } from './services/centralSyncService';
 import { PreviousHistoryImportModal } from './components/documents/PreviousHistoryImportModal';
-import { User } from './types';
+import { User, PendingTask } from './types';
+import { GuardiaMedicinaInternaView } from './components/guardia/GuardiaMedicinaInternaView';
 
 // Dashboard
 import { DashboardStats } from './components/dashboard/DashboardStats';
@@ -91,9 +92,10 @@ export default function App() {
   const [labs, setLabs] = useState<LabResult[]>([]);
   const [orders, setOrders] = useState<MedicalOrder[]>([]);
   const [evolutions, setEvolutions] = useState<PatientEvolution[]>([]);
+  const [pendingTasks, setPendingTasks] = useState<PendingTask[]>([]);
 
   // Navigation & Dossier
-  const [activeNavTab, setActiveNavTab] = useState<'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia' | 'strokeRegistry'>('dashboard');
+  const [activeNavTab, setActiveNavTab] = useState<'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia' | 'strokeRegistry' | 'guardia'>('dashboard');
   const [activePatient, setActivePatient] = useState<Patient | null>(null);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isStrokeModalOpen, setIsStrokeModalOpen] = useState(false);
@@ -167,6 +169,7 @@ export default function App() {
               if (masterData.labs) await db.labs.bulkPut(masterData.labs);
               if (masterData.orders) await db.orders.bulkPut(masterData.orders);
               if (masterData.evolutions) await db.evolutions.bulkPut(masterData.evolutions);
+              if (masterData.pendingTasks) await db.pendingTasks.bulkPut(masterData.pendingTasks);
               pList = await db.patients.toArray();
             }
           }
@@ -179,12 +182,14 @@ export default function App() {
       const lList = await db.labs.toArray();
       const oList = await db.orders.toArray();
       const eList = await db.evolutions.toArray();
+      const tList = await db.pendingTasks.toArray();
 
       setPatients(pList);
       setStudies(sList);
       setLabs(lList);
       setOrders(oList);
       setEvolutions(eList);
+      setPendingTasks(tList);
 
       // Keep active patient updated if open (sin interrumpir la escritura activa del usuario)
       if (activePatient) {
@@ -504,14 +509,16 @@ export default function App() {
       registeredBy: currentUser.name || 'Dr. Joel Colón',
       doctorName: currentUser.name || 'Dr. Joel Colón',
     } as MedicalStudy;
-    await db.studies.add(fullStudy);
-    setStudies((prev) => [fullStudy, ...prev]);
+    await db.studies.put(fullStudy);
+    setStudies((prev) => [fullStudy, ...prev.filter(s => s.id !== id)]);
+    centralSyncService.saveStudyCentral(fullStudy).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
   const handleDeleteStudy = async (studyId: string) => {
     await db.studies.delete(studyId);
     setStudies((prev) => prev.filter((s) => s.id !== studyId));
+    centralSyncService.deleteStudyCentral(studyId).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -524,14 +531,16 @@ export default function App() {
       registeredBy: currentUser.name || 'Dr. Joel Colón',
       doctorName: currentUser.name || 'Dr. Joel Colón',
     } as LabResult;
-    await db.labs.add(fullLab);
-    setLabs((prev) => [fullLab, ...prev]);
+    await db.labs.put(fullLab);
+    setLabs((prev) => [fullLab, ...prev.filter(l => l.id !== id)]);
+    centralSyncService.saveLabCentral(fullLab, currentUser.name || 'Dr. Joel Colón').catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
   const handleDeleteLab = async (labId: string) => {
     await db.labs.delete(labId);
     setLabs((prev) => prev.filter((l) => l.id !== labId));
+    centralSyncService.deleteLabCentral(labId, currentUser.name || 'Dr. Joel Colón').catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -544,8 +553,8 @@ export default function App() {
       doctorName: ord.doctorName || currentUser.name || 'Dr. Joel Colón',
       prescribedBy: currentUser.name || 'Dr. Joel Colón',
     } as MedicalOrder;
-    await db.orders.add(fullOrder);
-    setOrders((prev) => [fullOrder, ...prev]);
+    await db.orders.put(fullOrder);
+    setOrders((prev) => [fullOrder, ...prev.filter(o => o.id !== id)]);
     centralSyncService.createOrder(fullOrder).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
@@ -553,18 +562,21 @@ export default function App() {
   const handleEditOrder = async (orderId: string, updatedData: Partial<MedicalOrder>) => {
     await db.orders.update(orderId, updatedData);
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updatedData } : o)));
+    centralSyncService.updateOrderCentral(orderId, updatedData, currentUser.name || 'Dr. Joel Colón').catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
   const handleUpdateOrderStatus = async (orderId: string, status: any) => {
     await db.orders.update(orderId, { status });
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)));
+    centralSyncService.updateOrderCentral(orderId, { status }, currentUser.name || 'Dr. Joel Colón').catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
   const handleDeleteOrder = async (orderId: string) => {
     await db.orders.delete(orderId);
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    centralSyncService.deleteOrderCentral(orderId, currentUser.name || 'Dr. Joel Colón').catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -576,8 +588,8 @@ export default function App() {
       id,
       doctorName: evo.doctorName || currentUser.name || 'Dr. Joel Colón',
     } as PatientEvolution;
-    await db.evolutions.add(fullEvo);
-    setEvolutions((prev) => [fullEvo, ...prev]);
+    await db.evolutions.put(fullEvo);
+    setEvolutions((prev) => [fullEvo, ...prev.filter(e => e.id !== id)]);
     centralSyncService.createEvolution(fullEvo).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
@@ -585,6 +597,7 @@ export default function App() {
   const handleDeleteEvolution = async (evoId: string) => {
     await db.evolutions.delete(evoId);
     setEvolutions((prev) => prev.filter((e) => e.id !== evoId));
+    centralSyncService.deleteEvolutionCentral(evoId, currentUser.name || 'Dr. Joel Colón').catch(console.warn);
     cloudSyncService.scheduleAutoSync();
   };
 
@@ -603,6 +616,7 @@ export default function App() {
       patientId: updated.id,
       details: `Historia previa importada y validada por ${currentUser.name}`,
     });
+    centralSyncService.updatePatient(updated).catch(console.warn);
     cloudSyncService.scheduleAutoSync();
     setTimeout(() => setSyncStatus('saved'), 800);
   };
@@ -641,6 +655,7 @@ export default function App() {
       details: `Ingresado en Sala: Cama ${targetBedCode} y transferido a Guardia Clínica por ${currentUser.name}`,
     });
     await saveLocalBackup();
+    centralSyncService.updatePatient(updated).catch(console.warn);
     await cloudSyncService.triggerPushSync();
   };
 
@@ -660,6 +675,7 @@ export default function App() {
       patientId: p.id,
       details: `Expediente restaurado por ${currentUser.name}`,
     });
+    centralSyncService.updatePatient(updated).catch(console.warn);
     alert(`Expediente de ${p.fullName} restaurado exitosamente.`);
   };
 
@@ -676,6 +692,7 @@ export default function App() {
       details: `Expediente archivado por ${currentUser.name}`,
     });
     await saveLocalBackup();
+    centralSyncService.deletePatient(patientId, currentUser.name || 'Dr. Joel Colón').catch(console.warn);
     await cloudSyncService.triggerPushSync();
   };
 
@@ -699,6 +716,8 @@ export default function App() {
     ? 'Servicio de Emergencias'
     : selectedStatus === 'pendientes'
     ? 'Estudios Pendientes'
+    : activeNavTab === 'guardia'
+    ? 'Guardia Medicina Interna — Salas 301 a 317'
     : activeNavTab === 'stats'
     ? 'Estadísticas Clínicas'
     : activeNavTab === 'strokeRegistry'
@@ -720,8 +739,7 @@ export default function App() {
       setSelectedStatus('activos');
       setActivePatient(null);
     } else if (id === 'ward') {
-      setActiveNavTab('dashboard');
-      setSelectedStatus('ingresados');
+      setActiveNavTab('guardia');
       setActivePatient(null);
     } else if (id === 'strokeRegistry') {
       setActiveNavTab('strokeRegistry');
@@ -772,8 +790,7 @@ export default function App() {
       setActiveNavTab('search');
       setActivePatient(null);
     } else if (sectionId === 'ward') {
-      setActiveNavTab('dashboard');
-      setSelectedStatus('ingresados');
+      setActiveNavTab('guardia');
       setActivePatient(null);
     } else if (sectionId === 'history-planta') {
       if (activePatient) {
@@ -899,11 +916,8 @@ export default function App() {
             setIsAiAnalysisModalOpen(true);
           }}
           onOpenGuardiaApp={() => {
-            if (activePatient) {
-              handleOpenGuardiaForPatient(activePatient);
-            } else {
-              guardiaAppService.redirectToGuardia();
-            }
+            setActivePatient(null);
+            setActiveNavTab('guardia');
           }}
           onTogglePrivacyShield={() => setIsPrivacyActive((p) => !p)}
           isPrivacyActive={isPrivacyActive}
@@ -911,7 +925,7 @@ export default function App() {
         />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 pb-20 sm:pb-8">
+      <main className={`flex-1 w-full mx-auto p-3 sm:p-6 pb-20 sm:pb-8 ${activeNavTab === 'guardia' ? 'max-w-[1750px] px-1 sm:px-4' : 'max-w-7xl'}`}>
         {activePatient ? (
           /* ================= PACIENTE: EXPEDIENTE CLÍNICO ================= */
           <div className="space-y-4 animate-fade-in">
@@ -1206,6 +1220,34 @@ export default function App() {
                   Abrir Configuración de Google Drive
                 </button>
               </div>
+            )}
+
+            {activeNavTab === 'guardia' && (
+              <GuardiaMedicinaInternaView
+                patients={patients}
+                labs={labs}
+                orders={orders}
+                pendingTasks={pendingTasks}
+                evolutions={evolutions}
+                currentUser={currentUser}
+                onSelectPatientDossier={(patient, tab = 'vitals') => {
+                  setActivePatient(patient);
+                  setActiveDossierTab(tab);
+                }}
+                onOpenEvolutionModal={(patient) => {
+                  setActivePatient(patient);
+                  setActiveDossierTab('evolutions');
+                }}
+                onOpenOrderModal={(patient) => {
+                  setActivePatient(patient);
+                  setActiveDossierTab('orders');
+                }}
+                onOpenHistoryModal={(patient) => {
+                  setActivePatient(patient);
+                  setActiveDossierTab('history');
+                }}
+                onRefreshData={refreshData}
+              />
             )}
           </div>
         )}

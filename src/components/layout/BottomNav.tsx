@@ -1,9 +1,9 @@
 import React from 'react';
-import { Users, UserPlus, Search, BarChart3, Cloud } from 'lucide-react';
+import { Users, UserPlus, Search, BarChart3, ShieldCheck } from 'lucide-react';
 
 interface Props {
-  activeTab: 'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia';
-  onChangeTab: (tab: 'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia') => void;
+  activeTab: 'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia' | 'guardia';
+  onChangeTab: (tab: 'dashboard' | 'search' | 'stats' | 'drive' | 'epidemiologia' | 'guardia') => void;
   onOpenRegister: () => void;
 }
 
@@ -51,17 +51,17 @@ export const BottomNav: React.FC<Props> = ({
           <span className="sr-only">Registrar</span>
         </button>
 
-        {/* Google Drive */}
+        {/* Guardia Médica */}
         <button
-          onClick={() => onChangeTab('drive')}
+          onClick={() => onChangeTab('guardia')}
           className={`flex flex-col items-center justify-center w-14 py-1 rounded-xl transition-all touch-manipulation min-h-[44px] ${
-            activeTab === 'drive'
-              ? 'text-petrol-900 font-bold'
+            activeTab === 'guardia'
+              ? 'text-[#0F4C5C] font-black'
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Cloud className={`w-5 h-5 ${activeTab === 'drive' ? 'stroke-[2.5]' : ''}`} />
-          <span className="text-[10px] mt-0.5">Drive</span>
+          <ShieldCheck className={`w-5 h-5 ${activeTab === 'guardia' ? 'stroke-[2.5] text-emerald-600' : ''}`} />
+          <span className="text-[10px] mt-0.5">Guardia</span>
         </button>
 
         {/* Estadísticas */}
