@@ -891,6 +891,27 @@ class CentralSyncService {
     } catch {}
   }
 
+  public async saveLabCentral(lab: LabResult, user?: string): Promise<LabResult> {
+    const effectiveUser = user || lab.registeredBy || lab.doctorName || 'Dr. Joel Colón';
+    await db.labs.put(lab);
+    this.notifyDataChanged('lab.created', lab);
+    try {
+      const res = await fetch(`${this.backendUrl}/api/labs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-name': effectiveUser },
+        body: JSON.stringify(lab)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.lab) {
+          await db.labs.put(json.lab);
+          return json.lab;
+        }
+      }
+    } catch {}
+    return lab;
+  }
+
   public async deleteLabCentral(labId: string, user?: string): Promise<void> {
     const effectiveUser = user || 'Dr. Joel Colón';
     await db.labs.delete(labId);
