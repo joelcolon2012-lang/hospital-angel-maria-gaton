@@ -547,3 +547,31 @@ export interface Patient {
 export * from './clinicalHistoryPlanta';
 export * from './patientMaster';
 export * from './strokeRegistry';
+
+export interface AISearchSource {
+  title: string;
+  url: string;
+}
+
+export interface AISearchHistoryItem {
+  id: string;
+  userId: string;
+  query: string;
+  answer: string;
+  sources?: AISearchSource[];
+  timestamp: string;
+  mode: 'ia' | 'web';
+  latencyMs?: number;
+  modelUsed?: string;
+}
+
+export interface AISearchResponse {
+  success: boolean;
+  answer?: string;
+  sources?: AISearchSource[];
+  modelUsed?: string;
+  latencyMs?: number;
+  timestamp?: string;
+  error?: string;
+}
+

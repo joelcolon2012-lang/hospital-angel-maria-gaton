@@ -28,6 +28,7 @@ import { googleDriveService } from '../../services/googleDriveService';
 import { authService } from '../../services/authService';
 import { db } from '../../db/dexieDb';
 import { SmartMedicalSearchBar } from './SmartMedicalSearchBar';
+import { ClinicalAiTopBar } from '../ai/ClinicalAiTopBar';
 
 interface Props {
   currentUser?: User;
@@ -300,8 +301,8 @@ export const Header: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Center: Smart Medical AI Search Bar & Patient Query */}
-      <SmartMedicalSearchBar
+      {/* Center: Permanent Clinical AI Top Bar & Patient Search */}
+      <ClinicalAiTopBar
         patientSearchQuery={searchQuery}
         onPatientSearchChange={onSearchChange}
       />

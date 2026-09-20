@@ -10,7 +10,8 @@ import {
   User,
   SourceDocument,
   ClinicalNoteRecord,
-  StrokeRecord
+  StrokeRecord,
+  AISearchHistoryItem
 } from '../types';
 
 export interface AppSetting {
@@ -33,6 +34,7 @@ export class EmergencyDatabase extends Dexie {
   clinicalHistoriesPlanta!: Table<any, string>;
   clinicalHistoryVersions!: Table<any, string>;
   strokeRegistry!: Table<StrokeRecord, string>;
+  aiSearchHistory!: Table<AISearchHistoryItem, string>;
 
   constructor() {
     super('EmergenciaDrColonDB');
@@ -91,6 +93,24 @@ export class EmergencyDatabase extends Dexie {
       clinicalHistoriesPlanta: 'id, patientId, admissionId, status, version, createdAt, updatedAt',
       clinicalHistoryVersions: 'id, clinicalHistoryId, patientId, admissionId, version, createdAt',
       strokeRegistry: 'id, patientId, strokeType, eventDate, inHospitalMortality, createdAt, updatedAt'
+    });
+
+    this.version(5).stores({
+      patients: 'id, internalCode, fullName, idDocument, medicalRecordNumber, cubicle, status, triageLevel, arrivalDateTime, isDeleted, isArchived',
+      studies: 'id, patientId, category, status, createdAt',
+      labs: 'id, patientId, panel, flag, timestamp',
+      problems: 'id, patientId, status, createdAt',
+      orders: 'id, patientId, type, status, createdAt',
+      evolutions: 'id, patientId, timestamp',
+      settings: 'id',
+      auditLogs: 'id, timestamp, userId, patientId, action, recordId',
+      users: 'id, email, role, isActive, isDeleted',
+      sourceDocuments: 'id, patientId, uploadedAt',
+      clinicalNotes: 'id, patientId, noteType, status, createdAt',
+      clinicalHistoriesPlanta: 'id, patientId, admissionId, status, version, createdAt, updatedAt',
+      clinicalHistoryVersions: 'id, clinicalHistoryId, patientId, admissionId, version, createdAt',
+      strokeRegistry: 'id, patientId, strokeType, eventDate, inHospitalMortality, createdAt, updatedAt',
+      aiSearchHistory: 'id, userId, timestamp, mode'
     });
   }
 }

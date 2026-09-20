@@ -2,11 +2,26 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GeminiAIService } from './geminiAiService.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const clinicalAiService = new GeminiAIService();
+
+// Limitador de tasa en memoria (30 consultas por minuto por IP o usuario)
+const rateLimitMap = new Map();
+function checkRateLimit(key, maxLimit = 30, windowMs = 60000) {
+  const now = Date.now();
+  const history = (rateLimitMap.get(key) || []).filter(ts => now - ts < windowMs);
+  if (history.length >= maxLimit) {
+    return false;
+  }
+  history.push(now);
+  rateLimitMap.set(key, history);
+  return true;
+}
 
 // Configuración estricta de CORS para producción (GitHub Pages y desarrollo local)
 const defaultAllowed = [
@@ -159,7 +174,8 @@ app.get('/', (req, res) => {
       'GET /api/health',
       'GET /api/gemini/models',
       'POST /api/gemini/test',
-      'POST /api/gemini/generate'
+      'POST /api/gemini/generate',
+      'POST /api/ai/search'
     ]
   });
 });
@@ -339,6 +355,126 @@ app.post('/api/gemini/generate', async (req, res) => {
       success: false,
       error: translated.message
     });
+  }
+});
+
+// 6. Endpoint: POST /api/ai/search (Barra Superior de IA Clínica con Soporte de Streaming y Búsqueda Web)
+app.post('/api/ai/search', async (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(401).json({
+      success: false,
+      error: 'API Key inválida o sin autorización.'
+    });
+  }
+
+  // 1. Verificación de Autenticación / Sesión
+  const userId = req.headers['x-user-id'] || req.headers.authorization || req.body.userId;
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acceso no autorizado. Se requiere sesión médica activa.'
+    });
+  }
+
+  // 2. Control de Tasa (Rate Limiting)
+  const clientKey = `${req.ip || 'ip'}_${userId}`;
+  if (!checkRateLimit(clientKey, 30, 60000)) {
+    return res.status(429).json({
+      success: false,
+      error: 'Se alcanzó temporalmente el límite de consultas. Espere un momento e intente nuevamente.'
+    });
+  }
+
+  // 3. Validación de Entrada
+  const { query, useWeb, stream, model } = req.body;
+  if (!query || typeof query !== 'string' || !query.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'La consulta no puede estar vacía.'
+    });
+  }
+
+  const cleanQuery = query.trim();
+  if (cleanQuery.length > 2500) {
+    return res.status(400).json({
+      success: false,
+      error: 'El texto de la consulta excede el límite máximo permitido (2500 caracteres).'
+    });
+  }
+
+  const isStreaming = stream === true || req.headers.accept === 'text/event-stream';
+
+  try {
+    if (isStreaming) {
+      // Configuración de Server-Sent Events (SSE) para respuestas en streaming
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders?.();
+
+      const startTime = Date.now();
+      let sentFirstChunk = false;
+
+      const result = await clinicalAiService.searchClinical({
+        query: cleanQuery,
+        useWeb: Boolean(useWeb),
+        modelName: model || null,
+        onChunk: (chunkText) => {
+          if (!sentFirstChunk) {
+            sentFirstChunk = true;
+          }
+          res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunkText })}\n\n`);
+        }
+      });
+
+      const latencyMs = Date.now() - startTime;
+      res.write(`data: ${JSON.stringify({
+        type: 'done',
+        success: true,
+        answer: result.answer,
+        sources: result.sources || [],
+        modelUsed: result.modelUsed,
+        latencyMs,
+        timestamp: new Date().toISOString()
+      })}\n\n`);
+      res.end();
+    } else {
+      // Respuesta estándar JSON
+      const startTime = Date.now();
+      const result = await clinicalAiService.searchClinical({
+        query: cleanQuery,
+        useWeb: Boolean(useWeb),
+        modelName: model || null
+      });
+      const latencyMs = Date.now() - startTime;
+
+      return res.json({
+        success: true,
+        answer: result.answer,
+        sources: result.sources || [],
+        modelUsed: result.modelUsed,
+        latencyMs,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (err) {
+    const translated = translateGeminiError(err);
+    if (isStreaming && !res.headersSent) {
+      return res.status(translated.status).json({
+        success: false,
+        error: translated.message
+      });
+    } else if (isStreaming) {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: translated.message })}\n\n`);
+      res.end();
+    } else {
+      return res.status(translated.status).json({
+        success: false,
+        error: translated.message
+      });
+    }
   }
 });
 
