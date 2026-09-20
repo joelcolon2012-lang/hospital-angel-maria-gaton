@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Patient, TriageLevel } from '../../types';
 import { X, UserPlus, AlertTriangle, Mic } from 'lucide-react';
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
@@ -21,13 +22,14 @@ export const QuickRegisterModal: React.FC<Props> = ({
   existingPatients,
   onOpenExistingPatient,
 }) => {
-  const defaultCode = `EMG-${new Date().getFullYear()}-${String(existingPatients.length + 1).padStart(3, '0')}`;
-  const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const generateDefaultCode = () =>
+    `EMG-${new Date().getFullYear()}-${String(existingPatients.length + 1).padStart(3, '0')}`;
+  const getNowStr = () => new Date().toISOString().slice(0, 16).replace('T', ' ');
 
   const [formData, setFormData] = useState(() => {
     const active = authService.getCurrentUser();
     return {
-      internalCode: defaultCode,
+      internalCode: generateDefaultCode(),
       medicalRecordNumber: '',
       fullName: '',
       idDocument: '',
@@ -35,7 +37,7 @@ export const QuickRegisterModal: React.FC<Props> = ({
       sex: 'M' as 'M' | 'F' | 'Otro',
       phone: '',
       emergencyContact: '',
-      arrivalDateTime: nowStr,
+      arrivalDateTime: getNowStr(),
       provenance: 'Domicilio',
       cubicle: 'Cubículo 1',
       triageLevel: 3 as TriageLevel,
@@ -53,12 +55,25 @@ export const QuickRegisterModal: React.FC<Props> = ({
   useEffect(() => {
     if (isOpen) {
       const active = authService.getCurrentUser();
-      setFormData((prev) => ({
-        ...prev,
+      setFormData({
+        internalCode: `EMG-${new Date().getFullYear()}-${String(existingPatients.length + 1).padStart(3, '0')}`,
+        medicalRecordNumber: '',
+        fullName: '',
+        idDocument: '',
+        age: '',
+        sex: 'M',
+        phone: '',
+        emergencyContact: '',
+        arrivalDateTime: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        provenance: 'Domicilio',
+        cubicle: 'Cubículo 1',
+        triageLevel: 3,
+        chiefComplaint: '',
         attendingDoctor: active?.name || 'Dr. Joel Colón',
-      }));
+      });
+      setDuplicateWarning({ show: false, patient: null, reasons: [] });
     }
-  }, [isOpen]);
+  }, [isOpen, existingPatients.length]);
 
   if (!isOpen) return null;
 
@@ -99,7 +114,7 @@ export const QuickRegisterModal: React.FC<Props> = ({
 
   const saveAndFinish = () => {
     const newPatient: Partial<Patient> = {
-      internalCode: formData.internalCode || defaultCode,
+      internalCode: formData.internalCode || generateDefaultCode(),
       medicalRecordNumber: formData.medicalRecordNumber,
       fullName: formData.fullName.trim(),
       idDocument: formData.idDocument.trim(),
@@ -125,8 +140,8 @@ export const QuickRegisterModal: React.FC<Props> = ({
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+  return createPortal(
+    <div className="fixed inset-0 z-[99990] bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
       <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-slide-up">
         {/* Header */}
         <div className="bg-[#0F4C5C] text-white px-5 py-4 flex items-center justify-between">
@@ -317,6 +332,7 @@ export const QuickRegisterModal: React.FC<Props> = ({
           }}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 };

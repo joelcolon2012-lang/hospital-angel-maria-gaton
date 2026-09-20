@@ -336,18 +336,28 @@ export default function App() {
       },
     };
 
-    // 1. Guardar en Dexie DB
-    await db.patients.add(newP);
-    
-    // 2. Guardar respaldo inmediato en localStorage para blindar contra recargas
-    await saveLocalBackup();
-
-    // 3. Actualizar estado en pantalla
-    await refreshData();
+    // 1. Optimistic UI update immediately
+    setPatients((prev) => [newP, ...prev.filter((p) => p.id !== newP.id)]);
     setActivePatient(newP);
+    setIsRegisterModalOpen(false);
 
-    // 4. Empujar inmediatamente a la nube para que esté en todas las computadoras
-    await cloudSyncService.triggerPushSync();
+    try {
+      // 2. Guardar en Dexie DB con put para prevenir errores de constraint
+      await db.patients.put(newP);
+      
+      // 3. Guardar respaldo local
+      await saveLocalBackup();
+
+      // 4. Refrescar datos
+      await refreshData();
+    } catch (err) {
+      console.error('Error saving patient locally:', err);
+    }
+
+    // 5. Empujar a la nube asíncronamente sin bloquear la UI
+    cloudSyncService.triggerPushSync().catch((err) => {
+      console.warn('Background sync warning:', err);
+    });
   };
 
   const handleEditPatient = async (
