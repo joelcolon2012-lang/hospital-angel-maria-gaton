@@ -83,13 +83,8 @@ export class GeminiService {
       return envUrl.trim().replace(/\/$/, '');
     }
 
-    // 3. URL de producción en Render por defecto para GitHub Pages y entornos remotos
-    if (typeof window !== 'undefined' && (window.location.hostname.includes('github.io') || (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'))) {
-      return 'https://hospital-angel-maria-gaton-backend.onrender.com';
-    }
-
-    // 4. Fallback relativo (para desarrollo local con Vite proxy o servidor local)
-    return '';
+    // 3. URL de producción en Render por defecto (segura HTTPS)
+    return 'https://hospital-angel-maria-gaton-backend.onrender.com';
   }
 
   /**

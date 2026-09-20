@@ -72,7 +72,7 @@ export class ClinicalAiSearchService {
             ? 'Se alcanzó temporalmente el límite de consultas.'
             : response.status === 401
             ? 'Acceso no autorizado. Verifique su sesión médica.'
-            : 'No fue posible completar la consulta.'
+            : 'No fue posible completar la consulta en el servidor principal.'
         );
         throw new Error(message);
       }
@@ -111,7 +111,7 @@ export class ClinicalAiSearchService {
               if (data.type === 'chunk' && data.text) {
                 accumulatedAnswer += data.text;
                 if (onChunk) {
-                  onChunk(data.text);
+                  onChunk(accumulatedAnswer);
                 }
               } else if (data.type === 'done') {
                 if (data.answer) accumulatedAnswer = data.answer;
@@ -150,6 +150,29 @@ export class ClinicalAiSearchService {
       if (err.name === 'AbortError') {
         throw new Error('Consulta cancelada por el usuario.');
       }
+
+      // Fallback Inteligente: Si falla /api/ai/search, reintentar con /api/gemini/generate
+      console.warn('[ClinicalAiSearch] Intentando fallback secundario con generateContent...', err);
+      try {
+        const fallbackRes = await geminiService.generateContent({
+          prompt: cleanQuery,
+          systemInstruction: 'Eres un asistente clínico para médicos. Responde con lenguaje médico profesional, conciso y estructurado. Prioriza guías clínicas, sociedades médicas reconocidas y evidencia médica de alta calidad.'
+        });
+
+        if (fallbackRes.success && fallbackRes.text) {
+          if (onChunk) onChunk(fallbackRes.text);
+          return {
+            success: true,
+            answer: fallbackRes.text,
+            sources: [],
+            modelUsed: fallbackRes.modelUsed || 'gemini-3.6-flash',
+            timestamp: new Date().toISOString()
+          };
+        }
+      } catch (fallbackErr) {
+        console.error('[ClinicalAiSearch] Fallback también falló:', fallbackErr);
+      }
+
       if (err.message && err.message.toLowerCase().includes('failed to fetch')) {
         throw new Error('Verifique su conexión e intente nuevamente.');
       }

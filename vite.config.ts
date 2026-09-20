@@ -128,6 +128,10 @@ export default defineConfig({
       '/api/gemini': {
         target: 'http://localhost:3001',
         changeOrigin: true
+      },
+      '/api/ai': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
       }
     }
   },
@@ -136,6 +140,10 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api/gemini': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
+      },
+      '/api/ai': {
         target: 'http://localhost:3001',
         changeOrigin: true
       }
