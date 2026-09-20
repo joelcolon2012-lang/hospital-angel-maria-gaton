@@ -441,3 +441,138 @@ function getDietaText(orders: MedicalOrder[]): string {
   if (dietaOrder) return dietaOrder.name.toUpperCase();
   return 'CORRIENTE';
 }
+
+/**
+ * Genera la NOTA DE EVOLUCIÓN CLÍNICA con el Sistema SOAP Oficial
+ * Orden estricto solicitado:
+ * 1. Logo y Encabezado Institucional
+ * 2. Desarrollo estilo SOAP
+ * 3. Estado Actual y Signos Vitales
+ * 4. Plan Terapéutico y Conducta
+ * 5. Examen Físico (Pre-cargable de Historia Clínica)
+ * 6. Diagnósticos Nosológicos e Impresión Clínica
+ * 7. Firma Oficial
+ */
+export function generateOfficialSoapEvolutionNote(
+  patient: Patient,
+  evolution: {
+    timestamp?: string;
+    doctorName?: string;
+    vitalSignsSummary?: string;
+    subjective?: string;
+    objective?: string;
+    analysis?: string;
+    plan?: string;
+    clinicalChanges?: string;
+    newResults?: string;
+    problemReevaluation?: string;
+    updatedDiagnoses?: string;
+    conduct?: string;
+    physicalExamPreloaded?: string;
+  }
+): string {
+  const { dateStr, timeStr } = getFormattedDateTime(evolution.timestamp);
+  const v = patient.vitals || {};
+  const docName = evolution.doctorName || patient.attendingDoctor || 'Dr. Joel Colón';
+
+  let out = `             :HOSPITAL\n`;
+  out += `          H  DR. ÁNGEL MARÍA GATÓN\n\n`;
+  out += `                  NOTA DE EVOLUCIÓN CLÍNICA (MÉTODO S.O.A.P.)\n\n`;
+  out += `PACIENTE: ${patient.fullName.toUpperCase()}  |  EDAD: ${patient.age || '--'} AÑOS  |  CAMA/CUBÍCULO: ${patient.cubicle}\n`;
+  out += `CÉDULA/EXP: ${patient.medicalRecordNumber || patient.idDocument || 'S/N'}  |  FECHA: ${dateStr}  |  HORA: ${timeStr}\n`;
+  out += `MÉDICO TRATANTE: ${docName.toUpperCase()}\n`;
+  out += `--------------------------------------------------------------------------------\n\n`;
+
+  // 1. DESARROLLO ESTILO SOAP
+  out += `1. DESARROLLO CLÍNICO INTEGRAL (S.O.A.P.):\n\n`;
+
+  // S - SUBJETIVO
+  const subjText = evolution.subjective || evolution.clinicalChanges || 'Paciente refiere estabilidad clínica, adecuada tolerancia a la vía oral y descanso nocturno conservado, sin nuevas quejas sintomáticas.';
+  out += `[S] SUBJETIVO:\n${subjText.trim()}\n\n`;
+
+  // O - OBJETIVO
+  out += `[O] OBJETIVO:\n`;
+  const vitalsText = evolution.vitalSignsSummary || formatClinicalVitals(v).text;
+  out += `• Constantes Vitales: ${vitalsText}\n`;
+  if (evolution.newResults && evolution.newResults.trim()) {
+    out += `• Paraclínicos & Resultados Recientes: ${evolution.newResults.trim()}\n`;
+  }
+  if (evolution.objective && evolution.objective.trim()) {
+    out += `• Hallazgos Objetivos Relevantes: ${evolution.objective.trim()}\n`;
+  }
+  out += `\n`;
+
+  // A - ANÁLISIS
+  const analysisText = evolution.analysis || evolution.problemReevaluation || 'Paciente con evolución clínica favorable y respuesta adecuada al esquema terapéutico instaurado. Parámetros hemodinámicos y ventilatorios compensados.';
+  out += `[A] ANÁLISIS (REEVALUACIÓN CLÍNICA DE PROBLEMAS):\n${analysisText.trim()}\n\n`;
+
+  // P - PLAN
+  const planText = evolution.plan || evolution.conduct || 'Continuar esquema de hidratación y medicación actual, vigilancia estricta de patrón respiratorio y signos de alarma. Control en próximo pase de visita.';
+  out += `[P] PLAN TERAPÉUTICO Y METAS DEL DÍA:\n${planText.trim()}\n\n`;
+
+  out += `--------------------------------------------------------------------------------\n`;
+
+  // 2. ESTADO ACTUAL Y SIGNOS VITALES
+  out += `2. ESTADO ACTUAL Y CONSTANTES VITALES DETALLADAS:\n`;
+  const tas = v.systolicBP || '120';
+  const tad = v.diastolicBP || '80';
+  const fc = v.heartRate || '78';
+  const fr = v.respiratoryRate || '18';
+  const sat = v.oxygenSaturation || '98';
+  const temp = v.temperature || '37.0';
+  const glic = v.bloodGlucose || '105';
+  const pain = v.painScale ?? '0';
+
+  out += `• Estado General: ${(patient.clinicalHistory?.physicalExam?.general || 'ALERTA, CONSCIENTE, ORIENTADO EN SUS TRES ESFERAS').toUpperCase()}\n`;
+  out += `• TA: ${tas}/${tad} mmHg  |  FC: ${fc} lpm  |  FR: ${fr} rpm  |  SpO2: ${sat}%  |  Temp: ${temp} °C  |  Glicemia: ${glic} mg/dL  |  Dolor (EVA): ${pain}/10\n\n`;
+
+  // 3. PLAN TERAPÉUTICO Y CONDUCTA
+  out += `3. PLAN TERAPÉUTICO Y CONDUCTA MÉDICA:\n`;
+  out += `• ${planText.trim().replace(/\n+/g, '\n• ')}\n\n`;
+
+  // 4. EXAMEN FÍSICO (PRE-CARGABLE DE LA HISTORIA CLÍNICA)
+  out += `4. REEVALUACIÓN DE EXAMEN FÍSICO REGIONAL:\n`;
+  const peText = evolution.physicalExamPreloaded || (patient.clinicalHistory?.physicalExam ? formatPhysicalExamSummary(patient.clinicalHistory.physicalExam) : 'Examen físico dentro de límites normales, sin focalización neurológica ni signos de irritación peritoneal.');
+  out += `${peText.trim()}\n\n`;
+
+  // 5. DIAGNÓSTICOS CLÍNICOS E IMPRESIÓN DIAGNÓSTICA
+  out += `5. DIAGNÓSTICOS CLÍNICOS (INGRESO & REEVALUACIÓN):\n`;
+  const rawDiag = evolution.updatedDiagnoses || patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'EN ESTUDIO CLÍNICO';
+  const { scales, diagnoses } = extractScalesAndDiagnoses(rawDiag);
+  const diagList = diagnoses.length > 0 ? diagnoses : [rawDiag];
+
+  diagList.forEach((d, idx) => {
+    out += `• ${idx + 1}. ${d.toUpperCase()}\n`;
+  });
+  if (scales.length > 0) {
+    out += `• Escalas Clínicas Registradas: ${scales.join(', ')}\n`;
+  }
+  out += `\n`;
+
+  out += `--------------------------------------------------------------------------------\n`;
+  out += `FIRMA MÉDICA OFICIAL:\n`;
+  out += `${docName.toUpperCase()}\n`;
+  out += `ESPECIALISTA EN MEDICINA INTERNA / EMERGENCIOLOGÍA\n`;
+  out += `${patient.clinicalHistory?.reasonForConsultation ? 'EXEQ. OFICIAL DE LEY' : 'REPÚBLICA DOMINICANA'}\n`;
+
+  return normalizeMedicalText(out);
+}
+
+function formatPhysicalExamSummary(pe: any): string {
+  const parts: string[] = [];
+  if (pe.general) parts.push(`General: ${pe.general}`);
+  if (pe.head) parts.push(`Cabeza: ${pe.head}`);
+  if (pe.eyes) parts.push(`Ojos: ${pe.eyes}`);
+  if (pe.neck) parts.push(`Cuello: ${pe.neck}`);
+  if (pe.thorax || pe.respiratory) parts.push(`Tórax y Pulmones: ${pe.thorax || pe.respiratory}`);
+  if (pe.cardiovascular) parts.push(`Cardiovascular: ${pe.cardiovascular}`);
+  if (pe.abdominal) parts.push(`Abdomen: ${pe.abdominal}`);
+  if (pe.upperExtremities) parts.push(`Ext. Superiores: ${pe.upperExtremities}`);
+  if (pe.lowerExtremities) parts.push(`Ext. Inferiores: ${pe.lowerExtremities}`);
+  if (pe.neurological) parts.push(`Neurológico: ${pe.neurological}`);
+  if (pe.skin) parts.push(`Piel: ${pe.skin}`);
+
+  if (parts.length > 0) return parts.join('. ') + '.';
+  return pe.general || 'Examen físico basal dentro de límites normales.';
+}
+

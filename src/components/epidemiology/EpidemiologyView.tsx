@@ -154,50 +154,76 @@ export const EpidemiologyView: React.FC<Props> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategory, setExpandedCategory] = useState<PathologyCategory | null>('Cardiovascular');
 
-  // Función clasificadora de patologías
+  // Función clasificadora de patologías con alta precisión epidemiológica basada en diagnósticos de ingreso
   const classifyPatientPathology = (patient: Patient): PathologyCategory => {
-    const text = `
-      ${patient.chiefComplaint || ''} 
-      ${patient.clinicalHistory?.clinicalImpression || ''} 
-      ${patient.clinicalHistory?.currentIllnessHistory || ''} 
-      ${patient.clinicalHistory?.pathologicalHistory || ''}
-      ${(patient.diagnosesList || []).map(d => d.name).join(' ')}
-    `.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    // 1. Diagnósticos explícitos de ingreso y motivo
+    const primaryDiagText = [
+      ...(patient.diagnosesList || []).map((d) => d.name || ''),
+      patient.clinicalHistory?.clinicalImpression || '',
+      patient.clinicalHistory?.reasonForConsultation || '',
+      patient.chiefComplaint || '',
+    ].join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-    // 1. Cardiovascular
-    if (/hipertensi|hta|evc|acv|ictus|infarto|sca|iam|coronari|cardiac|arritmia|fibrilaci|insuficiencia cardiaca|angina|edema pulmonar|sincope/i.test(text)) {
+    // 2. Texto complementario de la historia clínica
+    const backgroundText = [
+      patient.clinicalHistory?.currentIllnessHistory || '',
+      patient.clinicalHistory?.pathologicalHistory || '',
+      patient.clinicalHistory?.diagnosticAndTherapeuticPlan || '',
+    ].join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    const fullText = `${primaryDiagText} ${backgroundText}`;
+
+    // 1. Cardiovascular & Hemodinámico
+    if (/\b(hta|iam|sca|evc|acv|fa|icc)\b|hipertens|infarto|coronari|cardiac|cardio|arritmia|fibrilaci|insuficiencia cardiaca|angina|edema agudo de pulmon|sincope|shock cardiogenico|trombosis|diseccion aortica|tep\b|bloqueo av/i.test(primaryDiagText) ||
+        /\b(hta|iam|sca|evc|acv)\b|infarto de miocardio|insuficiencia cardiaca/i.test(fullText)) {
       return 'Cardiovascular';
     }
-    // 2. Respiratorio
-    if (/neumoni|nac|nih|epoc|asma|bronqu|respiratori|saturaci|derrame pleural|infiltrado|disnea aguda/i.test(text)) {
+
+    // 2. Respiratorio & Pulmonar
+    if (/\b(nac|nih|epoc|ira|sdra)\b|neumoni|bronconeumoni|asma|broncoespasmo|respiratori|saturaci|derrame pleural|infiltrado|disnea aguda|edema pulmonar|laringotraqueitis|atelectasia|hemoptisis/i.test(primaryDiagText) ||
+        /\b(nac|nih|epoc)\b|neumonia|crisis asmatica/i.test(fullText)) {
       return 'Respiratorio';
     }
-    // 3. Infeccioso
-    if (/sepsis|choque septico|shock septico|pielonefrit|itu|celulit|absceso|dengue|meningit|bacteriemia|covid|infecci/i.test(text)) {
+
+    // 3. Infeccioso & Sepsis
+    if (/\b(itu|sida|vih)\b|sepsis|choque septico|shock septico|pielonefrit|infeccion de vias urinarias|celulit|absceso|dengue|meningit|bacteriemia|covid|infecci|erisipela|leptospir|malaria|bacteriana/i.test(primaryDiagText) ||
+        /sepsis|choque septico|dengue|pielonefritis/i.test(fullText)) {
       return 'Infeccioso';
     }
-    // 4. Gastrointestinal
-    if (/sangrado digestivo|hemorragia digest|pancreatit|cirrosis|gastritis|ulcera|apendicit|colecistit|diarrea|vomit|ictericia/i.test(text)) {
+
+    // 4. Gastrointestinal & Hepático
+    if (/\b(hda|hdb)\b|sangrado digestivo|hemorragia digest|pancreatit|cirrosis|gastritis|ulcera|apendicit|colecistit|colangitis|diarrea|vomit|ictericia|oclusion intestinal|abdomen agudo|peritonitis|hepatitis/i.test(primaryDiagText) ||
+        /\b(hda|hdb)\b|hemorragia digestiva|pancreatitis|cirrosis hepatica/i.test(fullText)) {
       return 'Gastrointestinal';
     }
-    // 5. Metabólico
-    if (/diabet|cetoacidosis|cad|hiperosmolar|hipoglucemi|glicemi|tiroid|coma diabet/i.test(text)) {
+
+    // 5. Metabólico & Endocrino
+    if (/\b(dm|cad|ehh)\b|diabet|cetoacidosis|hiperosmolar|hipoglucemi|glicemi|tiroid|coma diabet|tirotoxicosis|mixedema|cetoacidotico/i.test(primaryDiagText) ||
+        /\b(cad|ehh)\b|cetoacidosis diabetica|estado hiperosmolar|diabetes mellitus descompensada/i.test(fullText)) {
       return 'Metabólico';
     }
-    // 6. Nefrológico
-    if (/renal|kdigo|creatinin|uremia|hiperkalemi|potasio|sodio|dialisis|oliguria|anuria/i.test(text)) {
+
+    // 6. Nefrológico & Renal
+    if (/\b(lra|erc|kdigo)\b|renal|creatinin|uremia|hiperkalemi|potasio|sodio|dialisis|oliguria|anuria|sindrome nefrotico|sindrome nefritico|glomerulonefrit/i.test(primaryDiagText) ||
+        /\b(lra|erc)\b|lesion renal aguda|insuficiencia renal/i.test(fullText)) {
       return 'Nefrológico';
     }
-    // 7. Neurológico
-    if (/convulsi|epilep|coma|glasgow|deterioro cognitivo|meningismo|neurologic/i.test(text)) {
+
+    // 7. Neurológico & Neurovascular
+    if (/\b(tce|evc|acv)\b|convulsi|epilep|coma|glasgow|deterioro cognitivo|meningismo|neurologic|ictus|isquemia cerebral|hemorragia subaracnoidea|hematoma epidural|hematoma subdural|encefalopatia|guillain/i.test(primaryDiagText) ||
+        /accidente cerebrovascular|crisis convulsiva|estatus epileptico/i.test(fullText)) {
       return 'Neurológico';
     }
-    // 8. Trauma
-    if (/trauma|tce|politrauma|fractura|accidente|herida|caida/i.test(text)) {
+
+    // 8. Trauma & Quirúrgico
+    if (/\b(haf|hab|tce)\b|trauma|politrauma|fractura|accidente|herida|caida|contusion|luxacion|quemadura/i.test(primaryDiagText) ||
+        /politraumatismo|trauma craneoencefalico|herida por arma/i.test(fullText)) {
       return 'Trauma';
     }
+
     // 9. Gineco-Obstétrico
-    if (/embarazo|gestaci|preeclampsia|eclampsia|parto|obstetr|cesarea/i.test(text)) {
+    if (/embarazo|gestaci|preeclampsia|eclampsia|hellp|parto|obstetr|cesarea|puerperi|amenaza de aborto|amenaza de parto|dppni|placenta previa/i.test(primaryDiagText) ||
+        /preeclampsia|eclampsia|embarazo complicado/i.test(fullText)) {
       return 'Gineco-Obstétrico';
     }
 

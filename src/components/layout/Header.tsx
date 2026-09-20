@@ -224,9 +224,9 @@ export const Header: React.FC<Props> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 h-[56px] bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-2 sm:px-4 flex items-center justify-between gap-1.5 sm:gap-2.5 select-none">
+    <header className="sticky top-0 z-30 h-[56px] bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-2 sm:px-4 flex items-center justify-between gap-1.5 sm:gap-2.5 select-none overflow-x-auto no-scrollbar scroll-smooth touch-pan-x">
       {/* Left: Hospital Logo, Name, Current Area & Active Patient Pill */}
-      <div className="flex items-center gap-1.5 sm:gap-2.5 overflow-hidden shrink-0 max-w-[55%] sm:max-w-none">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         {/* Mobile Hamburger Button (☰) */}
         {onToggleMobileMenu && (
           <button
@@ -549,7 +549,7 @@ export const Header: React.FC<Props> = ({
                 className="fixed inset-0 z-40 bg-black/20 backdrop-blur-2xs"
                 onClick={() => setIsMobileToolsOpen(false)}
               />
-              <div className="absolute right-0 top-full mt-2 w-[290px] sm:w-[330px] bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-2 z-50 animate-in fade-in zoom-in-95 max-h-[82vh] overflow-y-auto divide-y divide-slate-100">
+              <div className="fixed right-2 top-14 sm:absolute sm:right-0 sm:top-full mt-1 w-[300px] sm:w-[340px] bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-2 z-50 animate-in fade-in zoom-in-95 max-h-[82vh] overflow-y-auto divide-y divide-slate-100">
                 {/* Médico en turno */}
                 {currentUser && (
                   <div className="px-3 py-2 bg-slate-50 flex items-center justify-between">

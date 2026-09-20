@@ -110,9 +110,9 @@ export default function App() {
   const [isAiAnalysisModalOpen, setIsAiAnalysisModalOpen] = useState(false);
   const [aiSuiteInitialTab, setAiSuiteInitialTab] = useState<'notas' | 'rx' | 'tac' | 'gases' | 'ecg'>('notas');
 
-  // Filters & Sorting
+  // Filters & Sorting (por defecto los últimos pacientes registrados aparecen de primero)
   const [selectedStatus, setSelectedStatus] = useState<PatientStatus | 'todos'>('todos');
-  const [sortBy, setSortBy] = useState<'severity' | 'arrival' | 'name' | 'cubicle'>('severity');
+  const [sortBy, setSortBy] = useState<'severity' | 'arrival' | 'name' | 'cubicle'>('arrival');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modals & Privacy
@@ -296,10 +296,18 @@ export default function App() {
       return matchesStatus && matchesQuery;
     })
     .sort((a, b) => {
-      if (sortBy === 'severity') {
-        return a.triageLevel - b.triageLevel; // Level 1 first
-      } else if (sortBy === 'arrival') {
-        return b.arrivalDateTime.localeCompare(a.arrivalDateTime); // Most recent first
+      if (sortBy === 'arrival') {
+        const timeA = new Date(a.arrivalDateTime || a.createdAt || 0).getTime();
+        const timeB = new Date(b.arrivalDateTime || b.createdAt || 0).getTime();
+        if (timeB !== timeA) return timeB - timeA; // Más reciente primero (LIFO)
+        return (b.id || '').localeCompare(a.id || '');
+      } else if (sortBy === 'severity') {
+        if (a.triageLevel !== b.triageLevel) {
+          return a.triageLevel - b.triageLevel; // Nivel 1 primero
+        }
+        const timeA = new Date(a.arrivalDateTime || a.createdAt || 0).getTime();
+        const timeB = new Date(b.arrivalDateTime || b.createdAt || 0).getTime();
+        return timeB - timeA;
       } else if (sortBy === 'name') {
         return a.fullName.localeCompare(b.fullName);
       } else if (sortBy === 'cubicle') {
