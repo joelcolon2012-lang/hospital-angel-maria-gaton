@@ -144,23 +144,58 @@ export default function App() {
 
   // Load database
   const refreshData = async () => {
-    await seedDatabaseIfEmpty(db);
-    const pList = await db.patients.toArray();
-    const sList = await db.studies.toArray();
-    const lList = await db.labs.toArray();
-    const oList = await db.orders.toArray();
-    const eList = await db.evolutions.toArray();
+    try {
+      await seedDatabaseIfEmpty(db);
+      let pList = await db.patients.toArray();
 
-    setPatients(pList);
-    setStudies(sList);
-    setLabs(lList);
-    setOrders(oList);
-    setEvolutions(eList);
+      // Auto-reparación si por alguna razón la lista local no tiene pacientes o falta Joel Colón
+      if (pList.length === 0 || !pList.some((p) => p.id === 'pat-1788843084862')) {
+        try {
+          const baseUrl = (import.meta as any).env?.BASE_URL || './';
+          const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
+          if (res.ok) {
+            let text = await res.text();
+            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+            const json = JSON.parse(text);
+            const masterData = json.data || json;
+            if (masterData && Array.isArray(masterData.patients)) {
+              await db.patients.bulkPut(masterData.patients);
+              if (masterData.studies) await db.studies.bulkPut(masterData.studies);
+              if (masterData.labs) await db.labs.bulkPut(masterData.labs);
+              if (masterData.orders) await db.orders.bulkPut(masterData.orders);
+              if (masterData.evolutions) await db.evolutions.bulkPut(masterData.evolutions);
+              pList = await db.patients.toArray();
+            }
+          }
+        } catch (e) {
+          console.warn('[refreshData] Fallback fetch master DB:', e);
+        }
+      }
 
-    // Keep active patient updated if open
-    if (activePatient) {
-      const updatedActive = pList.find((p) => p.id === activePatient.id);
-      if (updatedActive) setActivePatient(updatedActive);
+      const sList = await db.studies.toArray();
+      const lList = await db.labs.toArray();
+      const oList = await db.orders.toArray();
+      const eList = await db.evolutions.toArray();
+
+      setPatients(pList);
+      setStudies(sList);
+      setLabs(lList);
+      setOrders(oList);
+      setEvolutions(eList);
+
+      // Keep active patient updated if open
+      if (activePatient) {
+        const updatedActive = pList.find((p) => p.id === activePatient.id);
+        if (updatedActive) setActivePatient(updatedActive);
+      }
+
+      if (pList.length > 0) {
+        try {
+          localStorage.setItem('hr_colon_patients_backup', JSON.stringify(pList));
+        } catch {}
+      }
+    } catch (err) {
+      console.error('[RefreshData Error]', err);
     }
   };
 
@@ -799,6 +834,7 @@ export default function App() {
           activePatient={activePatient}
           onSelectActivePatient={() => {}}
           onClearActivePatient={() => setActivePatient(null)}
+          onSelectPatient={(p) => setActivePatient(p)}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onOpenCalculator={() => setIsCalculatorOpen(true)}

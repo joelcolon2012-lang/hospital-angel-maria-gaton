@@ -318,6 +318,63 @@ export const SEED_PATIENTS: Patient[] = [
       clinicalImpression: 'Apendicitis aguda (Score de Alvarado: 8/10 - Muy probable). Descartar patología anexial ginecológica.',
       diagnosticAndTherapeuticPlan: '1. Dieta absoluta (nada por vía oral). 2. Hidratación con Solución Salina 0.9% 1000 cc IV a 125 cc/h. 3. Hemograma, prueba de embarazo rápida (hCG), ecografía abdominal. 4. Interconsulta con Cirugía General.'
     }
+  },
+  {
+    id: 'pat-1788843084862',
+    internalCode: 'EMG-2026-001',
+    fullName: 'Joel Colón',
+    sex: 'M',
+    arrivalDateTime: '2026-09-08 04:51',
+    provenance: 'Domicilio',
+    cubicle: 'Cubículo 1',
+    triageLevel: 5,
+    chiefComplaint: 'Cefalea',
+    status: 'activos',
+    attendingDoctor: 'Dr. Colón',
+    createdAt: '2026-09-08T04:51:24.862Z',
+    updatedAt: '2026-09-08T04:53:59.243Z',
+    age: 34,
+    medicalRecordNumber: '',
+    idDocument: '',
+    phone: '',
+    emergencyContact: '',
+    vitals: {
+      hemodynamicStatus: 'Estable',
+      allergies: [],
+      comorbidities: [],
+      systolicBP: 120,
+      diastolicBP: 80,
+      map: 93,
+      heartRate: 77,
+      respiratoryRate: 20,
+      temperature: 37,
+      bloodGlucose: 98,
+      painScale: 6
+    },
+    clinicalHistory: {
+      reasonForConsultation: 'Cefalea',
+      currentIllnessHistory: 'Se trata de paciente más masculino de 38 años de edad con antecedentes más conocido hipertensión arterial diabetes tipo dos diagnosticado hace tres años sin medicación hiper arterial medicada hace un año sin manejo refiere paciente que se encontraba en aparente buen control de sus como habilidades hasta hace tres días cuando inicia cuadro clínico caracterizado por cefalea ucraniano súbito sin atenuantes ni agravantes moteo por lo cual acude a nuestro centro de salud las previas valoraciones de clínicas y para clínicas se decide su ingreso fin diagnósticos y terapéuticos',
+      pathologicalHistory: '',
+      surgicalHistory: '',
+      allergicHistory: '',
+      habitualMedications: '',
+      toxicHabits: '',
+      familyHistory: '',
+      obGynHistory: '',
+      systemsReview: '',
+      physicalExam: {
+        general: 'Consciente, orientado en 3 esferas, eupneico, normocoloreado, hidratado y afebril',
+        cardiovascular: 'R1 y R2 rítmicos, regulares, normofonéticos, sin soplos audibles ni galope, pulsos periféricos presentes y simétricos',
+        respiratory: 'Murmullo vesicular bilateralmente conservado, no estertores, no tirajes, adecuada expansión torácica',
+        abdominal: 'Blando, depresible, no doloroso a la palpación superficial ni profunda, RHA normoactivos, sin megalias ni irritación peritoneal',
+        neurological: 'Glasgow 15/15, pupilas isocóricas fotorreactivas, sin déficit motor ni sensitivo focal, sin signos meníngeos',
+        extremities: 'Simétricas, eutróficas, sin edemas periféricos, llenado capilar distal < 2 segundos',
+        skin: '',
+        otherFindings: ''
+      },
+      clinicalImpression: 'Cefalea en estudio ',
+      diagnosticAndTherapeuticPlan: ''
+    }
   }
 ];
 
@@ -461,6 +518,30 @@ export const SEED_LABS: LabResult[] = [
     flag: 'normal',
     timestamp: '2026-09-05 16:10',
     source: 'manual'
+  },
+  {
+    id: 'lab-1788843313764',
+    patientId: 'pat-1788843084862',
+    panel: 'Hemograma',
+    parameter: 'Leucocitos',
+    value: '15.2',
+    unit: 'x10³/µL',
+    referenceRange: '4.5 - 11.0',
+    flag: 'alto',
+    timestamp: '2026-09-08 04:55',
+    source: 'adjunto'
+  },
+  {
+    id: 'lab-1788843313766',
+    patientId: 'pat-1788843084862',
+    panel: 'Hemograma',
+    parameter: 'Hemoglobina',
+    value: '10.8',
+    unit: 'g/dL',
+    referenceRange: '12.0 - 16.5',
+    flag: 'bajo',
+    timestamp: '2026-09-08 04:55',
+    source: 'adjunto'
   }
 ];
 
@@ -516,6 +597,35 @@ export const SEED_ORDERS: MedicalOrder[] = [
     indication: 'Vasodilatador coronario para alivio del dolor isquémico',
     status: 'Completada',
     createdAt: '2026-09-05 16:45'
+  },
+  {
+    patientId: 'pat-1788843084862',
+    type: 'Solución',
+    name: 'Solución Salina al 0.9%',
+    dose: '2,000 mL',
+    route: 'EV',
+    frequency: 'C/24 horas',
+    indication: 'Hidratación y mantenimiento hemodinámico',
+    status: 'Indicada',
+    startTime: '2026-09-08 04:55',
+    createdAt: '2026-09-08 04:55',
+    id: 'ord-1788843353911'
+  },
+  {
+    patientId: 'pat-1788843084862',
+    type: 'Medicamento',
+    name: 'Omeprazol',
+    dose: '40',
+    route: 'Intravenosa',
+    frequency: 'Cada 24 horas ',
+    indication: '',
+    notes: '',
+    allergyWarningIgnored: false,
+    allergyOverrideReason: '',
+    status: 'Indicada',
+    startTime: '2026-09-08 04:56',
+    createdAt: '2026-09-08 04:56',
+    id: 'ord-1788843378964'
   }
 ];
 
@@ -536,56 +646,76 @@ export const SEED_EVOLUTIONS: PatientEvolution[] = [
 ];
 
 export async function seedDatabaseIfEmpty(db: any): Promise<void> {
-  const count = await db.patients.count();
-  if (count === 0) {
-    // 1. Verificar si existe respaldo real del usuario guardado en localStorage
-    try {
-      if (typeof window !== 'undefined') {
-        const backupStr = localStorage.getItem('hr_colon_patients_backup');
-        if (backupStr) {
-          const backupPatients = JSON.parse(backupStr);
-          if (Array.isArray(backupPatients) && backupPatients.length > 0) {
-            console.log('[Seed] Restaurando expedientes reales desde respaldo local...');
-            await db.patients.bulkAdd(backupPatients);
-            return;
+  try {
+    const count = await db.patients.count();
+    if (count === 0) {
+      // 1. Verificar si existe respaldo real del usuario guardado en localStorage
+      try {
+        if (typeof window !== 'undefined') {
+          const backupStr = localStorage.getItem('hr_colon_patients_backup');
+          if (backupStr) {
+            const backupPatients = JSON.parse(backupStr);
+            if (Array.isArray(backupPatients) && backupPatients.length > 0) {
+              console.log('[Seed] Restaurando expedientes reales desde respaldo local...');
+              await db.patients.bulkPut(backupPatients);
+              return;
+            }
           }
         }
+      } catch (e) {
+        console.warn('[Seed] Error leyendo respaldo local:', e);
       }
-    } catch (e) {
-      console.warn('[Seed] Error leyendo respaldo local:', e);
-    }
 
-    // 2. Cargar base de datos maestra publicada del hospital (hospital_master_db.json)
-    try {
-      if (typeof window !== 'undefined') {
-        const baseUrl = (import.meta as any).env?.BASE_URL || './';
-        const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
-        if (res.ok) {
-          const json = await res.json();
-          const masterData = json.data || json;
-          if (masterData && Array.isArray(masterData.patients) && masterData.patients.length > 0) {
-            console.log('[Seed] Cargando expedientes reales desde hospital_master_db.json...', masterData.patients.length);
-            await db.patients.bulkAdd(masterData.patients);
-            if (masterData.studies && masterData.studies.length > 0) await db.studies.bulkAdd(masterData.studies);
-            if (masterData.labs && masterData.labs.length > 0) await db.labs.bulkAdd(masterData.labs);
-            if (masterData.orders && masterData.orders.length > 0) await db.orders.bulkAdd(masterData.orders);
-            if (masterData.evolutions && masterData.evolutions.length > 0) await db.evolutions.bulkAdd(masterData.evolutions);
-            localStorage.setItem('hr_colon_patients_backup', JSON.stringify(masterData.patients));
-            return;
+      // 2. Cargar base de datos maestra publicada del hospital (hospital_master_db.json)
+      try {
+        if (typeof window !== 'undefined') {
+          const baseUrl = (import.meta as any).env?.BASE_URL || './';
+          const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
+          if (res.ok) {
+            let text = await res.text();
+            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+            const json = JSON.parse(text);
+            const masterData = json.data || json;
+            if (masterData && Array.isArray(masterData.patients) && masterData.patients.length > 0) {
+              console.log('[Seed] Cargando expedientes reales desde hospital_master_db.json...', masterData.patients.length);
+              await db.patients.bulkPut(masterData.patients);
+              if (masterData.studies && masterData.studies.length > 0) await db.studies.bulkPut(masterData.studies);
+              if (masterData.labs && masterData.labs.length > 0) await db.labs.bulkPut(masterData.labs);
+              if (masterData.orders && masterData.orders.length > 0) await db.orders.bulkPut(masterData.orders);
+              if (masterData.evolutions && masterData.evolutions.length > 0) await db.evolutions.bulkPut(masterData.evolutions);
+              localStorage.setItem('hr_colon_patients_backup', JSON.stringify(masterData.patients));
+              return;
+            }
           }
         }
+      } catch (e) {
+        console.warn('[Seed] No se pudo cargar hospital_master_db.json base:', e);
       }
-    } catch (e) {
-      console.warn('[Seed] No se pudo cargar hospital_master_db.json base:', e);
-    }
 
-    // 3. Solo si no hay ningún archivo previo ni internet, sembrar casos modelo
-    console.log('Seeding initial clinical database with realistic emergency cases...');
-    await db.patients.bulkAdd(SEED_PATIENTS);
-    await db.studies.bulkAdd(SEED_STUDIES);
-    await db.labs.bulkAdd(SEED_LABS);
-    await db.orders.bulkAdd(SEED_ORDERS);
-    await db.evolutions.bulkAdd(SEED_EVOLUTIONS);
-    console.log('Database successfully seeded.');
+      // 3. Solo si no hay ningún archivo previo ni internet, sembrar casos modelo
+      console.log('Seeding initial clinical database with realistic emergency cases...');
+      await db.patients.bulkPut(SEED_PATIENTS);
+      await db.studies.bulkPut(SEED_STUDIES);
+      await db.labs.bulkPut(SEED_LABS);
+      await db.orders.bulkPut(SEED_ORDERS);
+      await db.evolutions.bulkPut(SEED_EVOLUTIONS);
+      console.log('Database successfully seeded.');
+    } else {
+      // Auto-reparación: Asegurar que Joel Colón existe en la base de datos si falta
+      const joel = await db.patients.get('pat-1788843084862');
+      if (!joel) {
+        const joelInSeed = SEED_PATIENTS.find(p => p.id === 'pat-1788843084862');
+        if (joelInSeed) {
+          console.log('[Seed] Restaurando paciente Joel Colón faltante...');
+          await db.patients.put(joelInSeed);
+          const joelLabs = SEED_LABS.filter(l => l.patientId === 'pat-1788843084862');
+          if (joelLabs.length > 0) await db.labs.bulkPut(joelLabs);
+          const joelOrders = SEED_ORDERS.filter(o => o.patientId === 'pat-1788843084862');
+          if (joelOrders.length > 0) await db.orders.bulkPut(joelOrders);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[seedDatabaseIfEmpty Error]', err);
   }
 }

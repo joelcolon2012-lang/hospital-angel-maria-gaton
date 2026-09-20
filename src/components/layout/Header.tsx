@@ -40,6 +40,7 @@ interface Props {
   activePatient: Patient | null;
   onSelectActivePatient: () => void;
   onClearActivePatient?: () => void;
+  onSelectPatient?: (patient: Patient) => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
   onOpenCalculator?: () => void;
@@ -77,6 +78,7 @@ export const Header: React.FC<Props> = ({
   activePatient,
   onSelectActivePatient,
   onClearActivePatient,
+  onSelectPatient,
   searchQuery,
   onSearchChange,
   onOpenCalculator,
@@ -305,6 +307,7 @@ export const Header: React.FC<Props> = ({
       <ClinicalAiTopBar
         patientSearchQuery={searchQuery}
         onPatientSearchChange={onSearchChange}
+        onSelectPatient={onSelectPatient}
       />
 
       {/* Right: Actions, Modules, Autosave & User */}
