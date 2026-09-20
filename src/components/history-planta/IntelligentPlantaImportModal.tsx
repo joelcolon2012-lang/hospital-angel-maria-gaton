@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Upload, 
   FileText, 
@@ -32,6 +33,68 @@ interface IntelligentPlantaImportModalProps {
 
 type Step = 'SELECT_MODE' | 'UPLOAD' | 'EXTRACTING' | 'PREVIEW';
 
+const buildPatientEmergencyText = (p: Patient): string => {
+  const lines: string[] = [];
+  lines.push(`HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`);
+  lines.push(`NOTA DE ATENCIÓN DE EMERGENCIAS`);
+  lines.push(`PACIENTE: ${p.fullName || 'Sin nombre'}`);
+  if (p.age) lines.push(`EDAD: ${p.age} AÑOS`);
+  if (p.sex) lines.push(`SEXO: ${p.sex === 'F' ? 'FEMENINA' : 'MASCULINO'}`);
+  if (p.idDocument) lines.push(`CÉDULA: ${p.idDocument}`);
+  if (p.medicalRecordNumber) lines.push(`EXPEDIENTE: ${p.medicalRecordNumber}`);
+  if (p.arrivalDateTime) lines.push(`FECHA DE INGRESO: ${p.arrivalDateTime}`);
+  if (p.cubicle) lines.push(`SALA: ${p.cubicle}`);
+  if (p.chiefComplaint) lines.push(`MOTIVO DE CONSULTA: ${p.chiefComplaint}`);
+
+  if (p.clinicalHistory) {
+    const ch = p.clinicalHistory;
+    if (ch.currentIllnessHistory) lines.push(`HISTORIA DE LA ENFERMEDAD ACTUAL: ${ch.currentIllnessHistory}`);
+    if (ch.pathologicalHistory) lines.push(`ANTECEDENTES PATOLÓGICOS: ${ch.pathologicalHistory}`);
+    if (ch.surgicalHistory) lines.push(`ANTECEDENTES QUIRÚRGICOS: ${ch.surgicalHistory}`);
+    if (ch.allergicHistory) lines.push(`ANTECEDENTES ALÉRGICOS: ${ch.allergicHistory}`);
+    if (ch.habitualMedications) lines.push(`MEDICAMENTOS HABITUALES: ${ch.habitualMedications}`);
+    if (ch.toxicHabits) lines.push(`HÁBITOS TÓXICOS: ${ch.toxicHabits}`);
+    if (ch.familyHistory) lines.push(`ANTECEDENTES HEREDOFAMILIARES: ${ch.familyHistory}`);
+    if (ch.obGynHistory) lines.push(`ANTECEDENTES GINECOOBSTÉTRICOS: ${ch.obGynHistory}`);
+    if (ch.systemsReview) lines.push(`REVISIÓN POR SISTEMAS: ${ch.systemsReview}`);
+    if (ch.physicalExam) {
+      lines.push(`EXAMEN FÍSICO:`);
+      const pe = ch.physicalExam;
+      if (pe.general) lines.push(`ESTADO GENERAL: ${pe.general}`);
+      if (pe.head) lines.push(`CABEZA: ${pe.head}`);
+      if (pe.eyes) lines.push(`OJOS: ${pe.eyes}`);
+      if (pe.ears) lines.push(`OÍDOS: ${pe.ears}`);
+      if (pe.nose) lines.push(`NARIZ: ${pe.nose}`);
+      if (pe.mouth) lines.push(`BOCA: ${pe.mouth}`);
+      if (pe.neck) lines.push(`CUELLO: ${pe.neck}`);
+      if (pe.thorax) lines.push(`TÓRAX: ${pe.thorax}`);
+      if (pe.lungs) lines.push(`PULMONES: ${pe.lungs}`);
+      if (pe.heart) lines.push(`CORAZÓN: ${pe.heart}`);
+      if (pe.abdominal) lines.push(`ABDOMEN: ${pe.abdominal}`);
+      if (pe.genitals) lines.push(`GENITALES: ${pe.genitals}`);
+      if (pe.skin) lines.push(`PIEL: ${pe.skin}`);
+      if (pe.upperExtremities) lines.push(`EXTREMIDADES SUPERIORES: ${pe.upperExtremities}`);
+      if (pe.lowerExtremities) lines.push(`EXTREMIDADES INFERIORES: ${pe.lowerExtremities}`);
+      if (pe.neurological) lines.push(`NEUROLÓGICO: ${pe.neurological}`);
+    }
+    if (ch.clinicalImpression) lines.push(`IMPRESIÓN DIAGNÓSTICA: ${ch.clinicalImpression}`);
+    if (ch.diagnosticAndTherapeuticPlan) lines.push(`PLAN TERAPÉUTICO: ${ch.diagnosticAndTherapeuticPlan}`);
+  }
+
+  if (p.vitals) {
+    const v = p.vitals;
+    lines.push(`SIGNOS VITALES:`);
+    if (v.systolicBP && v.diastolicBP) lines.push(`PRESIÓN ARTERIAL: ${v.systolicBP}/${v.diastolicBP} mmHg`);
+    if (v.heartRate) lines.push(`FRECUENCIA CARDÍACA: ${v.heartRate} lpm`);
+    if (v.respiratoryRate) lines.push(`FRECUENCIA RESPIRATORIA: ${v.respiratoryRate} rpm`);
+    if (v.temperature) lines.push(`TEMPERATURA: ${v.temperature} °C`);
+    if (v.oxygenSaturation) lines.push(`SATURACIÓN O2: ${v.oxygenSaturation} %`);
+    if (v.bloodGlucose) lines.push(`GLICEMIA CAPILAR: ${v.bloodGlucose} mg/dL`);
+  }
+
+  return lines.join('\n');
+};
+
 export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModalProps> = ({
   isOpen,
   onClose,
@@ -57,6 +120,36 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
     if (mode === 'BLANK') {
       onCreateBlankHistory();
       onClose();
+      return;
+    }
+
+    if (mode === 'EMERGENCIA' && patient) {
+      setSourceType('EMERGENCIA');
+      setIsProcessing(true);
+      setStep('EXTRACTING');
+      setProgressStatus('Extrayendo y migrando datos de emergencia hacia los acápites de Planta...');
+
+      try {
+        const emergencyText = buildPatientEmergencyText(patient);
+        const result = historyPlantaImportEngine.processRawText(
+          emergencyText,
+          patient,
+          `Nota de Emergencia - ${patient.fullName}`,
+          'txt',
+          'EMERGENCIA',
+          admissionId
+        );
+        setImportResult(result);
+        setEditableHistory(JSON.parse(JSON.stringify(result.extractedHistory)));
+        setIsDoctorConfirmed(true);
+        setStep('PREVIEW');
+      } catch (err: any) {
+        console.error('Error migrando emergencia:', err);
+        setSourceType(mode);
+        setStep('UPLOAD');
+      } finally {
+        setIsProcessing(false);
+      }
       return;
     }
 
@@ -97,6 +190,7 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
 
       setImportResult(result);
       setEditableHistory(JSON.parse(JSON.stringify(result.extractedHistory)));
+      setIsDoctorConfirmed(true);
       setStep('PREVIEW');
     } catch (err: any) {
       alert('Error procesando el archivo clínico: ' + (err?.message || 'Error desconocido'));
@@ -107,7 +201,7 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
   };
 
   const handleApply = () => {
-    if (!isDoctorConfirmed || !editableHistory) return;
+    if (!editableHistory) return;
     onApplyImportedHistory(editableHistory);
     onClose();
   };
@@ -134,8 +228,8 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
     );
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
+  return createPortal(
+    <div className="fixed inset-0 z-[99995] flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 bg-gradient-to-r from-blue-700 via-indigo-700 to-cyan-700 text-white flex items-center justify-between shadow-sm shrink-0">
@@ -609,6 +703,7 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

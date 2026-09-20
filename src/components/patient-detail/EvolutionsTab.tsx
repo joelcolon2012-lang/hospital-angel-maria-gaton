@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PatientEvolution, Patient } from '../../types';
 import { Plus, Clock, FileText, Save, Download, Check, Trash2, Copy, Sparkles, Stethoscope, AlertCircle } from 'lucide-react';
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
@@ -336,8 +337,8 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
       </div>
 
       {/* Modal Nueva Evolución */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      {isModalOpen && createPortal(
+        <div className="fixed inset-0 z-[99990] bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <h3 className="text-base font-bold text-petrol-900">
@@ -463,7 +464,8 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal de Previsualización Obligatoria de Evolución (Sección 37) */}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Patient, MedicalOrder, LabResult, PatientEvolution, User } from '../../types';
 import {
   guardiaAppService,
@@ -138,8 +139,8 @@ export const SendToGuardiaModal: React.FC<Props> = ({
     patient.chiefComplaint ||
     'Pendiente de valoración diagnóstica';
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-md animate-fade-in select-none">
+  return createPortal(
+    <div className="fixed inset-0 z-[99990] flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-md animate-fade-in select-none">
       {/* Backdrop */}
       <div className="fixed inset-0" onClick={onClose} />
 
@@ -398,6 +399,7 @@ export const SendToGuardiaModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

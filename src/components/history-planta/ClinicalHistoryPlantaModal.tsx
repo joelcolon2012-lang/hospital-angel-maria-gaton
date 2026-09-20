@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, Save, FileDown, CheckCircle2, AlertTriangle, SpellCheck, 
   History, Eye, Clock, Plus, Trash2, Edit3, ArrowUpDown, 
@@ -257,8 +258,8 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
     { id: 'sec-diagnosticos', title: '14. Diagnósticos', status: history.diagnoses.length > 0 ? 'COMPLETE' : 'PENDING' }
   ];
 
-  return (
-    <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex flex-col overflow-hidden animate-in fade-in duration-200">
+  return createPortal(
+    <div className="fixed inset-0 z-[99990] bg-slate-900/80 backdrop-blur-sm flex flex-col overflow-hidden animate-in fade-in duration-200">
       
       {/* 1. BARRA SUPERIOR FIJA PRINCIPAL */}
       <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between text-white shadow-lg flex-shrink-0">
@@ -1677,6 +1678,7 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
         />
       )}
 
-    </div>
+    </div>,
+    document.body
   );
 };
