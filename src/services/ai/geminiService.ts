@@ -52,7 +52,7 @@ export interface GeminiTelemetryStatus {
 export class GeminiService {
   private static instance: GeminiService;
   private cachedModels: string[] = [];
-  private selectedModel: string = 'gemini-2.5-flash';
+  private selectedModel: string = 'gemini-3.6-flash';
   private lastModelsFetch: number = 0;
   private MODELS_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
@@ -189,8 +189,8 @@ export class GeminiService {
 
       if (lower.includes('flash')) {
         score += 1000;
-        if (lower.includes('3.8')) score += 400;
-        else if (lower.includes('3.6')) score += 395;
+        if (lower.includes('3.6')) score += 450; // Máxima estabilidad comprobada
+        else if (lower.includes('3.8')) score += 400;
         else if (lower.includes('3.7')) score += 380;
         else if (lower.includes('3.5')) score += 350;
         else if (lower.includes('flash-latest')) score += 280;

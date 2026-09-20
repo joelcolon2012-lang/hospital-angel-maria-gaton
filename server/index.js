@@ -132,8 +132,8 @@ function selectBestModel(availableModels) {
     let pts = 0;
     if (lower.includes('flash')) {
       pts += 1000;
-      if (lower.includes('3.8')) pts += 400;
-      else if (lower.includes('3.6')) pts += 395;
+      if (lower.includes('3.6')) pts += 450; // Máxima estabilidad comprobada
+      else if (lower.includes('3.8')) pts += 400;
       else if (lower.includes('3.7')) pts += 380;
       else if (lower.includes('3.5')) pts += 350;
       else if (lower.includes('flash-latest')) pts += 280;
@@ -319,9 +319,9 @@ app.post('/api/gemini/generate', async (req, res) => {
         const status = err.status || err.statusCode || (err.response && err.response.status);
         const msg = (err.message || '').toLowerCase();
 
-        // Si el modelo falló por 404 y no es reintento, seleccionar otro modelo compatible
-        if (!isRetry && (status === 404 || msg.includes('not found') || msg.includes('not supported'))) {
-          console.warn(`[Render Backend] Modelo ${modelName} no disponible. Seleccionando otro modelo...`);
+        // Si el modelo falló por 404, 503 o alta demanda y no es reintento, seleccionar otro modelo compatible
+        if (!isRetry && (status === 404 || status === 503 || msg.includes('not found') || msg.includes('not supported') || msg.includes('high demand') || msg.includes('unavailable') || msg.includes('temporarily'))) {
+          console.warn(`[Render Backend] Modelo ${modelName} no disponible (${msg}). Seleccionando otro modelo compatible...`);
           const remainingModels = models.filter(m => m !== modelName);
           const fallbackModel = selectBestModel(remainingModels);
           return await callModelWithFallback(fallbackModel, true);
