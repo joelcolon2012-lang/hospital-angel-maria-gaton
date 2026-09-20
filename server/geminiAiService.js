@@ -11,8 +11,8 @@ const CLINICAL_SYSTEM_PROMPT = `Eres un asistente clínico para médicos. Respon
 export class GeminiAIService {
   constructor(apiKey) {
     this.apiKey = apiKey || null;
-    this.defaultModel = 'gemini-3.6-flash';
-    this.fallbackModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    this.defaultModel = 'gemini-2.5-flash';
+    this.fallbackModels = ['gemini-flash-latest', 'gemini-2.5-pro', 'gemini-3.6-flash', 'gemini-3.8-flash'];
   }
 
   getApiKey() {
@@ -71,9 +71,19 @@ export class GeminiAIService {
     }
 
     const cleanQuery = query.trim();
-    const targetModel = modelName || this.defaultModel;
+    const candidateModels = [
+      modelName,
+      this.defaultModel,
+      ...this.fallbackModels
+    ].filter(Boolean);
 
-    const executeCall = async (modelToUse, isRetry = false) => {
+    // Eliminar duplicados
+    const modelsToTry = [...new Set(candidateModels)];
+
+    let lastError = null;
+
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const modelToUse = modelsToTry[i];
       try {
         const modelOptions = {
           model: modelToUse,
@@ -99,14 +109,24 @@ export class GeminiAIService {
           let fullText = '';
 
           for await (const chunk of resultStream.stream) {
-            const chunkText = chunk.text() || '';
+            let chunkText = '';
+            try {
+              chunkText = chunk.text() || '';
+            } catch {
+              chunkText = chunk?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            }
+
             if (chunkText) {
               fullText += chunkText;
               onChunk(chunkText);
             }
           }
 
-          const response = await resultStream.response;
+          let response = null;
+          try {
+            response = await resultStream.response;
+          } catch {}
+
           const sources = this.extractGroundingSources(response);
 
           return {
@@ -117,8 +137,15 @@ export class GeminiAIService {
         } else {
           // Solicitud estándar (bloque completo)
           const result = await modelInstance.generateContent(cleanQuery);
-          const response = await result.response;
-          const text = response.text() || '';
+          let response = null;
+          let text = '';
+          try {
+            response = await result.response;
+            text = response.text() || '';
+          } catch {
+            text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          }
+
           const sources = this.extractGroundingSources(response);
 
           return {
@@ -128,20 +155,34 @@ export class GeminiAIService {
           };
         }
       } catch (err) {
-        const status = err.status || err.statusCode || (err.response && err.response.status);
-        const msg = (err.message || '').toLowerCase();
-
-        // Si falló por 404, 503, unavailable o alta demanda, intentar con modelo alternativo
-        if (!isRetry && (status === 404 || status === 503 || msg.includes('not found') || msg.includes('high demand') || msg.includes('unavailable') || msg.includes('temporarily'))) {
-          console.warn(`[GeminiAIService] Modelo ${modelToUse} falló (${msg}). Reintentando con fallback...`);
-          const fallback = this.fallbackModels.find(m => m !== modelToUse) || 'gemini-3.8-flash';
-          return await executeCall(fallback, true);
-        }
-
-        throw err;
+        lastError = err;
+        console.warn(`[GeminiAIService] Error con modelo ${modelToUse}:`, err.message || err);
+        // Continuar al siguiente modelo en el ciclo
       }
-    };
+    }
 
-    return await executeCall(targetModel);
+    // Si fallaron todos los modelos con useWeb, reintentar una última vez con el modelo por defecto sin tools
+    if (useWeb) {
+      try {
+        console.warn('[GeminiAIService] Reintentando sin tools de búsqueda web...');
+        const genAI = this.getGenAI();
+        const fallbackInstance = genAI.getGenerativeModel({
+          model: this.defaultModel,
+          systemInstruction: CLINICAL_SYSTEM_PROMPT
+        });
+        const fallbackResult = await fallbackInstance.generateContent(cleanQuery);
+        const fallbackResponse = await fallbackResult.response;
+        const text = fallbackResponse.text() || '';
+        return {
+          answer: text,
+          sources: [],
+          modelUsed: this.defaultModel
+        };
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    throw lastError || new Error('No fue posible completar la consulta médica.');
   }
 }
