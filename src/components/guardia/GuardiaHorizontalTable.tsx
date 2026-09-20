@@ -220,25 +220,44 @@ export const GuardiaHorizontalTable: React.FC<Props> = ({
 
               return (
                 <tr 
-                  key={bed.code} 
+                  key={bed.patientId ? `${bed.code}-${bed.patientId}` : bed.code} 
                   className={`transition-all ${rowBg}`}
                 >
                   {/* ========================================================== */}
                   {/* COLUMNA 1: CAMA (STICKY IZQUIERDA)                        */}
                   {/* ========================================================== */}
-                  <td className="sticky left-0 z-20 bg-inherit px-2 py-3 text-center border-r border-slate-200 align-top shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
+                  <td className="sticky left-0 z-20 bg-inherit px-2 py-3 text-center border-r border-slate-200 align-top shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] w-[85px]">
                     <div className="flex flex-col items-center gap-1">
-                      <span className="font-mono font-black text-xs px-2 py-0.5 bg-slate-900 text-white rounded shadow-xs">
+                      <span 
+                        className="font-mono font-black text-[11px] px-1.5 py-0.5 bg-slate-900 text-white rounded shadow-xs max-w-[80px] truncate block"
+                        title={bed.code}
+                      >
                         {bed.code}
                       </span>
                       <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
                         !isOccupied
                           ? 'bg-emerald-100 text-emerald-800'
+                          : pat?.status === 'activos'
+                          ? 'bg-rose-100 text-rose-800'
+                          : pat?.status === 'observacion'
+                          ? 'bg-amber-100 text-amber-800'
+                          : pat?.status === 'pendientes'
+                          ? 'bg-purple-100 text-purple-800'
                           : bed.status === 'AISLAMIENTO'
                           ? 'bg-purple-100 text-purple-800'
                           : 'bg-blue-100 text-blue-800'
                       }`}>
-                        {!isOccupied ? 'LIBRE' : bed.status}
+                        {!isOccupied 
+                          ? 'LIBRE' 
+                          : pat?.status === 'activos' 
+                          ? 'EMERG' 
+                          : pat?.status === 'observacion' 
+                          ? 'OBS' 
+                          : pat?.status === 'pendientes'
+                          ? 'PEND'
+                          : pat?.status === 'ingresados'
+                          ? 'SALA'
+                          : bed.status}
                       </span>
                       {isUpdatedRecently && (
                         <span className="text-[8px] px-1 bg-emerald-600 text-white rounded font-bold animate-pulse mt-0.5 whitespace-nowrap">

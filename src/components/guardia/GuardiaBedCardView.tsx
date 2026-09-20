@@ -29,8 +29,20 @@ export const GuardiaBedCardView: React.FC<Props> = ({
     roomsMap.set(b.room, list);
   });
 
-  // Ordenar salas numéricamente
-  const sortedRooms = Array.from(roomsMap.keys()).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+  // Ordenar salas: primero los pabellones con pacientes, luego por orden numérico y alfabético
+  const sortedRooms = Array.from(roomsMap.keys()).sort((a, b) => {
+    const aHasPatients = (roomsMap.get(a) || []).some(b => b.patientId);
+    const bHasPatients = (roomsMap.get(b) || []).some(b => b.patientId);
+    if (aHasPatients && !bHasPatients) return -1;
+    if (!aHasPatients && bHasPatients) return 1;
+
+    const numA = parseInt(a, 10);
+    const numB = parseInt(b, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    if (!isNaN(numA)) return -1;
+    if (!isNaN(numB)) return 1;
+    return a.localeCompare(b);
+  });
 
   return (
     <div className="space-y-4">

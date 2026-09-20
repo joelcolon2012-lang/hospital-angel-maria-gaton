@@ -44,6 +44,8 @@ interface Props {
   availableWards: string[];
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  filterOnlyPatients?: boolean;
+  onToggleOnlyPatients?: (val: boolean) => void;
   onOpenAddPending: () => void;
   onOpenAddLab: () => void;
   onOpenAdmitPatient: () => void;
@@ -75,6 +77,8 @@ export const GuardiaHeader: React.FC<Props> = ({
   availableWards,
   searchQuery,
   onSearchChange,
+  filterOnlyPatients,
+  onToggleOnlyPatients,
   onOpenAddPending,
   onOpenAddLab,
   onOpenAdmitPatient,
@@ -156,6 +160,33 @@ export const GuardiaHeader: React.FC<Props> = ({
             </button>
           </div>
 
+          {/* Filter Toggle: TODAS LAS CAMAS | SOLO PACIENTES */}
+          {onToggleOnlyPatients && (
+            <div className="bg-slate-100 p-0.5 rounded-xl flex items-center border border-slate-200 text-xs font-bold text-slate-600">
+              <button
+                type="button"
+                onClick={() => onToggleOnlyPatients(false)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  !filterOnlyPatients ? 'bg-[#0F4C5C] text-white shadow-xs' : 'hover:text-slate-900'
+                }`}
+                title="Mostrar todas las camas clínicas (ocupadas y disponibles)"
+              >
+                Todas las Camas ({totalBeds})
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleOnlyPatients(true)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  filterOnlyPatients ? 'bg-emerald-700 text-white shadow-xs' : 'hover:text-slate-900'
+                }`}
+                title="Mostrar exclusivamente los pacientes activos del hospital"
+              >
+                <Users className="w-3.5 h-3.5" />
+                Solo Pacientes ({totalPatients})
+              </button>
+            </div>
+          )}
+
           {/* View Toggle (Section 42): TABLA | CAMAS */}
           <div className="bg-slate-100 p-0.5 rounded-xl flex items-center border border-slate-200 text-xs font-bold text-slate-600">
             <button
@@ -196,7 +227,7 @@ export const GuardiaHeader: React.FC<Props> = ({
       {/* Row 2: 11 Live Census Indicators (Section 2) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-center">
         <div className="bg-blue-50/80 border border-blue-200/80 p-2.5 rounded-xl">
-          <div className="text-[10px] font-bold text-blue-700 uppercase">En Planta</div>
+          <div className="text-[10px] font-bold text-blue-700 uppercase">Total Pacientes</div>
           <div className="text-lg font-black text-blue-900 font-mono leading-tight">{totalPatients}</div>
         </div>
 
@@ -239,9 +270,9 @@ export const GuardiaHeader: React.FC<Props> = ({
             <Building2 className="w-3.5 h-3.5" /> Pabellón:
           </span>
           <button
-            onClick={() => onChangeWard('TODOS')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
-              selectedWard === 'TODOS'
+            onClick={() => onChangeWard('TODAS')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              selectedWard === 'TODAS' || selectedWard === 'TODOS'
                 ? 'bg-[#0F4C5C] text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}

@@ -114,6 +114,7 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
   const [isQuickEvolutionOpen, setIsQuickEvolutionOpen] = useState<boolean>(false);
   const [isQuickDiagnosisOpen, setIsQuickDiagnosisOpen] = useState<boolean>(false);
   const [isEditComplaintOpen, setIsEditComplaintOpen] = useState<boolean>(false);
+  const [filterOnlyPatients, setFilterOnlyPatients] = useState<boolean>(false);
 
   // Notificación de pulso de actualización remota (Sección 30)
   const [lastRemoteUpdate, setLastRemoteUpdate] = useState<RowUpdateNotification | null>(null);
@@ -124,11 +125,8 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
       const target = patients.find((p) => p.id === initialPatientId);
       if (target) {
         setDrawerPatient(target);
-        const norm = normalizeBedCode(target.cubicle || '');
-        if (norm) {
-          const room = norm.split(' ')[0];
-          if (room) setSelectedWard(room);
-        }
+        // Mantener selectedWard en TODAS para no ocultar a los demás pacientes
+        setSelectedWard('TODAS');
       }
     }
   }, [initialPatientId, patients]);
@@ -200,7 +198,7 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
     return map;
   }, [patients]);
 
-  // Generación y mapeo de camas con orden numérico natural (Sección 4 & 10)
+  // Generación y mapeo de camas con orden numérico natural y presencia de TODOS los pacientes
   const { allBeds, availableWards } = useMemo(() => {
     const wardsSet = new Set<string>();
 
@@ -230,11 +228,10 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
 
     // 2. Mapear pacientes a camas
     const assignedPatientIds = new Set<string>();
+    const activePatients = patients.filter((p) => !p.isDeleted && !p.isArchived);
 
-    // Primero: Pacientes con cubículo asignado explícito
-    patients.forEach((p) => {
-      if (p.isDeleted || p.isArchived) return;
-
+    // Primero: Pacientes con cubículo asignado explícito a salas 301-317
+    activePatients.forEach((p) => {
       const norm = normalizeBedCode(p.cubicle || '');
       if (norm && bedsMap.has(norm)) {
         const bed = bedsMap.get(norm)!;
@@ -246,42 +243,56 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
       }
     });
 
-    // Segundo: Pacientes ingresados en Medicina Interna o Emergencia sin cama 301-317 asignada
-    // (Garantiza que ningún paciente hospitalizado quede oculto)
+    // Segundo: TODOS los demás pacientes activos del hospital sin cama 301-317 asignada
+    // (Garantiza que ABSOLUTAMENTE TODOS LOS PACIENTES se desplieguen en la guardia)
     const extraBeds: GuardiaClinicalBed[] = [];
-    patients.forEach((p) => {
-      if (p.isDeleted || p.isArchived) return;
+    activePatients.forEach((p) => {
       if (assignedPatientIds.has(p.id)) return;
 
-      // Pacientes ingresados, en observación o de Medicina Interna
-      const isHospitalized =
-        p.status === 'ingresados' ||
-        p.status === 'observacion' ||
-        p.triageLevel === 1 ||
-        (p.service && p.service.includes('MEDICINA_INTERNA'));
-
-      if (isHospitalized) {
-        const cubRaw = (p.cubicle || 'OBS').trim();
-        const roomName = cubRaw.split(/[\s\-_/]/)[0] || 'EXT';
-        wardsSet.add(roomName);
-
-        extraBeds.push({
-          code: cubRaw || `CAMA-${p.internalCode || p.id.slice(-4)}`,
-          room: roomName,
-          bedNumber: 'C1',
-          service: 'MEDICINA_INTERNA_I',
-          status: 'OCUPADA',
-          patientId: p.id,
-          patientName: p.fullName,
-          triageLevel: p.triageLevel
-        });
-        assignedPatientIds.add(p.id);
+      const cubRaw = (p.cubicle || '').trim();
+      let roomName = 'EMG';
+      if (/shock|trauma/i.test(cubRaw)) roomName = 'SHOCK';
+      else if (/observaci[oó]n|obs/i.test(cubRaw)) roomName = 'OBS';
+      else if (/sala/i.test(cubRaw)) roomName = 'SALA';
+      else if (cubRaw) {
+        const firstToken = cubRaw.split(/[\s\-_/]/)[0];
+        roomName = firstToken || 'EMG';
+      } else {
+        roomName = p.status === 'ingresados' ? 'SALA' : 'EMG';
       }
+
+      wardsSet.add(roomName);
+
+      const patientService = p.service?.includes('MEDICINA_INTERNA_II')
+        ? 'MEDICINA_INTERNA_II'
+        : 'MEDICINA_INTERNA_I';
+
+      const bedCode = cubRaw || `CAMA ${p.internalCode || p.id.slice(-4)}`;
+
+      extraBeds.push({
+        code: bedCode,
+        room: roomName,
+        bedNumber: 'C1',
+        service: patientService,
+        status: 'OCUPADA',
+        patientId: p.id,
+        patientName: p.fullName,
+        triageLevel: p.triageLevel
+      });
+      assignedPatientIds.add(p.id);
     });
 
-    // 3. Orden natural numérico: 301 C1, 301 C2, ..., 317 C1, 317 C2
-    const combined = [...Array.from(bedsMap.values()), ...extraBeds];
-    combined.sort((a, b) => {
+    // 3. Orden: Camas ocupadas con pacientes PRIMERO para visualización inmediata, luego camas disponibles
+    const allBedList = [...Array.from(bedsMap.values()), ...extraBeds];
+    allBedList.sort((a, b) => {
+      const aHasPat = Boolean(a.patientId);
+      const bHasPat = Boolean(b.patientId);
+
+      // Si una tiene paciente y la otra no, la que tiene paciente va primero
+      if (aHasPat && !bHasPat) return -1;
+      if (!aHasPat && bHasPat) return 1;
+
+      // Si ambas tienen paciente o ambas están libres, ordenar por sala y cama
       const roomA = parseInt(a.room, 10);
       const roomB = parseInt(b.room, 10);
 
@@ -298,22 +309,35 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
       const numA = parseInt(a, 10);
       const numB = parseInt(b, 10);
       if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      if (!isNaN(numA)) return -1;
+      if (!isNaN(numB)) return 1;
       return a.localeCompare(b);
     });
 
-    return { allBeds: combined, availableWards: sortedWards };
+    return { allBeds: allBedList, availableWards: sortedWards };
   }, [patients]);
 
-  // Filtrado de camas según servicio, pabellón y búsqueda
+  // Filtrado de camas según servicio, pabellón, búsqueda y filtro de pacientes
   const filteredBeds = useMemo(() => {
     return allBeds.filter((bed) => {
-      // Filtro de Servicio
-      if (service !== 'TODAS' && bed.service !== service) {
+      // Filtro de solo pacientes si está activo
+      if (filterOnlyPatients && !bed.patientId) {
         return false;
       }
 
-      // Filtro de Pabellón
-      if (selectedWard !== 'TODAS' && bed.room !== selectedWard) {
+      // Filtro de Servicio
+      if (service !== 'TODAS') {
+        const patient = bed.patientId ? patientsMap.get(bed.patientId) : undefined;
+        const matchesBed = bed.service === service;
+        const matchesPatient = patient?.service === service;
+        if (!matchesBed && !matchesPatient) {
+          return false;
+        }
+      }
+
+      // Filtro de Pabellón (Normalizar 'TODAS' y 'TODOS')
+      const isAllWards = !selectedWard || selectedWard === 'TODAS' || selectedWard === 'TODOS';
+      if (!isAllWards && bed.room !== selectedWard) {
         return false;
       }
 
@@ -342,7 +366,7 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
 
       return true;
     });
-  }, [allBeds, service, selectedWard, searchQuery, patientsMap]);
+  }, [allBeds, filterOnlyPatients, service, selectedWard, searchQuery, patientsMap]);
 
   // Cálculo del censo hospitalario (Sección 5)
   const census = useMemo(() => {
@@ -354,6 +378,8 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
       if (b.status === 'DISPONIBLE' && !b.patientId) available++;
       else occupied++;
     });
+
+    const activePatientsCount = patients.filter((p) => !p.isDeleted && !p.isArchived).length;
 
     const todayStr = new Date().toISOString().slice(0, 10);
     let newAdmissions = 0;
@@ -387,7 +413,7 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
     });
 
     return {
-      totalPatients: occupied,
+      totalPatients: activePatientsCount,
       totalBeds,
       availableBeds: available,
       newAdmissions,
@@ -617,6 +643,8 @@ export const GuardiaMedicinaInternaView: React.FC<Props> = ({
           availableWards={availableWards}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          filterOnlyPatients={filterOnlyPatients}
+          onToggleOnlyPatients={setFilterOnlyPatients}
           onOpenAddPending={() => {
             setPendingPreselectedPatientId(undefined);
             setIsAddPendingOpen(true);
