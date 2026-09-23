@@ -155,3 +155,25 @@
   }
 }
 
+/* Reglas de Impresión Oficial Hospitalaria (0 distorsión, 0 lag, formato limpio) */
+@media print {
+  @page {
+    size: letter portrait;
+    margin: 15mm 15mm 15mm 15mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Ocultar elementos de navegación, modales oscuros, barras de herramientas y botones */
+  nav, header, aside, .no-print, button, .bg-slate-900\/60, .bg-slate-900\/70, .backdrop-blur-sm {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+

@@ -3,6 +3,7 @@ import { X, FileDown, FileText, Printer } from 'lucide-react';
 import { ClinicalHistoryPlanta } from '../../types';
 import { generateClinicalHistoryDocx } from '../../services/clinicalHistoryDocxExporter';
 import { generateClinicalHistoryPdf } from '../../services/clinicalHistoryPdfExporter';
+import { printOfficialHospitalDocument } from '../../services/directPrintService';
 import { authService } from '../../services/authService';
 
 interface WysiwygPreviewModalProps {
@@ -51,11 +52,22 @@ export const WysiwygPreviewModal: React.FC<WysiwygPreviewModalProps> = ({
               <FileDown className="w-4 h-4" /> PDF
             </button>
             <button
-              onClick={() => window.print()}
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors"
-              title="Imprimir"
+              onClick={() => {
+                const element = document.getElementById('wysiwyg-paper-content');
+                if (element) {
+                  printOfficialHospitalDocument({
+                    content: element.innerText,
+                    docType: 'historia',
+                    patient: { fullName: history.generalData.nombre, age: parseInt(history.generalData.edad) || 0 } as any,
+                  });
+                } else {
+                  window.print();
+                }
+              }}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              title="Imprimir directamente en formato oficial sin descargas"
             >
-              <Printer className="w-4 h-4" />
+              <Printer className="w-4 h-4" /> Imprimir
             </button>
             <button 
               onClick={onClose}
@@ -68,7 +80,7 @@ export const WysiwygPreviewModal: React.FC<WysiwygPreviewModalProps> = ({
 
         {/* Paper Container */}
         <div className="flex-1 overflow-y-auto p-6 md:p-10 flex justify-center">
-          <div className="bg-white w-full max-w-3xl shadow-xl rounded-sm p-10 md:p-14 text-slate-900 border border-slate-200 font-sans leading-relaxed text-[13px]">
+          <div id="wysiwyg-paper-content" className="bg-white w-full max-w-3xl shadow-xl rounded-sm p-10 md:p-14 text-slate-900 border border-slate-200 font-sans leading-relaxed text-[13px]">
             
             {/* Official Hospital Header */}
             <div className="text-center mb-6">

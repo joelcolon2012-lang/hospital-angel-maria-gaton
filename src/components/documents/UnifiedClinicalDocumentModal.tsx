@@ -42,6 +42,7 @@ import {
   exportOfficialCombinedNoteAndOrderPdf 
 } from '../../services/pdfHospitalDocumentService';
 import { generateClinicalHistoryDocx } from '../../services/clinicalHistoryDocxExporter';
+import { printOfficialHospitalDocument } from '../../services/directPrintService';
 
 export type UnifiedDocType = 'emergencia' | 'sala' | 'orden' | 'combinada' | 'historia' | 'evolucion';
 
@@ -236,9 +237,16 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
     downloadFileToPC(filename, currentDisplayText);
   };
 
-  // Imprimir / PDF
+  // Imprimir Directo 1:1 sin descargas ni retrasos
   const handlePrint = () => {
-    window.print();
+    printOfficialHospitalDocument({
+      patient,
+      content: currentDisplayText,
+      docType,
+      orders,
+      labs,
+      studies,
+    });
   };
 
   // Descargar DOCX Oficial utilizando las plantillas maestras exactas
@@ -606,15 +614,15 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
               </button>
             )}
 
-            {/* Imprimir / PDF */}
+            {/* Imprimir Directo */}
             <button
               type="button"
               onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-900 text-white transition active:scale-95 shadow-sm"
-              title="Imprimir o guardar como PDF oficial"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-black rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition active:scale-95 shadow-sm cursor-pointer"
+              title="Imprimir directamente este documento en formato oficial idéntico a la descarga, sin retrasos ni lags"
             >
-              <Printer className="w-3.5 h-3.5 text-slate-300" />
-              <span>Imprimir / PDF</span>
+              <Printer className="w-3.5 h-3.5 text-emerald-100" />
+              <span>🖨️ IMPRIMIR</span>
             </button>
 
             {/* Descargar DOCX Oficial */}

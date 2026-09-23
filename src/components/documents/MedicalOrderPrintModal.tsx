@@ -5,6 +5,7 @@ import { generateIndividualMedicalOrder, downloadFileToPC } from '../../services
 import { exportOfficialMedicalOrderPdf, exportOfficialCombinedNoteAndOrderPdf } from '../../services/pdfHospitalDocumentService';
 import { exportMedicalOrderToWord } from '../../services/wordExportService';
 import { generateMedicalOrderDocx, generateCombinedNoteAndOrderDocx } from '../../services/docxTemplateService';
+import { printOfficialHospitalDocument } from '../../services/directPrintService';
 
 interface Props {
   patient: Patient;
@@ -137,12 +138,21 @@ export const MedicalOrderPrintModal: React.FC<Props> = ({
               <Download className="w-3.5 h-3.5 text-slate-500" />
               <span>Word (.DOC)</span>
             </button>
+            {/* IMPRIMIR DIRECTO SIN DESCARGAR */}
+            <button
+              onClick={() => printOfficialHospitalDocument({ patient, orders, docType: 'orden', content: orderContent })}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-black rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-md active:scale-95 cursor-pointer"
+              title="Imprimir directamente la orden médica oficial en tu impresora sin descargar archivos y sin demoras"
+            >
+              <Printer className="w-4 h-4 text-emerald-100" />
+              <span>🖨️ IMPRIMIR ORDEN</span>
+            </button>
             <button
               onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-1 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-[#0F4C5C] text-white hover:bg-teal-800 transition-colors shadow-sm active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg bg-[#0F4C5C] text-white hover:bg-teal-800 transition-colors shadow-sm active:scale-95 cursor-pointer"
               title="Descargar en PDF oficial idéntico al formato del hospital"
             >
-              <Printer className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5" />
               <span>Orden (PDF)</span>
             </button>
           </div>

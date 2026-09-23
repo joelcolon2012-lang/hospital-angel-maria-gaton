@@ -39,6 +39,7 @@ import {
   generateCombinedNoteAndOrderDocx
 } from '../../services/docxTemplateService';
 import { MandatoryNotePreviewModal, NoteType } from './MandatoryNotePreviewModal';
+import { printOfficialHospitalDocument } from '../../services/directPrintService';
 
 export type HospitalDocType = 'emergencia' | 'sala' | 'orden' | 'historia' | 'combinada';
 
@@ -209,6 +210,18 @@ export const HospitalNotesModal: React.FC<Props> = ({
     }
   };
 
+  // Imprimir Directamente 1:1 sin descargas ni retrasos
+  const handleDirectPrint = () => {
+    printOfficialHospitalDocument({
+      patient,
+      content: currentContent,
+      docType,
+      orders,
+      labs,
+      studies,
+    });
+  };
+
   // Título e información de cabecera según el tipo
   const getDocHeaderTitle = () => {
     switch (docType) {
@@ -337,13 +350,23 @@ export const HospitalNotesModal: React.FC<Props> = ({
               <span>🖨️ NOTA + ORDEN (PDF)</span>
             </button>
 
+            {/* IMPRIMIR DIRECTO SIN DESCARGAS */}
+            <button
+              onClick={handleDirectPrint}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-black rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-md active:scale-95 cursor-pointer"
+              title="Imprimir directamente este documento en formato oficial idéntico a la descarga, sin retrasos"
+            >
+              <Printer className="w-4 h-4 text-emerald-100" />
+              <span>🖨️ IMPRIMIR</span>
+            </button>
+
             {/* Descargar PDF de la sección actual */}
             <button
               onClick={handleDownloadPdf}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-teal-800 hover:bg-teal-900 text-white transition-all shadow-sm active:scale-95 cursor-pointer"
               title="Descargar en PDF individual del formato seleccionado"
             >
-              <Printer className="w-3.5 h-3.5 text-teal-200" />
+              <Download className="w-3.5 h-3.5 text-teal-200" />
               <span>PDF Actual</span>
             </button>
 
