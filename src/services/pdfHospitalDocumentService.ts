@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { Patient, MedicalOrder, LabResult, MedicalStudy, ClinicalHistory } from '../types';
 import { formatClinicalVitals, extractClinicalStatus, formatPhysicalExam, validateDownloadableClinicalNote } from './clinicalDocumentBuilder';
 import { normalizeMedicalText } from './medicalSpellingService';
+import { extractScalesAndDiagnoses } from './hospitalNoteGenerator';
 import { FALLBACK_LOGO_BASE64 } from './templatesFallback';
 import { authService } from './authService';
 
@@ -111,7 +112,7 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
   const { dateStr, timeStr } = getHospitalDateTime(patient.arrivalDateTime);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  const patientLine = `NOMBRE: ${patient.fullName.toUpperCase()}  EDAD: ${patient.age || '--'} AÑOS,  EMERGENCIA: CUB ${patient.cubicle}  FECHA: ${dateStr}  HORA: ${timeStr}`;
+  const patientLine = `NOMBRE: ${patient.fullName.toUpperCase()}  EDAD: ${patient.age ? `${patient.age} AÑOS.` : '--'}  SALA: ${patient.cubicle ? patient.cubicle.toUpperCase() : 'CUBÍCULO 1'}  FECHA: ${dateStr}  HORA: ${timeStr}`;
   doc.text(patientLine, margin, y);
   y += 7;
 
@@ -142,115 +143,80 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
 
   // 1. MEDIDAS GENERALES
   const solutionOrders = orders.filter((o) => o.type === 'Solución');
+  const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
+  const otherOrders = orders.filter((o) => o.type !== 'Solución' && o.type !== 'Medicamento');
+
   const dietaOrder = orders.find((o) => o.name.toLowerCase().includes('dieta'));
-  const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase() : 'CORRIENTE';
+  const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase().replace(/^DIETA\s+/i, '') : 'CORRIENTE';
   printWrapped(
     'MEDIDAS GENERALES:',
-    `DIETA: ${dietaStr}, POSICIÓN SEMIFOWLER, SIGNOS VITALES CADA 6 HORAS OXIGENOTERAPIA: SOS SI SPO2 MENOR DE 92%`
+    `DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`
   );
 
-  // 2. DIAGNOSTICO
+  // 2. DIAGNÓSTICOS (Líneas individuales limpias)
   doc.setFont('helvetica', 'bold');
-  doc.text('DIAGNOSTICO:', margin, y);
+  doc.text('DIAGNÓSTICOS:', margin, y);
   y += 5;
 
-  const rawDiag = patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'EN ESTUDIO CLÍNICO';
-  const diagList = rawDiag
-    .split(/[\n,;]+/)
-    .map((d) => d.trim().toUpperCase())
-    .filter(Boolean);
+  const rawDiag = (patient.diagnosesList && patient.diagnosesList.length > 0)
+    ? patient.diagnosesList.map((d) => d.name).join('\n')
+    : (patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'EN ESTUDIO CLÍNICO');
+  const { diagnoses } = extractScalesAndDiagnoses(rawDiag);
+  const diagList = diagnoses.length > 0 ? diagnoses : [rawDiag];
 
   doc.setFont('helvetica', 'normal');
-  if (diagList.length > 0) {
-    diagList.forEach((diag) => {
-      if (y > pageHeight - 15) {
-        doc.addPage();
-        y = 15;
-      }
-      doc.text(`  ${diag}`, margin + 3, y);
-      y += 4.5;
-    });
-  } else {
-    doc.text('  EN ESTUDIO ETIOLÓGICO', margin + 3, y);
+  diagList.forEach((diag) => {
+    if (y > pageHeight - 15) {
+      doc.addPage();
+      y = 15;
+    }
+    doc.text(diag.trim().toUpperCase(), margin, y);
     y += 4.5;
-  }
+  });
   y += 2;
 
-  // 3. SIGNOS VITALES (Formato oficial estricto, sin inventar glicemia)
+  // 3. SIGNOS VITALES
   const v = patient.vitals || {};
-  const vitalsResult = formatClinicalVitals(v, true);
+  const vitalsResult = formatClinicalVitals(v);
   printWrapped(
     'SIGNOS VITALES:',
     vitalsResult.summaryLine.replace(/^SIGNOS VITALES:\s*/i, '')
   );
 
-  // 4. MEDICACIÓN
+  // 4. MEDICACIÓN Y SOLUCIONES
   doc.setFont('helvetica', 'bold');
-  doc.text('MEDICACIÓN:', margin, y);
+  doc.text('MEDICACIÓN Y SOLUCIONES:', margin, y);
   y += 5;
 
   doc.setFont('helvetica', 'normal');
-  let medIndex = 1;
-  const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
+  const allMeds = [...solutionOrders, ...medicationOrders, ...otherOrders];
 
-  if (solutionOrders.length > 0 || medicationOrders.length > 0) {
-    // Soluciones primero
-    solutionOrders.forEach((s) => {
+  if (allMeds.length > 0) {
+    allMeds.forEach((m) => {
       if (y > pageHeight - 15) {
         doc.addPage();
         y = 15;
       }
-      const dose = s.dose ? s.dose.toUpperCase() : '';
-      const freq = s.frequency ? s.frequency.toUpperCase() : '';
-      const route = s.route ? s.route.toUpperCase() : 'EV';
-      doc.text(
-        `${medIndex++}.  ${s.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(),
-        margin,
-        y
-      );
-      y += 4.5;
-    });
-
-    // Medicamentos
-    medicationOrders.forEach((m) => {
-      if (y > pageHeight - 15) {
-        doc.addPage();
-        y = 15;
-      }
+      const name = m.name.toUpperCase();
       const dose = m.dose ? m.dose.toUpperCase() : '';
       const freq = m.frequency ? m.frequency.toUpperCase() : '';
-      const route = m.route ? m.route.toUpperCase() : 'EV';
-      doc.text(
-        `${medIndex++}.  ${m.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(),
-        margin,
-        y
-      );
+      const route = m.route ? m.route.toUpperCase() : '';
+      const obs = m.notes ? ` ${m.notes.toUpperCase()}` : '';
+      const line = `• ${name} ${dose} ${freq} ${route}${obs}`.trim().replace(/\s+/g, ' ');
+      doc.text(line, margin, y);
       y += 4.5;
     });
   } else {
-    doc.text('  PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', margin, y);
+    doc.text('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', margin, y);
     y += 4.5;
   }
   y += 3;
 
-  // 5. PARACLÍNICOS, IMÁGENES E INTERCONSULTAS
+  // 5. PARACLÍNICOS (Línea estándar oficial de plantilla hospitalaria)
   printWrapped(
-    'PARACLÍNICOS:',
-    'HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.'
+    'PARACLINICOS:',
+    'HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR'
   );
-
-  printWrapped(
-    'IMÁGENES:',
-    'RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.'
-  );
-
-  printWrapped(
-    'INTERCONSULTAS:',
-    'CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.'
-  );
-
-  // 6. NOTAS FARMACOLÓGICAS Y DIRECTRICES DE SERVICIO
-  printWrapped('NOTA:', 'VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y CONTROL EVOLUTIVO EN CADA TURNO.');
 
   // Firma institucional del médico en turno
   y = drawDoctorSignatureFooter(doc, y + 4, patient);
@@ -560,7 +526,14 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   y += 6;
 
   // Medidas Generales
-  printBlock('MEDIDAS GENERALES: DIETA ADECUADA SEGÚN CONDICIÓN, CABECERA A 30°, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, OXIGENOTERAPIA SOS SI SPO2 < 92%.', false, 8.5);
+  const solOrders = orders.filter(o => o.type === 'Solución');
+  const medOrders = orders.filter(o => o.type === 'Medicamento');
+  const otherOrders = orders.filter(o => o.type !== 'Solución' && o.type !== 'Medicamento');
+  const dietaOrder = orders.find(o => o.name.toLowerCase().includes('dieta'));
+  const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase().replace(/^DIETA\s+/i, '') : 'CORRIENTE';
+
+  printBlock(`MEDIDAS GENERALES: DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`, false, 8.5);
+  y += 2;
 
   // Diagnósticos
   doc.setFont('helvetica', 'bold');
@@ -570,13 +543,13 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   diagList.forEach(d => {
     if (y > pageHeight - 15) { doc.addPage(); y = 15; }
     doc.setFont('helvetica', 'normal');
-    doc.text(`  ${d}`, margin + 3, y);
+    doc.text(d.trim().toUpperCase(), margin, y);
     y += 4.2;
   });
   y += 2;
 
-  // Signos vitales (Formato oficial estricto, sin inventar glicemia)
-  printBlock(formatClinicalVitals(v, true).summaryLine, false, 8.5);
+  // Signos vitales
+  printBlock(formatClinicalVitals(v).summaryLine, false, 8.5);
   y += 2;
 
   // Medicación y Soluciones
@@ -585,51 +558,32 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   doc.text('MEDICACIÓN Y SOLUCIONES:', margin, y);
   y += 4.5;
 
-  let medIdx = 1;
-  const solOrders = orders.filter(o => o.type === 'Solución');
-  const medOrders = orders.filter(o => o.type === 'Medicamento');
-
-  if (solOrders.length > 0 || medOrders.length > 0) {
-    if (solOrders.length > 0) {
-      solOrders.forEach(s => {
-        if (y > pageHeight - 15) { doc.addPage(); y = 15; }
-        doc.setFont('helvetica', 'normal');
-        const dose = s.dose ? s.dose.toUpperCase() : '';
-        const freq = s.frequency ? s.frequency.toUpperCase() : '';
-        const route = s.route ? s.route.toUpperCase() : 'EV';
-        doc.text(`${medIdx++}.  ${s.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(), margin + 2, y);
-        y += 4.2;
-      });
-    }
-
-    if (medOrders.length > 0) {
-      medOrders.forEach(m => {
-        if (y > pageHeight - 15) { doc.addPage(); y = 15; }
-        doc.setFont('helvetica', 'normal');
-        const dose = m.dose ? m.dose.toUpperCase() : '';
-        const freq = m.frequency ? m.frequency.toUpperCase() : '';
-        const route = m.route ? m.route.toUpperCase() : 'EV';
-        doc.text(`${medIdx++}.  ${m.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(), margin + 2, y);
-        y += 4.2;
-      });
-    }
+  const allMedsComb = [...solOrders, ...medOrders, ...otherOrders];
+  if (allMedsComb.length > 0) {
+    allMedsComb.forEach(m => {
+      if (y > pageHeight - 15) { doc.addPage(); y = 15; }
+      doc.setFont('helvetica', 'normal');
+      const name = m.name.toUpperCase();
+      const dose = m.dose ? m.dose.toUpperCase() : '';
+      const freq = m.frequency ? m.frequency.toUpperCase() : '';
+      const route = m.route ? m.route.toUpperCase() : '';
+      const obs = m.notes ? ` ${m.notes.toUpperCase()}` : '';
+      const line = `• ${name} ${dose} ${freq} ${route}${obs}`.trim().replace(/\s+/g, ' ');
+      doc.text(line, margin, y);
+      y += 4.2;
+    });
   } else {
     doc.setFont('helvetica', 'normal');
-    doc.text('  PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', margin + 2, y);
+    doc.text('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', margin, y);
     y += 4.2;
   }
-  y += 2;
+  y += 3;
 
-  // Paraclínicos, Imágenes e Interconsultas
-  printBlock('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.', false, 8);
-  printBlock('IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.', false, 8);
-  printBlock('INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.', false, 8);
-
-  // Notas y directrices
-  printBlock('NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y CONTROL EVOLUTIVO EN CADA TURNO.', false, 8);
+  // Paraclínicos
+  printBlock('PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR', false, 8);
 
   // Firma Orden Oficial
-  y = drawDoctorSignatureFooter(doc, y, patient);
+  y = drawDoctorSignatureFooter(doc, y + 4, patient);
 
   // Descarga
   const filename = `Nota_Mas_Orden_Medica_${patient.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;

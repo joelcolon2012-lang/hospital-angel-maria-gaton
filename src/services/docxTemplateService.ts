@@ -515,25 +515,26 @@ export async function generateMedicalOrderDocx(
 
     const { date, time } = getFormattedDateTime();
     const { docName, exequatur } = resolveDoctorSignature(patient, options);
-    const bed = options.hospitalWard || patient.cubicle || 'EMERGENCIA';
+    const bed = options.hospitalWard || patient.cubicle || 'CUBÍCULO 1';
 
-    const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS` : 'N/D'}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
+    const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS.` : '--'} SALA: ${bed.toUpperCase()} FECHA: ${date} HORA: ${time}`;
 
     const v = patient.vitals || {};
-    const vitalsLine = formatClinicalVitals(v, true).summaryLine;
+    const vitalsLine = formatClinicalVitals(v).summaryLine;
 
-    let diagnosesLines = 'DIAGNÓSTICOS:\n';
-    if (patient.diagnosesList && patient.diagnosesList.length > 0) {
-      diagnosesLines += patient.diagnosesList.map((d, i) => `${i + 1}. ${d.name.toUpperCase()}`).join('\n');
-    } else {
-      const { diagnoses } = extractScalesAndDiagnoses(patient.clinicalHistory?.clinicalImpression || 'SÍNDROME CLÍNICO EN ESTUDIO');
-      diagnosesLines += diagnoses.map((d, i) => `${i + 1}. ${d.toUpperCase()}`).join('\n');
-    }
+    const rawDiag = (patient.diagnosesList && patient.diagnosesList.length > 0)
+      ? patient.diagnosesList.map((d) => d.name).join('\n')
+      : (patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'EN ESTUDIO CLÍNICO');
+    const { diagnoses } = extractScalesAndDiagnoses(rawDiag);
+    const diagList = diagnoses.length > 0 ? diagnoses : [rawDiag];
 
     // Clasificar órdenes
     const solutions = orders.filter(o => o.type === 'Solución');
     const medications = orders.filter(o => o.type === 'Medicamento');
-    const paraclinics = orders.filter(o => o.type === 'Estudio' || o.type === 'Procedimiento' || o.type === 'Interconsulta');
+    const otherOrders = orders.filter(o => o.type !== 'Solución' && o.type !== 'Medicamento');
+
+    const dietaOrder = orders.find(o => o.name.toLowerCase().includes('dieta'));
+    const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase().replace(/^DIETA\s+/i, '') : 'CORRIENTE';
 
     let xml = zip.file('word/document.xml')?.asText() || '';
     const logoParagraphXml = extractLogoParagraphXml(xml);
@@ -544,47 +545,31 @@ export async function generateMedicalOrderDocx(
       createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 100),
       createDocxParagraphXml('ORDEN MEDICA', true, true, 200),
       createDocxParagraphXml(headerLine, true, false, 160),
-      createDocxParagraphXml('MEDIDAS GENERALES: DIETA ADECUADA SEGÚN CONDICIÓN, CABECERA A 30°, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.', false, false, 140),
-      createDocxParagraphXml(diagnosesLines, true, false, 160),
-      createDocxParagraphXml(vitalsLine, true, false, 180),
-      createDocxParagraphXml('MEDICACIÓN Y SOLUCIONES:', true, false, 100),
+      createDocxParagraphXml(`MEDIDAS GENERALES: DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`, false, false, 140),
+      createDocxParagraphXml('DIAGNÓSTICOS:', true, false, 80),
     ];
 
-    if (solutions.length > 0 || medications.length > 0) {
-      if (solutions.length > 0) {
-        solutions.forEach(s => {
-          const d = (s.dose || '').toUpperCase();
-          const r = (s.route || '').toUpperCase();
-          const f = (s.frequency || '').toUpperCase();
-          newParagraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
-        });
-      }
+    diagList.forEach(d => {
+      newParagraphs.push(createDocxParagraphXml(d.trim().toUpperCase(), false, false, 50));
+    });
 
-      if (medications.length > 0) {
-        medications.forEach(m => {
-          const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
-          const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
-          const d = (m.dose || '').toUpperCase();
-          const r = (m.route || 'EV').toUpperCase();
-          const f = (m.frequency || '').toUpperCase();
-          newParagraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
-        });
-      }
+    newParagraphs.push(createDocxParagraphXml(vitalsLine, false, false, 140));
+    newParagraphs.push(createDocxParagraphXml('MEDICACIÓN Y SOLUCIONES:', true, false, 80));
+
+    const allMeds = [...solutions, ...medications, ...otherOrders];
+    if (allMeds.length > 0) {
+      allMeds.forEach(m => {
+        const d = (m.dose || '').toUpperCase();
+        const r = (m.route || '').toUpperCase();
+        const f = (m.frequency || '').toUpperCase();
+        const obs = m.notes ? ` ${m.notes.toUpperCase()}` : '';
+        newParagraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${d} ${f} ${r}${obs}`.trim().replace(/\s+/g, ' '), false, false, 60));
+      });
     } else {
       newParagraphs.push(createDocxParagraphXml('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', false, false, 60));
     }
 
-    if (paraclinics.length > 0) {
-      newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS Y ESTUDIOS ESPECÍFICOS REGISTRADOS:', true, false, 100));
-      paraclinics.forEach(p => {
-        newParagraphs.push(createDocxParagraphXml(`• ${p.name.toUpperCase()} (${(p.type || 'ESTUDIO').toUpperCase()})`, false, false, 60));
-      });
-    }
-
-    newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS, IMÁGENES E INTERCONSULTAS:', true, false, 100));
-    newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.', false, false, 60));
-    newParagraphs.push(createDocxParagraphXml('IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.', false, false, 60));
-    newParagraphs.push(createDocxParagraphXml('INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.', false, false, 60));
+    newParagraphs.push(createDocxParagraphXml('PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR', false, false, 100));
 
     // Directrices farmacológicas (solo si se solicitan explícitamente)
     if (options.includeTherapeuticDiscussion === true) {
@@ -754,54 +739,38 @@ export async function generateCombinedNoteAndOrderDocx(
     const headerLineOrder = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${ageText}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
     paragraphs.push(createDocxParagraphXml(headerLineOrder, true, false, 140));
 
-    const vitalsLine = formatClinicalVitals(v, true).summaryLine;
-    paragraphs.push(createDocxParagraphXml('MEDIDAS GENERALES: DIETA ADECUADA SEGÚN CONDICIÓN, CABECERA A 30°, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.', false, false, 120));
+    const dietaOrderComb = orders.find(o => o.name.toLowerCase().includes('dieta'));
+    const dietaStrComb = dietaOrderComb ? dietaOrderComb.name.toUpperCase().replace(/^DIETA\s+/i, '') : 'CORRIENTE';
+    paragraphs.push(createDocxParagraphXml(`MEDIDAS GENERALES: DIETA ${dietaStrComb}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`, false, false, 120));
 
-    let diagnosesLines = 'DIAGNÓSTICOS ACTIVOS:\n' + pureDiags.map((d, i) => `${i + 1}. ${d.toUpperCase()}`).join('\n');
-    paragraphs.push(createDocxParagraphXml(diagnosesLines, true, false, 140));
-    paragraphs.push(createDocxParagraphXml(vitalsLine, true, false, 160));
+    paragraphs.push(createDocxParagraphXml('DIAGNÓSTICOS:', true, false, 80));
+    pureDiags.forEach(d => {
+      paragraphs.push(createDocxParagraphXml(d.trim().toUpperCase(), false, false, 50));
+    });
+
+    const vitalsLineComb = formatClinicalVitals(v).summaryLine;
+    paragraphs.push(createDocxParagraphXml(vitalsLineComb, false, false, 140));
 
     paragraphs.push(createDocxParagraphXml('MEDICACIÓN Y SOLUCIONES:', true, false, 80));
 
     const solutions = orders.filter(o => o.type === 'Solución');
     const medications = orders.filter(o => o.type === 'Medicamento');
-    const paraclinics = orders.filter(o => o.type === 'Estudio' || o.type === 'Procedimiento' || o.type === 'Interconsulta');
+    const otherOrders = orders.filter(o => o.type !== 'Solución' && o.type !== 'Medicamento');
 
-    if (solutions.length > 0 || medications.length > 0) {
-      if (solutions.length > 0) {
-        solutions.forEach(s => {
-          const d = (s.dose || '').toUpperCase();
-          const r = (s.route || '').toUpperCase();
-          const f = (s.frequency || '').toUpperCase();
-          paragraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
-        });
-      }
-
-      if (medications.length > 0) {
-        medications.forEach(m => {
-          const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
-          const d = (m.dose || '').toUpperCase();
-          const r = (m.route || 'EV').toUpperCase();
-          const f = (m.frequency || '').toUpperCase();
-          const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
-          paragraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
-        });
-      }
+    const allMedsComb = [...solutions, ...medications, ...otherOrders];
+    if (allMedsComb.length > 0) {
+      allMedsComb.forEach(m => {
+        const d = (m.dose || '').toUpperCase();
+        const r = (m.route || '').toUpperCase();
+        const f = (m.frequency || '').toUpperCase();
+        const obs = m.notes ? ` ${m.notes.toUpperCase()}` : '';
+        paragraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${d} ${f} ${r}${obs}`.trim().replace(/\s+/g, ' '), false, false, 60));
+      });
     } else {
       paragraphs.push(createDocxParagraphXml('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', false, false, 60));
     }
 
-    if (paraclinics.length > 0) {
-      paragraphs.push(createDocxParagraphXml('PARACLÍNICOS Y ESTUDIOS SOLICITADOS:', true, false, 80));
-      paraclinics.forEach(p => {
-        paragraphs.push(createDocxParagraphXml(`• ${p.name.toUpperCase()} (${(p.type || 'ESTUDIO').toUpperCase()})`, false, false, 60));
-      });
-    }
-
-    paragraphs.push(createDocxParagraphXml('PARACLÍNICOS, IMÁGENES E INTERCONSULTAS:', true, false, 80));
-    paragraphs.push(createDocxParagraphXml('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.', false, false, 60));
-    paragraphs.push(createDocxParagraphXml('IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.', false, false, 60));
-    paragraphs.push(createDocxParagraphXml('INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.', false, false, 60));
+    paragraphs.push(createDocxParagraphXml('PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR', false, false, 100));
 
     // Directrices farmacológicas (solo si se solicitan explícitamente)
     if (options.includeTherapeuticDiscussion === true) {

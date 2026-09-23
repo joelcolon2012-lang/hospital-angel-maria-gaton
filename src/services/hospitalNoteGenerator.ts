@@ -9,6 +9,7 @@ import { Patient, MedicalOrder, LabResult, MedicalStudy, ClinicalHistory } from 
 import { normalizeMedicalText } from './medicalSpellingService';
 import { ClinicalDataNormalizer } from './clinicalDataNormalizer';
 import { formatClinicalVitals, extractClinicalStatus } from './clinicalDocumentBuilder';
+import { generateTherapeuticDiscussionForOrders } from './therapeuticDiscussionService';
 
 /**
  * Función auxiliar para descargar inmediatamente cualquier archivo de texto o JSON en el PC
@@ -47,63 +48,56 @@ export function generateIndividualMedicalOrder(patient: Patient, orders: Medical
   const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
   const otherOrders = orders.filter((o) => o.type !== 'Solución' && o.type !== 'Medicamento');
 
+  // Dieta
+  const dietaOrder = orders.find((o) => o.name.toLowerCase().includes('dieta'));
+  const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase() : 'CORRIENTE';
+
   // Diagnósticos
-  const rawDiag = patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'EN ESTUDIO CLÍNICO';
-  const diagList = rawDiag
-    .split(/[\n,;]+/)
-    .map((d) => d.trim().toUpperCase())
-    .filter(Boolean);
+  const rawDiag = (patient.diagnosesList && patient.diagnosesList.length > 0)
+    ? patient.diagnosesList.map((d) => d.name).join('\n')
+    : (patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'EN ESTUDIO CLÍNICO');
+  const { diagnoses } = extractScalesAndDiagnoses(rawDiag);
+  const diagList = diagnoses.length > 0 ? diagnoses : [rawDiag];
 
   let out = `             :HOSPITAL\n`;
   out += `          H  DR. ÁNGEL MARÍA GATÓN\n\n`;
   out += `                     ORDEN MEDICA\n\n`;
-  out += `NOMBRE: ${patient.fullName.toUpperCase()}  EDAD: ${patient.age || '--'} AÑOS,  EMERGENCIA: CUB ${patient.cubicle}  FECHA: ${dateStr} HORA: ${timeStr}\n\n`;
+  out += `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS.` : '--'} SALA: ${patient.cubicle ? patient.cubicle.toUpperCase() : 'CUBÍCULO 1'} FECHA: ${dateStr} HORA: ${timeStr}\n\n`;
 
   // MEDIDAS GENERALES
-  out += `MEDIDAS GENERALES: DIETA: ${getDietaText(solutionOrders)}, POSICIÓN SEMIFOWLER, SIGNOS VITALES CADA 6 HORAS OXIGENOTERAPIA: SOS SI SPO2 MENOR DE 92%\n\n`;
+  out += `MEDIDAS GENERALES: DIETA ${dietaStr.replace(/^DIETA\s+/i, '')}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.\n\n`;
 
-  // DIAGNOSTICO
-  out += `DIAGNOSTICO:\n`;
-  if (diagList.length > 0) {
-    diagList.forEach((d) => {
-      out += ` ${d}\n`;
-    });
-  } else {
-    out += ` EN ESTUDIO ETIOLÓGICO\n`;
-  }
+  // DIAGNÓSTICOS
+  out += `DIAGNÓSTICOS:\n`;
+  diagList.forEach((d) => {
+    out += `${d.trim().toUpperCase()}\n`;
+  });
   out += `\n`;
 
-  // SIGNOS VITALES (Formato real estricto, sin inventar glicemia)
-  const vitalsRes = formatClinicalVitals(v, true);
+  // SIGNOS VITALES
+  const vitalsRes = formatClinicalVitals(v);
   out += `${vitalsRes.summaryLine}\n\n`;
 
-  // MEDICACIÓN
-  out += `MEDICACIÓN:\n`;
-  let medIndex = 1;
-
-  if (solutionOrders.length > 0 || medicationOrders.length > 0) {
-    solutionOrders.forEach((s) => {
-      const dose = s.dose ? s.dose.toUpperCase() : '';
-      const freq = s.frequency ? s.frequency.toUpperCase() : '';
-      const route = s.route ? s.route.toUpperCase() : 'EV';
-      out += `${medIndex++}. ${s.name.toUpperCase()} ${dose} ${freq} ${route}`.trim() + `\n`;
-    });
-    medicationOrders.forEach((m) => {
+  // MEDICACIÓN Y SOLUCIONES
+  out += `MEDICACIÓN Y SOLUCIONES:\n`;
+  const allMeds = [...solutionOrders, ...medicationOrders, ...otherOrders];
+  if (allMeds.length > 0) {
+    allMeds.forEach((m) => {
+      const name = m.name.toUpperCase();
       const dose = m.dose ? m.dose.toUpperCase() : '';
       const freq = m.frequency ? m.frequency.toUpperCase() : '';
-      const route = m.route ? m.route.toUpperCase() : 'EV';
-      out += `${medIndex++}. ${m.name.toUpperCase()} ${dose} ${freq} ${route}`.trim() + `\n`;
+      const route = m.route ? m.route.toUpperCase() : '';
+      const obs = m.notes ? ` ${m.notes.toUpperCase()}` : '';
+      const line = `• ${name} ${dose} ${freq} ${route}${obs}`.trim().replace(/\s+/g, ' ');
+      out += `${line}\n`;
     });
   } else {
-    out += ` PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS\n`;
+    out += `• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS\n`;
   }
   out += `\n`;
 
-  // PARACLÍNICOS, IMÁGENES E INTERCONSULTAS
-  out += `PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.\n\n`;
-  out += `IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.\n\n`;
-  out += `INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.\n\n`;
-  out += `NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y CONTROL EVOLUTIVO EN CADA TURNO.\n`;
+  // PARACLINICOS
+  out += `PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR\n`;
 
   return normalizeMedicalText(out);
 }
@@ -201,8 +195,7 @@ export function cleanAndDeduplicateNarrative(text: string): string {
 
   let result = text;
 
-
-  // 3. Deduplicar oraciones idénticas por líneas
+  // Deduplicar oraciones idénticas por líneas
   const lines = result.split('\n');
   const seenLines = new Set<string>();
   const dedupedLines: string[] = [];
@@ -245,7 +238,7 @@ export function cleanAndDeduplicateNarrative(text: string): string {
 
   result = dedupedLines.join('\n');
 
-  // 4. Corrección de tartamudeos léxicos y signos de puntuación
+  // Corrección de tartamudeos léxicos y signos de puntuación
   result = result.replace(/\b(paciente)\s+\1\b/gi, '$1');
   result = result.replace(/\b(masculino|femenina|femenino)\s+\1\b/gi, '$1');
   result = result.replace(/\b(de)\s+\1\b/gi, '$1');
@@ -277,16 +270,7 @@ function generateNarrativeAdmissionNote(
 ): string {
   const v = patient.vitals || {};
   const h: Partial<ClinicalHistory> = patient.clinicalHistory || {};
-  const pe: any = h.physicalExam || {
-    general: '',
-    cardiovascular: '',
-    respiratory: '',
-    abdominal: '',
-    neurological: '',
-    extremities: '',
-    skin: '',
-    otherFindings: '',
-  };
+  const pe: any = h.physicalExam || {};
 
   const { dateStr, timeStr } = getFormattedDateTime(patient.arrivalDateTime);
   const sexoStr = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
@@ -295,45 +279,33 @@ function generateNarrativeAdmissionNote(
   let out = `             :HOSPITAL\n`;
   out += `          H  DR. ÁNGEL MARÍA GATÓN\n\n`;
 
-  if (type === 'EMERGENCIA') {
-    out += `                  NOTA DE INGRESO EMERGENCIA\n\n`;
-    out += `NOMBRE: ${patient.fullName.toUpperCase()}. EDAD: ${patient.age || '--'} AÑOS. EMERG: ${patient.cubicle}. FECHA INGRESO: ${dateStr}. HORA: ${timeStr}\n\n`;
-  } else {
-    out += `                     NOTA DE RECIBIMIENTO\n\n`;
-    out += `NOMBRE: ${patient.fullName.toUpperCase()}, EDAD: ${patient.age || '--'} AÑOS, SALA: ${patient.cubicle}, FECHA INGRESO: ${dateStr}. HORA: ${timeStr}\n\n`;
-  }
+  const title = type === 'EMERGENCIA' ? 'NOTA DE INGRESO EN EMERGENCIA' : 'NOTA DE RECIBIMIENTO EN SALA';
+  out += `                  ${title}\n\n`;
+  out += `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS.` : '--'} SALA: ${patient.cubicle ? patient.cubicle.toUpperCase() : 'CUBÍCULO 1'} FECHA: ${dateStr} HORA: ${timeStr}\n\n`;
 
   // 1. Párrafo Narrativo Inicial
   const morbidText = h.pathologicalHistory ? h.pathologicalHistory.toUpperCase() : 'NIEGA ENFERMEDADES CRÓNICAS';
+  const habitualMedText = h.habitualMedications ? `, MEDICADO CON ${h.habitualMedications.toUpperCase()}` : '';
   const surgicalText = h.surgicalHistory ? h.surgicalHistory.toUpperCase() : 'QUIRÚRGICOS NEGADOS';
   const toxicText = h.toxicHabits ? h.toxicHabits.toUpperCase() : 'NEGADOS';
   const allergicText = h.allergicHistory ? h.allergicHistory.toUpperCase() : (v.allergies && v.allergies.length > 0 ? v.allergies.join(', ').toUpperCase() : 'NEGADAS');
 
-  // Extraer únicamente la evolución clínica pura para no duplicar presentación ni antecedentes
   const pureHda = ClinicalDataNormalizer.extractPureIllnessHistory(h.currentIllnessHistory || patient.chiefComplaint || '');
 
-  let p1 = `SE TRATA DE PACIENTE ${sexoStr} DE ${patient.age || '--'} AÑOS DE EDAD, `;
-  p1 += `CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${morbidText}, `;
-  p1 += `ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, `;
-  p1 += `HÁBITOS TÓXICOS ${toxicText}, `;
-  p1 += `ALERGIAS ${allergicText}. `;
-  p1 += `REFIERE PACIENTE QUE ${pronombre} ${pureHda || 'SE ENCONTRABA EN APARENTE BUEN ESTADO DE SALUD HASTA QUE INICIA SINTOMATOLOGÍA ACTUAL'}. `;
-  p1 += `MOTIVO POR EL CUAL ES TRAÍDO A NUESTRO CENTRO DE SALUD DONDE TRAS PREVIA EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS. `;
+  let p1 = `SE TRATA DE PACIENTE ${sexoStr} DE ${patient.age || '--'} AÑOS DE EDAD CON ANTECEDENTES MORBIDOS CONOCIDOS DE ${morbidText}${habitualMedText}, ANTECEDENTES QUIRÚRGICOS DE ${surgicalText}, HÁBITOS TÓXICOS ${toxicText}, ALERGIAS ${allergicText}. REFIERE PACIENTE QUE ${pronombre} SE ENCONTRABA EN APARENTE BUEN CONTROL DE SUS COMORBILIDADES HASTA ${pureHda || 'QUE INICIA CUADRO CLÍNICO ACTUAL'}, MOTIVOS POR LOS CUALES ACUDE A NUESTRO CENTRO DE SALUD TRAS PREVIA EVALUACION DE CLINICA Y PARACLINICA SE DECIDE SU INGRESO CON FINES DIAGNOSTICOS Y TERAPÉUTICOS. `;
 
-  // Examen Físico Normalizado y Cefalocaudal Estricto
   const cleanPe = ClinicalDataNormalizer.cleanPhysicalExamSections(pe);
-
-  // Estado actual guardado más reciente
-  const statusText = (pe.general || (patient as any).generalStatus || cleanPe.general || 'ALERTA, CONSCIENTE, ORIENTADO').toUpperCase();
+  const statusText = (pe.general || (patient as any).generalStatus || cleanPe.general || 'ALERTA ORIENTADO EN LAS 3 ESFERAS DEL SENSORIO, CON ADECUADA MECANICA VENTILATORIA AFEBRIL TOLERANDO AIRE AMBIENTE Y VIA ORAL').toUpperCase();
   p1 += `ACTUALMENTE PACIENTE ${statusText}, `;
 
-  // Signos vitales reales (sin inventar datos)
   const vitalsResult = formatClinicalVitals(v);
-  p1 += `${vitalsResult.text} `;
+  p1 += `MANEJANDO LOS SIGUIENTES ${vitalsResult.summaryLine}. `;
 
-  p1 += `EN CUANTO AL EXAMEN FÍSICO: `;
+  p1 += `AL EXAMEN FÍSICO: `;
   p1 += `CABEZA: ${cleanPe.head.toUpperCase()}. `;
   p1 += `OJOS: ${cleanPe.eyes.toUpperCase()}. `;
+  p1 += `OÍDOS: ${(cleanPe as any).ears ? (cleanPe as any).ears.toUpperCase() : 'PABELLONES AURICULARES NORMO IMPLANTADOS, CONDUCTO AUDITIVO EXTERNO PERMEABLE BILATERALMENTE SIN SECRECIONES, NO DOLOR EN TRAGO'}. `;
+  p1 += `NARIZ: ${(cleanPe as any).nose ? (cleanPe as any).nose.toUpperCase() : 'SIMETRICA, FOSAS NASALES PERMEABLES, SIN SECRECIONES PATOLOGICAS'}. `;
   p1 += `BOCA: ${cleanPe.mouth.toUpperCase()}. `;
   p1 += `CUELLO: ${cleanPe.neck.toUpperCase()}. `;
   p1 += `TÓRAX: ${cleanPe.chest.toUpperCase()}. `;
@@ -345,88 +317,40 @@ function generateNarrativeAdmissionNote(
   p1 += `NEUROLÓGICO: ${cleanPe.neurological.toUpperCase()}. `;
   p1 += `PIEL Y ANEXOS: ${cleanPe.skin.toUpperCase()}. `;
 
-  // Estudios de Gabinete e Imagen
   if (studies.length > 0) {
     p1 += `SE REALIZAN ESTUDIOS DE GABINETE: `;
     studies.forEach((s) => {
-      p1 += `[${s.category.toUpperCase()}] ${s.title.toUpperCase()}: ${s.preliminaryInterpretation ? s.preliminaryInterpretation.toUpperCase() : 'EVIDENCIA PARÁMETROS EN PROCESO'}. `;
+      p1 += `[${s.category.toUpperCase()}] ${s.title.toUpperCase()}: ${s.preliminaryInterpretation ? s.preliminaryInterpretation.toUpperCase() : 'SIN HALLAZGOS AGUDOS ADICIONALES'}. `;
     });
   } else {
-    p1 += `SE REALIZA RADIOGRAFÍA DE TÓRAX Y ELECTROCARDIOGRAMA SIN HALLAZGOS AGUDOS ADICIONALES. `;
+    p1 += `SE REALIZAN ESTUDIOS DE GABINETE: RADIOGRAFÍA DE TÓRAX Y ELECTROCARDIOGRAMA SIN HALLAZGOS AGUDOS ADICIONALES. `;
   }
 
-  // Paraclínicos detallados
   if (labs.length > 0) {
-    p1 += `SE REALIZAN PARACLÍNICOS LOS CUALES REPORTAN: `;
-    const labItems = labs.map((l) => `${l.parameter.toUpperCase()}: ${l.value} ${l.unit ? l.unit.toUpperCase() : ''}`).join(', ');
+    p1 += `SE REALIZAN PARACLINICAS QUE REPORTA: `;
+    const labItems = labs.map((l) => `${l.parameter.toUpperCase()}: ${l.value}${l.unit ? ` ${l.unit.toUpperCase()}` : ''}`).join(', ');
     p1 += `${labItems}. `;
   }
 
-  // 2. PLANTEAMIENTO CLÍNICO & ESCALAS PRONÓSTICAS (ANTES DE DIAGNÓSTICOS)
-  const rawDiag = h.clinicalImpression || patient.chiefComplaint || 'SÍNDROME CLÍNICO EN ESTUDIO';
-  const { scales, diagnoses } = extractScalesAndDiagnoses(rawDiag);
+  p1 += `POR LO QUE SE INGRESA BAJO DIAGNOSTICOS DE:\n\n`;
 
-  if (scales.length > 0) {
-    p1 += `\n\nPLANTEAMIENTO CLÍNICO & ESCALAS PRONÓSTICAS (EVC / VALORACIÓN INTEGRAL):\n`;
-    p1 += `SE EVALÚA INTEGRALMENTE AL PACIENTE A SU LLEGADA DETERMINÁNDOSE LAS SIGUIENTES ESCALAS NEUROLÓGICAS Y PRONÓSTICAS:\n`;
-    scales.forEach((scale) => {
-      p1 += `• ${scale.toUpperCase()}\n`;
-    });
-  }
+  const rawDiag = (patient.diagnosesList && patient.diagnosesList.length > 0)
+    ? patient.diagnosesList.map((d) => d.name).join('\n')
+    : (h.clinicalImpression || patient.chiefComplaint || 'SÍNDROME CLÍNICO EN ESTUDIO');
+  const { diagnoses } = extractScalesAndDiagnoses(rawDiag);
+  const diagList = diagnoses.length > 0 ? diagnoses : [rawDiag];
 
-  // 3. DIAGNÓSTICOS NOSOLÓGICOS (LIMPIOS, SIN ESCALAS REPETIDAS)
-  p1 += `\nPOR LO QUE SE DEJA BAJO DIAGNÓSTICOS DE:\n`;
-  const diagList = diagnoses.length > 0 ? diagnoses : ['SÍNDROME CLÍNICO EN ESTUDIO'];
-  diagList.forEach((d, idx) => {
-    p1 += `${idx + 1}. ${d.toUpperCase()}\n`;
+  diagList.forEach((d) => {
+    p1 += `${d.trim().toUpperCase()}\n`;
   });
   p1 += `\n`;
 
-  // 4. EN CUANTO AL MANEJO (Órdenes clínicas directas sin discusión teórica)
-  p1 += `EN CUANTO AL MANEJO:\n`;
-  let orderIdx = 1;
-
-  const solutionOrders = orders.filter((o) => o.type === 'Solución');
-  const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
-
-  p1 += `${orderIdx++}. DIETA: ${getDietaText(solutionOrders)}, POSICIÓN SEMIFOWLER, OXIGENOTERAPIA SOS SI SPO2 < 92%.\n`;
-  p1 += `${orderIdx++}. CONTROL DE SIGNOS VITALES CADA 6 HORAS Y VIGILANCIA DE PATRÓN RESPIRATORIO.\n`;
-
-  // Soluciones
-  if (solutionOrders.length > 0) {
-    const seenSolutions = new Set<string>();
-    solutionOrders.forEach((sol) => {
-      const key = sol.name.toUpperCase().trim();
-      if (!seenSolutions.has(key)) {
-        seenSolutions.add(key);
-        p1 += `${orderIdx++}. ${key} ${sol.dose ? sol.dose.toUpperCase() : '2,000 ML'} ${sol.route ? sol.route.toUpperCase() : 'EV'} ${sol.frequency ? sol.frequency.toUpperCase() : 'C/24 HORAS'}.\n`;
-      }
-    });
-  } else {
-    p1 += `${orderIdx++}. SOLUCIÓN SALINA AL 0.9% 1,000 ML EV C/12 HORAS.\n`;
-  }
-
-  // Medicamentos
-  if (medicationOrders.length > 0) {
-    const seenMeds = new Set<string>();
-    medicationOrders.forEach((med) => {
-      const key = med.name.toUpperCase().trim();
-      const sig = `${key}_${med.dose || ''}_${med.route || ''}_${med.frequency || ''}`;
-      if (!seenMeds.has(sig)) {
-        seenMeds.add(sig);
-        const dayStr = med.treatmentDay ? ` (DÍA ${med.treatmentDay})` : '';
-        p1 += `${orderIdx++}. ${key}${dayStr} ${med.dose ? med.dose.toUpperCase() : ''} ${med.route ? med.route.toUpperCase() : 'EV'} ${med.frequency ? med.frequency.toUpperCase() : 'C/24H'}.\n`;
-      }
-    });
-  } else {
-    p1 += `${orderIdx++}. OMEPRAZOL 40 MG EV C/24 HORAS.\n`;
-  }
-
-  p1 += `${orderIdx++}. VIGILANCIA EVOLUTIVA ESTRICTA EN EL SERVICIO.\n`;
+  // Discusión terapéutica continua justificada según guías
+  const discussionText = generateTherapeuticDiscussionForOrders(orders);
+  p1 += `${discussionText}\n`;
 
   out += p1;
-  const normalized = normalizeMedicalText(out);
-  return cleanAndDeduplicateNarrative(normalized);
+  return cleanAndDeduplicateNarrative(normalizeMedicalText(out));
 }
 
 function getDietaText(orders: MedicalOrder[]): string {
