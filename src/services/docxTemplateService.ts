@@ -350,7 +350,6 @@ export async function generateEmergencyNoteDocx(
     const newParagraphs: string[] = [
       ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
-      createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 100),
       createDocxParagraphXml('NOTA DE INGRESO EMERGENCIA', true, true, 200),
       createDocxParagraphXml(headerLine, true, false, 200),
       createDocxParagraphXml(historyNarrative, false, false, 180),
@@ -375,8 +374,6 @@ export async function generateEmergencyNoteDocx(
 
     newParagraphs.push(createDocxParagraphXml(managementText, false, false, 300));
     newParagraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
 
     // Sustituir el contenido del cuerpo dentro de <w:body>
     const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
@@ -417,7 +414,6 @@ export async function generateWardTransferNoteDocx(
     await injectOfficialLogoIfPresent(zip);
 
     const { date, time } = getFormattedDateTime();
-    const { docName, exequatur } = resolveDoctorSignature(patient, options);
     const ward = options.hospitalWard || patient.cubicle || 'SALA CLÍNICA 315';
 
     const sexText = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
@@ -451,7 +447,6 @@ export async function generateWardTransferNoteDocx(
     const newParagraphs: string[] = [
       ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
-      createDocxParagraphXml('SERVICIO DE MEDICINA INTERNA — SALA CLÍNICA', true, true, 100),
       createDocxParagraphXml('NOTA DE TRASLADO Y RECIBIMIENTO EN SALA', true, true, 200),
       createDocxParagraphXml(headerLine, true, false, 200),
       createDocxParagraphXml(historyNarrative, false, false, 180),
@@ -474,8 +469,6 @@ export async function generateWardTransferNoteDocx(
 
     newParagraphs.push(createDocxParagraphXml(therapeuticText, false, false, 300));
     newParagraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • MEDICINA INTERNA - HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
 
     const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
     if (bodyMatch) {
@@ -539,13 +532,18 @@ export async function generateMedicalOrderDocx(
     let xml = zip.file('word/document.xml')?.asText() || '';
     const logoParagraphXml = extractLogoParagraphXml(xml);
 
+    const generalMeasuresText = patient.generalMeasures && patient.generalMeasures.trim()
+      ? (patient.generalMeasures.trim().toUpperCase().startsWith('MEDIDAS GENERALES:')
+          ? patient.generalMeasures.trim().toUpperCase()
+          : `MEDIDAS GENERALES: ${patient.generalMeasures.trim().toUpperCase()}`)
+      : `MEDIDAS GENERALES: DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`;
+
     const newParagraphs: string[] = [
       ...(logoParagraphXml ? [logoParagraphXml] : []),
       createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40),
-      createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 100),
       createDocxParagraphXml('ORDEN MEDICA', true, true, 200),
       createDocxParagraphXml(headerLine, true, false, 160),
-      createDocxParagraphXml(`MEDIDAS GENERALES: DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`, false, false, 140),
+      createDocxParagraphXml(generalMeasuresText, false, false, 140),
       createDocxParagraphXml('DIAGNÓSTICOS:', true, false, 80),
     ];
 
@@ -569,7 +567,14 @@ export async function generateMedicalOrderDocx(
       newParagraphs.push(createDocxParagraphXml('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', false, false, 60));
     }
 
-    newParagraphs.push(createDocxParagraphXml('PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR', false, false, 100));
+    const paraclinicsText = patient.requestedParaclinics && patient.requestedParaclinics.length > 0
+      ? `PARACLINICOS: ${patient.requestedParaclinics.join(', ').toUpperCase()}`
+      : 'PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR';
+    newParagraphs.push(createDocxParagraphXml(paraclinicsText, false, false, 100));
+
+    if (patient.requestedImaging && patient.requestedImaging.length > 0) {
+      newParagraphs.push(createDocxParagraphXml(`IMAGENES: ${patient.requestedImaging.join(', ').toUpperCase()}`, false, false, 100));
+    }
 
     // Directrices farmacológicas (solo si se solicitan explícitamente)
     if (options.includeTherapeuticDiscussion === true) {
@@ -593,8 +598,6 @@ export async function generateMedicalOrderDocx(
 
     newParagraphs.push(createDocxParagraphXml('', false, false, 200));
     newParagraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
 
     const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
     if (bodyMatch) {
@@ -651,7 +654,6 @@ export async function generateCombinedNoteAndOrderDocx(
     // ==========================================
     if (logoParagraphXml) paragraphs.push(logoParagraphXml);
     paragraphs.push(createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40));
-    paragraphs.push(createDocxParagraphXml(isSala ? 'SERVICIO DE MEDICINA INTERNA — SALA CLÍNICA' : 'SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80));
     paragraphs.push(createDocxParagraphXml(isSala ? 'NOTA DE RECIBIMIENTO EN SALA' : 'NOTA DE INGRESO EMERGENCIA', true, true, 180));
 
     const sexText = patient.sex === 'F' ? 'FEMENINA' : 'MASCULINO';
@@ -669,9 +671,6 @@ export async function generateCombinedNoteAndOrderDocx(
     } else if (patient.vitals?.allergies && patient.vitals.allergies.length > 0) {
       allergicText = patient.vitals.allergies.join(', ').toUpperCase();
     }
-    const hdaText = patient.clinicalHistory?.currentIllnessHistory?.toUpperCase() || 
-                    patient.chiefComplaint?.toUpperCase() || 
-                    'CUADRO CLÍNICO DE EVALUACIÓN MÉDICA';
 
     const rawHdaCombined = (patient.clinicalHistory?.currentIllnessHistory || patient.chiefComplaint || '').trim();
     const pureHdaCombined = ClinicalDataNormalizer.extractPureIllnessHistory(rawHdaCombined);
@@ -719,8 +718,6 @@ export async function generateCombinedNoteAndOrderDocx(
 
     // Firma Nota
     paragraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
-    paragraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
-    paragraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 160));
 
     // ==========================================
     // SALTO DE PÁGINA OFICIAL
@@ -732,7 +729,6 @@ export async function generateCombinedNoteAndOrderDocx(
     // ==========================================
     if (logoParagraphXml) paragraphs.push(logoParagraphXml);
     paragraphs.push(createDocxParagraphXml('HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN', true, true, 40));
-    paragraphs.push(createDocxParagraphXml('SERVICIO DE EMERGENCIAS Y MEDICINA INTERNA', true, true, 80));
     paragraphs.push(createDocxParagraphXml('ORDEN MEDICA', true, true, 180));
 
     const bed = options.hospitalWard || patient.cubicle || 'EMERGENCIA';
@@ -741,7 +737,13 @@ export async function generateCombinedNoteAndOrderDocx(
 
     const dietaOrderComb = orders.find(o => o.name.toLowerCase().includes('dieta'));
     const dietaStrComb = dietaOrderComb ? dietaOrderComb.name.toUpperCase().replace(/^DIETA\s+/i, '') : 'CORRIENTE';
-    paragraphs.push(createDocxParagraphXml(`MEDIDAS GENERALES: DIETA ${dietaStrComb}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`, false, false, 120));
+
+    const generalMeasuresComb = patient.generalMeasures && patient.generalMeasures.trim()
+      ? (patient.generalMeasures.trim().toUpperCase().startsWith('MEDIDAS GENERALES:')
+          ? patient.generalMeasures.trim().toUpperCase()
+          : `MEDIDAS GENERALES: ${patient.generalMeasures.trim().toUpperCase()}`)
+      : `MEDIDAS GENERALES: DIETA ${dietaStrComb}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`;
+    paragraphs.push(createDocxParagraphXml(generalMeasuresComb, false, false, 120));
 
     paragraphs.push(createDocxParagraphXml('DIAGNÓSTICOS:', true, false, 80));
     pureDiags.forEach(d => {
@@ -770,7 +772,14 @@ export async function generateCombinedNoteAndOrderDocx(
       paragraphs.push(createDocxParagraphXml('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', false, false, 60));
     }
 
-    paragraphs.push(createDocxParagraphXml('PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR', false, false, 100));
+    const paraclinicsComb = patient.requestedParaclinics && patient.requestedParaclinics.length > 0
+      ? `PARACLINICOS: ${patient.requestedParaclinics.join(', ').toUpperCase()}`
+      : 'PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR';
+    paragraphs.push(createDocxParagraphXml(paraclinicsComb, false, false, 100));
+
+    if (patient.requestedImaging && patient.requestedImaging.length > 0) {
+      paragraphs.push(createDocxParagraphXml(`IMAGENES: ${patient.requestedImaging.join(', ').toUpperCase()}`, false, false, 100));
+    }
 
     // Directrices farmacológicas (solo si se solicitan explícitamente)
     if (options.includeTherapeuticDiscussion === true) {
@@ -795,8 +804,6 @@ export async function generateCombinedNoteAndOrderDocx(
     // Firma Orden
     paragraphs.push(createDocxParagraphXml('', false, false, 160));
     paragraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
-    paragraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
-    paragraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
 
     // Ensamblar en XML
     const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);

@@ -65,7 +65,12 @@ export function generateIndividualMedicalOrder(patient: Patient, orders: Medical
   out += `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS.` : '--'} SALA: ${patient.cubicle ? patient.cubicle.toUpperCase() : 'CUBÍCULO 1'} FECHA: ${dateStr} HORA: ${timeStr}\n\n`;
 
   // MEDIDAS GENERALES
-  out += `MEDIDAS GENERALES: DIETA ${dietaStr.replace(/^DIETA\s+/i, '')}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.\n\n`;
+  if (patient.generalMeasures && patient.generalMeasures.trim()) {
+    const gm = patient.generalMeasures.trim().toUpperCase();
+    out += gm.startsWith('MEDIDAS GENERALES:') ? `${gm}\n\n` : `MEDIDAS GENERALES: ${gm}\n\n`;
+  } else {
+    out += `MEDIDAS GENERALES: DIETA ${dietaStr.replace(/^DIETA\s+/i, '')}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.\n\n`;
+  }
 
   // DIAGNÓSTICOS
   out += `DIAGNÓSTICOS:\n`;
@@ -97,7 +102,16 @@ export function generateIndividualMedicalOrder(patient: Patient, orders: Medical
   out += `\n`;
 
   // PARACLINICOS
-  out += `PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR\n`;
+  if (patient.requestedParaclinics && patient.requestedParaclinics.length > 0) {
+    out += `PARACLINICOS: ${patient.requestedParaclinics.join(', ').toUpperCase()}\n`;
+  } else {
+    out += `PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR\n`;
+  }
+
+  // IMÁGENES (si fueron seleccionadas)
+  if (patient.requestedImaging && patient.requestedImaging.length > 0) {
+    out += `\nIMAGENES: ${patient.requestedImaging.join(', ').toUpperCase()}\n`;
+  }
 
   return normalizeMedicalText(out);
 }
@@ -465,12 +479,6 @@ export function generateOfficialSoapEvolutionNote(
     out += `• Escalas Clínicas Registradas: ${scales.join(', ')}\n`;
   }
   out += `\n`;
-
-  out += `--------------------------------------------------------------------------------\n`;
-  out += `FIRMA MÉDICA OFICIAL:\n`;
-  out += `${docName.toUpperCase()}\n`;
-  out += `ESPECIALISTA EN MEDICINA INTERNA / EMERGENCIOLOGÍA\n`;
-  out += `${patient.clinicalHistory?.reasonForConsultation ? 'EXEQ. OFICIAL DE LEY' : 'REPÚBLICA DOMINICANA'}\n`;
 
   return normalizeMedicalText(out);
 }

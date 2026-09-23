@@ -544,6 +544,9 @@ export interface Patient {
   diagnosesList?: StructuredDiagnosis[];
   notesHistory?: ClinicalNoteRecord[];
   sourceDocuments?: SourceDocument[];
+  generalMeasures?: string;
+  requestedParaclinics?: string[];
+  requestedImaging?: string[];
 }
 
 export * from './clinicalHistoryPlanta';

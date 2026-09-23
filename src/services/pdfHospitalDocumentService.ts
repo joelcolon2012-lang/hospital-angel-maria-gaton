@@ -7,28 +7,20 @@ import { FALLBACK_LOGO_BASE64 } from './templatesFallback';
 import { authService } from './authService';
 
 /**
- * Estampa la firma institucional dinámica del médico en sesión al pie del documento PDF
+ * Estampa la línea de firma al pie del documento PDF (sin datos de doctor ni exequátur al imprimir)
  */
-function drawDoctorSignatureFooter(doc: jsPDF, y: number, patient?: Patient): number {
+function drawDoctorSignatureFooter(doc: jsPDF, y: number, _patient?: Patient): number {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   if (y > pageHeight - 25) {
     doc.addPage();
     y = 18;
   }
-  const sig = authService.getActiveDoctorSignature(patient?.attendingDoctor);
-  y += 4;
+  y += 6;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(30, 41, 59);
   doc.text('____________________________________', pageWidth / 2, y, { align: 'center' });
-  y += 4.5;
-  doc.text(sig.name.toUpperCase(), pageWidth / 2, y, { align: 'center' });
-  y += 4;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`${sig.exequatur.toUpperCase()} • ${sig.specialty.toUpperCase()} • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, pageWidth / 2, y, { align: 'center' });
   return y + 6;
 }
 
@@ -148,10 +140,17 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
 
   const dietaOrder = orders.find((o) => o.name.toLowerCase().includes('dieta'));
   const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase().replace(/^DIETA\s+/i, '') : 'CORRIENTE';
-  printWrapped(
-    'MEDIDAS GENERALES:',
-    `DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`
-  );
+
+  if (patient.generalMeasures && patient.generalMeasures.trim()) {
+    const gm = patient.generalMeasures.trim().toUpperCase();
+    const cleanGm = gm.replace(/^MEDIDAS GENERALES:\s*/i, '');
+    printWrapped('MEDIDAS GENERALES:', cleanGm);
+  } else {
+    printWrapped(
+      'MEDIDAS GENERALES:',
+      `DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`
+    );
+  }
 
   // 2. DIAGNÓSTICOS (Líneas individuales limpias)
   doc.setFont('helvetica', 'bold');
@@ -212,13 +211,22 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
   }
   y += 3;
 
-  // 5. PARACLÍNICOS (Línea estándar oficial de plantilla hospitalaria)
-  printWrapped(
-    'PARACLINICOS:',
-    'HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR'
-  );
+  // 5. PARACLÍNICOS (Línea estándar oficial o seleccionados)
+  if (patient.requestedParaclinics && patient.requestedParaclinics.length > 0) {
+    printWrapped('PARACLINICOS:', patient.requestedParaclinics.join(', ').toUpperCase());
+  } else {
+    printWrapped(
+      'PARACLINICOS:',
+      'HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR'
+    );
+  }
 
-  // Firma institucional del médico en turno
+  // 6. IMÁGENES (si fueron seleccionadas)
+  if (patient.requestedImaging && patient.requestedImaging.length > 0) {
+    printWrapped('IMAGENES:', patient.requestedImaging.join(', ').toUpperCase());
+  }
+
+  // Firma institucional
   y = drawDoctorSignatureFooter(doc, y + 4, patient);
 
   // Guardar archivo
@@ -532,7 +540,13 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   const dietaOrder = orders.find(o => o.name.toLowerCase().includes('dieta'));
   const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase().replace(/^DIETA\s+/i, '') : 'CORRIENTE';
 
-  printBlock(`MEDIDAS GENERALES: DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`, false, 8.5);
+  if (patient.generalMeasures && patient.generalMeasures.trim()) {
+    const gm = patient.generalMeasures.trim().toUpperCase();
+    const cleanGm = gm.replace(/^MEDIDAS GENERALES:\s*/i, '');
+    printBlock(`MEDIDAS GENERALES: ${cleanGm}`, false, 8.5);
+  } else {
+    printBlock(`MEDIDAS GENERALES: DIETA ${dietaStr}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.`, false, 8.5);
+  }
   y += 2;
 
   // Diagnósticos
@@ -580,7 +594,16 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   y += 3;
 
   // Paraclínicos
-  printBlock('PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR', false, 8);
+  if (patient.requestedParaclinics && patient.requestedParaclinics.length > 0) {
+    printBlock(`PARACLINICOS: ${patient.requestedParaclinics.join(', ').toUpperCase()}`, false, 8);
+  } else {
+    printBlock('PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR', false, 8);
+  }
+
+  // Imágenes
+  if (patient.requestedImaging && patient.requestedImaging.length > 0) {
+    printBlock(`IMAGENES: ${patient.requestedImaging.join(', ').toUpperCase()}`, false, 8);
+  }
 
   // Firma Orden Oficial
   y = drawDoctorSignatureFooter(doc, y + 4, patient);

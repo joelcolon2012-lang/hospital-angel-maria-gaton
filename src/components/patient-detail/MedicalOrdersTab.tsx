@@ -20,6 +20,11 @@ import {
   Pencil,
   Sparkles,
   Copy,
+  Search,
+  Activity,
+  FlaskConical,
+  Image as ImageIcon,
+  Settings2,
 } from 'lucide-react';
 import { downloadFileToPC, generateIndividualMedicalOrder } from '../../services/hospitalNoteGenerator';
 import { MedicalOrderPrintModal } from '../documents/MedicalOrderPrintModal';
@@ -34,6 +39,121 @@ export interface PreloadedMedication {
   frequency: string;
   indication: string;
 }
+
+export const PRELOADED_DIET_OPTIONS = [
+  'DIETA CORRIENTE',
+  'DIETA HIPOSÓDICA',
+  'DIETA DIABÉTICA / HIPOGLUCÍDICA',
+  'DIETA BLANDA',
+  'DIETA LÍQUIDA CLARA',
+  'DIETA HIPOPROTEICA',
+  'DIETA HIPOGRASA',
+  'DIETA ASTRINGENTE',
+  'NPO (NADA POR VÍA ORAL)',
+  'DIETA POR SONDA NASOGÁSTRICA',
+  'DIETA RENAL',
+];
+
+export const PRELOADED_POSITION_OPTIONS = [
+  'POSICION SEMI FOWLER',
+  'POSICION FOWLER A 45°',
+  'CABECERA ELEVADA A 30°',
+  'DECÚBITO LATERAL IZQUIERDO',
+  'DECÚBITO LATERAL DERECHO',
+  'DECÚBITO SUPINO / DORSAL',
+  'POSICIÓN DE TRENDELENBURG',
+];
+
+export const PRELOADED_CARE_OPTIONS = [
+  'MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS',
+  'MONITORIZACIÓN DE SIGNOS VITALES CADA 4 HORAS',
+  'MONITORIZACIÓN DE SIGNOS VITALES CADA 2 HORAS',
+  'MONITORIZACIÓN CONTINUA DE CONSTANTES VITALES',
+  'BARANDAS EN ALTO',
+  'OXIGENOTERAPIA: SOS SI SPO2 < 92% (CÁNULA NASAL A 2-3 L/MIN)',
+  'OXIGENOTERAPIA: MASCARILLA CON RESERVORIO A 10-15 L/MIN',
+  'BALANCE HÍDRICO ESTRICTO Y CONTROL DE DIURESIS HORARIA',
+  'GLICEMIAS CAPILARES PREPRANDIALES (C/6H)',
+  'VIGILANCIA ESTRICTA DE PATRÓN RESPIRATORIO Y SIGNOS DE ALARMA',
+  'CURVA TÉRMICA Y VIGILANCIA DE SANGRADO',
+];
+
+export const PRELOADED_PARACLINICS_OPTIONS = [
+  'HEMOGRAMA',
+  'TIPIFICACION',
+  'UREA',
+  'CREATININA',
+  'BUN',
+  'ELECTROLITOS',
+  'PROTEINA TOTALES',
+  'PERFIL LIPIDICO',
+  'AMILASA',
+  'LIPASA',
+  'TGO (AST)',
+  'TGP (ALT)',
+  'ALBUMINA',
+  'EXAMEN DE ORINA',
+  'RADIOGRAFIA DE TORAX',
+  'TP',
+  'TPT',
+  'INR',
+  'GASOMETRIA ARTERIAL',
+  'TROPONINAS',
+  'CPK / CPK-MB',
+  'DIMERO D',
+  'PROCERCALCITONINA / PCR',
+  'HIV',
+  'HEP B',
+  'HEP C',
+  'VDRL',
+  'ÁCIDO ÚRICO',
+  'CALCIO, MAGNESIO, FÓSFORO',
+  'HEMOGLOBINA GLICOSILADA (HbA1c)',
+  'UROCULTIVO',
+  'HEMOCULTIVOS (2 SETS)',
+  'COPROCULTIVO',
+];
+
+export const STANDARD_HOSPITAL_PARACLINICS = [
+  'HEMOGRAMA',
+  'TIPIFICACION',
+  'UREA',
+  'CREATININA',
+  'BUN',
+  'ELECTROLITOS',
+  'PROTEINA TOTALES',
+  'PERFIL LIPIDICO',
+  'AMILASA',
+  'LIPASA',
+  'HIV',
+  'HEP B',
+  'HEP C',
+  'VDRL',
+  'ALBUMINA',
+  'EXAMEN DE ORINA',
+  'RADIOGRAFIA DE TORAX',
+  'TP',
+  'TPT',
+  'INR',
+];
+
+export const PRELOADED_IMAGING_OPTIONS = [
+  'RADIOGRAFÍA DE TÓRAX (PA / AP)',
+  'RADIOGRAFÍA DE ABDOMEN SIMPLE (DE PIE Y DECÚBITO)',
+  'TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE',
+  'TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO CONTRASTADA',
+  'ANGIOTAC DE CRÁNEO Y CUELLO',
+  'TOMOGRAFÍA DE TÓRAX DE ALTA RESOLUCIÓN (TACAR)',
+  'TOMOGRAFÍA ABDOMINOPÉLVICA CONTRASTADA',
+  'ELECTROCARDIOGRAMA (EKG DE 12 DERIVACIONES)',
+  'ECOGRAFÍA ABDOMINAL COMPLETA',
+  'ECOGRAFÍA RENAL Y VESICAL',
+  'ECOCARDIOGRAMA TRANSTORÁCICO',
+  'ECO-DOPPLER VASCULAR DE MIEMBROS INFERIORES',
+  'RESONANCIA MAGNÉTICA (RMN) DE CRÁNEO',
+  'ENDOSCOPIA DIGESTIVA ALTA (EDA)',
+  'COLONOSCOPIA',
+];
 
 export const PRELOADED_HOSPITAL_MEDICATIONS: PreloadedMedication[] = [
   // Soluciones y Cristaloides
@@ -108,6 +228,7 @@ interface Props {
   onEditOrder?: (orderId: string, order: Partial<MedicalOrder>) => void;
   onUpdateOrderStatus: (orderId: string, status: OrderStatus) => void;
   onDeleteOrder: (orderId: string) => void;
+  onUpdatePatient?: (updatedData: Partial<Patient>) => void;
 }
 
 export const MedicalOrdersTab: React.FC<Props> = ({
@@ -117,6 +238,7 @@ export const MedicalOrdersTab: React.FC<Props> = ({
   onEditOrder,
   onUpdateOrderStatus,
   onDeleteOrder,
+  onUpdatePatient,
 }) => {
   const patientAllergies = patient.vitals?.allergies || [];
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -126,6 +248,30 @@ export const MedicalOrdersTab: React.FC<Props> = ({
   const [isTherapeuticDiscussionModalOpen, setIsTherapeuticDiscussionModalOpen] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [expandedDiscussion, setExpandedDiscussion] = useState<Record<string, boolean>>({});
+
+  // 1. MEDIDAS GENERALES STATE
+  const initialMeasures = patient.generalMeasures || 'MEDIDAS GENERALES: DIETA CORRIENTE, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.';
+  const [generalMeasuresText, setGeneralMeasuresText] = useState(initialMeasures);
+  const [isMeasuresSectionOpen, setIsMeasuresSectionOpen] = useState(true);
+  const [measuresFeedback, setMeasuresFeedback] = useState(false);
+
+  // 2. PARACLÍNICOS STATE
+  const initialParaclinics = patient.requestedParaclinics && patient.requestedParaclinics.length > 0
+    ? patient.requestedParaclinics
+    : STANDARD_HOSPITAL_PARACLINICS;
+  const [selectedParaclinics, setSelectedParaclinics] = useState<string[]>(initialParaclinics);
+  const [isParaclinicsDropdownOpen, setIsParaclinicsDropdownOpen] = useState(false);
+  const [paraclinicsSearch, setParaclinicsSearch] = useState('');
+  const [customParaclinicInput, setCustomParaclinicInput] = useState('');
+  const [paraclinicsFeedback, setParaclinicsFeedback] = useState(false);
+
+  // 3. IMÁGENES STATE
+  const initialImaging = patient.requestedImaging || [];
+  const [selectedImaging, setSelectedImaging] = useState<string[]>(initialImaging);
+  const [isImagingDropdownOpen, setIsImagingDropdownOpen] = useState(false);
+  const [imagingSearch, setImagingSearch] = useState('');
+  const [customImagingInput, setCustomImagingInput] = useState('');
+  const [imagingFeedback, setImagingFeedback] = useState(false);
 
   const [formData, setFormData] = useState({
     type: 'Medicamento' as OrderType,
@@ -349,6 +495,131 @@ export const MedicalOrdersTab: React.FC<Props> = ({
     setActiveDiscussion(null);
   };
 
+  // Helper to persist patient configuration
+  const persistPatientConfig = (updated: Partial<Patient>) => {
+    if (onUpdatePatient) {
+      onUpdatePatient(updated);
+    }
+  };
+
+  const handleSaveGeneralMeasures = (textToSave?: string) => {
+    const text = textToSave !== undefined ? textToSave : generalMeasuresText;
+    setGeneralMeasuresText(text);
+    persistPatientConfig({ generalMeasures: text });
+    setMeasuresFeedback(true);
+    setTimeout(() => setMeasuresFeedback(false), 2000);
+  };
+
+  const handleApplyDietOption = (diet: string) => {
+    let current = generalMeasuresText;
+    if (/DIETA\s+[^,]+/i.test(current)) {
+      current = current.replace(/DIETA\s+[^,]+/i, diet);
+    } else {
+      current = `MEDIDAS GENERALES: ${diet}, ${current.replace(/^MEDIDAS GENERALES:\s*/i, '')}`;
+    }
+    setGeneralMeasuresText(current);
+    handleSaveGeneralMeasures(current);
+  };
+
+  const handleApplyPositionOption = (pos: string) => {
+    let current = generalMeasuresText;
+    if (/POSICION\s+[^,]+|POSICIÓN\s+[^,]+|CABECERA\s+[^,]+|DECÚBITO\s+[^,]+|TRENDELENBURG/i.test(current)) {
+      current = current.replace(/POSICION\s+[^,]+|POSICIÓN\s+[^,]+|CABECERA\s+[^,]+|DECÚBITO\s+[^,]+|TRENDELENBURG/i, pos);
+    } else {
+      current = `${current.trim().replace(/\.?$/, '')}, ${pos}.`;
+    }
+    setGeneralMeasuresText(current);
+    handleSaveGeneralMeasures(current);
+  };
+
+  const handleToggleCareOption = (care: string) => {
+    let current = generalMeasuresText;
+    const careUpper = care.toUpperCase();
+    if (current.toUpperCase().includes(careUpper)) {
+      current = current.replace(new RegExp(`,?\\s*${careUpper}`, 'i'), '');
+    } else {
+      current = `${current.trim().replace(/\.?$/, '')}, ${care}.`;
+    }
+    current = current.replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ');
+    setGeneralMeasuresText(current);
+    handleSaveGeneralMeasures(current);
+  };
+
+  const handleToggleParaclinic = (test: string) => {
+    const testUpper = test.toUpperCase().trim();
+    let updated: string[];
+    if (selectedParaclinics.includes(testUpper)) {
+      updated = selectedParaclinics.filter((p) => p !== testUpper);
+    } else {
+      updated = [...selectedParaclinics, testUpper];
+    }
+    setSelectedParaclinics(updated);
+    persistPatientConfig({ requestedParaclinics: updated });
+    setParaclinicsFeedback(true);
+    setTimeout(() => setParaclinicsFeedback(false), 1500);
+  };
+
+  const handleSelectAllHospitalParaclinics = () => {
+    setSelectedParaclinics(STANDARD_HOSPITAL_PARACLINICS);
+    persistPatientConfig({ requestedParaclinics: STANDARD_HOSPITAL_PARACLINICS });
+    setParaclinicsFeedback(true);
+    setTimeout(() => setParaclinicsFeedback(false), 2000);
+  };
+
+  const handleClearParaclinics = () => {
+    setSelectedParaclinics([]);
+    persistPatientConfig({ requestedParaclinics: [] });
+  };
+
+  const handleAddCustomParaclinic = () => {
+    if (!customParaclinicInput.trim()) return;
+    const item = customParaclinicInput.trim().toUpperCase();
+    if (!selectedParaclinics.includes(item)) {
+      const updated = [...selectedParaclinics, item];
+      setSelectedParaclinics(updated);
+      persistPatientConfig({ requestedParaclinics: updated });
+    }
+    setCustomParaclinicInput('');
+  };
+
+  const handleToggleImaging = (study: string) => {
+    const studyUpper = study.toUpperCase().trim();
+    let updated: string[];
+    if (selectedImaging.includes(studyUpper)) {
+      updated = selectedImaging.filter((s) => s !== studyUpper);
+    } else {
+      updated = [...selectedImaging, studyUpper];
+    }
+    setSelectedImaging(updated);
+    persistPatientConfig({ requestedImaging: updated });
+    setImagingFeedback(true);
+    setTimeout(() => setImagingFeedback(false), 1500);
+  };
+
+  const handleClearImaging = () => {
+    setSelectedImaging([]);
+    persistPatientConfig({ requestedImaging: [] });
+  };
+
+  const handleAddCustomImaging = () => {
+    if (!customImagingInput.trim()) return;
+    const item = customImagingInput.trim().toUpperCase();
+    if (!selectedImaging.includes(item)) {
+      const updated = [...selectedImaging, item];
+      setSelectedImaging(updated);
+      persistPatientConfig({ requestedImaging: updated });
+    }
+    setCustomImagingInput('');
+  };
+
+  const filteredParaclinics = PRELOADED_PARACLINICS_OPTIONS.filter((p) =>
+    p.toLowerCase().includes(paraclinicsSearch.toLowerCase())
+  );
+
+  const filteredImaging = PRELOADED_IMAGING_OPTIONS.filter((i) =>
+    i.toLowerCase().includes(imagingSearch.toLowerCase())
+  );
+
   return (
     <div className="space-y-4 pb-12">
       {/* Top Action Bar */}
@@ -451,144 +722,551 @@ export const MedicalOrdersTab: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Orders List */}
-      {orders.length === 0 ? (
-        <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-500 text-xs">
-          <Pill className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-          <p className="font-bold text-slate-700 text-sm">No hay órdenes médicas prescritas</p>
-          <p className="text-xs text-slate-400 mt-1">Presiona "Nueva Orden" para prescribir medicamentos o soluciones.</p>
+      {/* 1. SECCIÓN: MEDIDAS GENERALES */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div
+          onClick={() => setIsMeasuresSectionOpen(!isMeasuresSectionOpen)}
+          className="p-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-teal-700" />
+            <h3 className="text-xs font-black uppercase text-slate-800 tracking-wide">
+              1. Medidas Generales (Dietas, Posición y Monitorización)
+            </h3>
+            {measuresFeedback && (
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Check className="w-3 h-3" /> ¡Guardado!
+              </span>
+            )}
+          </div>
+          <button type="button" className="text-slate-400 hover:text-slate-600">
+            {isMeasuresSectionOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {orders.map((ord) => {
-            const discussion = getTherapeuticDiscussion(ord.name);
-            const isExpanded = !!expandedDiscussion[ord.id];
 
-            return (
-              <div
-                key={ord.id}
-                className={`bg-white rounded-2xl border p-4 shadow-sm space-y-3 ${
-                  ord.allergyWarningIgnored ? 'border-amber-400 bg-amber-50/20' : 'border-slate-200'
-                }`}
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-black text-slate-900">{ord.name}</span>
-                      <span className="text-[10px] font-bold uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                        {ord.type}
-                      </span>
-                      {ord.allergyWarningIgnored && (
-                        <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          Alerta Justificada
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                      <strong>Dosis: </strong>{ord.dose} • <strong>Vía: </strong>{ord.route} • <strong>Frecuencia: </strong>{ord.frequency}
-                    </p>
-                    {ord.indication && (
-                      <p className="text-xs text-slate-500 mt-0.5">Indicación: {ord.indication}</p>
-                    )}
-                    {ord.allergyOverrideReason && (
-                      <p className="text-[11px] text-amber-800 font-semibold mt-1 bg-amber-50 p-1.5 rounded-lg border border-amber-200">
-                        Justificación médica: {ord.allergyOverrideReason}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Status and actions */}
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={ord.status}
-                      onChange={(e) => onUpdateOrderStatus(ord.id, e.target.value as OrderStatus)}
-                      className={`text-xs font-bold px-2.5 py-1.5 rounded-xl border cursor-pointer ${
-                        ord.status === 'Completada'
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                          : ord.status === 'Administrada'
-                          ? 'bg-blue-100 text-blue-800 border-blue-300'
-                          : ord.status === 'Suspendida'
-                          ? 'bg-slate-200 text-slate-700 border-slate-300'
-                          : 'bg-amber-100 text-amber-800 border-amber-300'
+        {isMeasuresSectionOpen && (
+          <div className="p-4 space-y-3.5">
+            {/* Opciones Rápidas Preestablecidas */}
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  🥗 Dietas Preestablecidas (Haz clic para aplicar):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRELOADED_DIET_OPTIONS.map((diet, idx) => (
+                    <button
+                      key={`diet-${idx}`}
+                      type="button"
+                      onClick={() => handleApplyDietOption(diet)}
+                      className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all active:scale-95 ${
+                        generalMeasuresText.toUpperCase().includes(diet)
+                          ? 'bg-teal-700 text-white border-teal-700 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-teal-50 hover:border-teal-300'
                       }`}
                     >
-                      <option value="Indicada">Indicada</option>
-                      <option value="Administrada">Administrada</option>
-                      <option value="Completada">Completada</option>
-                      <option value="Suspendida">Suspendida</option>
-                    </select>
-
-                    <button
-                      type="button"
-                      onClick={() => handleStartEditOrder(ord)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-teal-800 hover:text-white hover:bg-[#0F4C5C] border border-teal-300 hover:border-[#0F4C5C] rounded-lg transition-all shadow-xs active:scale-95"
-                      title="Modificar fármaco, dosis, vía, frecuencia o indicación"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      <span>Modificar</span>
+                      {diet}
                     </button>
-
-                    <button
-                      onClick={() => onDeleteOrder(ord.id)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 hover:border-red-600 rounded-lg transition-all shadow-xs active:scale-95"
-                      title="Eliminar esta orden médica"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Eliminar</span>
-                    </button>
-                  </div>
+                  ))}
                 </div>
-
-                {/* DISCUSIÓN TERAPÉUTICA BASADA EN GUÍAS */}
-                {discussion && (
-                  <div className="pt-2 border-t border-slate-100">
-                    <button
-                      type="button"
-                      onClick={() => toggleDiscussion(ord.id)}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-800 hover:text-teal-950 transition-colors"
-                    >
-                      <BookOpen className="w-3.5 h-3.5 text-teal-600" />
-                      <span>Discusión Terapéutica Basada en Guías Clínicas ({discussion.primaryGuide.split('(')[0]})</span>
-                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-
-                    {isExpanded && (
-                      <div className="mt-2 p-3 bg-teal-50/70 border border-teal-200 rounded-xl text-xs text-slate-700 space-y-2 leading-relaxed">
-                        <div className="font-bold text-teal-950 flex items-center gap-1.5">
-                          <span>Guía de Referencia:</span>
-                          <span className="font-semibold text-teal-800">{discussion.primaryGuide}</span>
-                        </div>
-
-                        <div>
-                          <strong>Mecanismo y Justificación:</strong> {discussion.therapeuticRationale}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                          <div className="bg-white p-2 rounded-lg border border-teal-100">
-                            <strong>Dosis recomendada:</strong> {discussion.recommendedDose}
-                          </div>
-                          <div className="bg-white p-2 rounded-lg border border-teal-100">
-                            <strong>Ajuste renal / hepático:</strong> {discussion.renalHepaticAdjustment}
-                          </div>
-                        </div>
-
-                        <div>
-                          <strong>Seguridad y Monitoreo:</strong> {discussion.monitoringAndSafety}
-                        </div>
-
-                        <div className="bg-white/80 p-2.5 rounded-lg border border-teal-200/80 text-[11px] text-teal-950 italic">
-                          "{discussion.discussionSummary}"
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
-            );
-          })}
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  🛏️ Posición Preestablecida:
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRELOADED_POSITION_OPTIONS.map((pos, idx) => (
+                    <button
+                      key={`pos-${idx}`}
+                      type="button"
+                      onClick={() => handleApplyPositionOption(pos)}
+                      className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all active:scale-95 ${
+                        generalMeasuresText.toUpperCase().includes(pos)
+                          ? 'bg-sky-700 text-white border-sky-700 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-sky-50 hover:border-sky-300'
+                      }`}
+                    >
+                      {pos}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  🩺 Cuidados y Monitorización Hospitalaria:
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRELOADED_CARE_OPTIONS.map((care, idx) => {
+                    const isSelected = generalMeasuresText.toUpperCase().includes(care.toUpperCase());
+                    return (
+                      <button
+                        key={`care-${idx}`}
+                        type="button"
+                        onClick={() => handleToggleCareOption(care)}
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all active:scale-95 ${
+                          isSelected
+                            ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                        }`}
+                      >
+                        {isSelected ? '✓ ' : '+ '}{care}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Textarea Editable de Medidas Generales */}
+            <div className="space-y-1.5 pt-1 border-t border-slate-100">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700">
+                  Texto de Medidas Generales (Editable libremente):
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleSaveGeneralMeasures()}
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Guardar Medidas</span>
+                </button>
+              </div>
+              <textarea
+                value={generalMeasuresText}
+                onChange={(e) => setGeneralMeasuresText(e.target.value)}
+                onBlur={() => handleSaveGeneralMeasures()}
+                rows={3}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs font-medium text-slate-900 focus:bg-white focus:ring-2 focus:ring-teal-600 focus:border-teal-600 outline-hidden transition-all shadow-inner"
+                placeholder="MEDIDAS GENERALES: DIETA CORRIENTE, POSICION SEMI FOWLER..."
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 2. SECCIÓN: FARMACOTERAPIA Y SOLUCIONES */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Pill className="w-4 h-4 text-teal-700" />
+            <h3 className="text-xs font-black uppercase text-slate-800 tracking-wide">
+              2. Farmacoterapia y Soluciones Prescritas ({orders.length})
+            </h3>
+          </div>
         </div>
-      )}
+
+        {/* Orders List */}
+        {orders.length === 0 ? (
+          <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-500 text-xs">
+            <Pill className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <p className="font-bold text-slate-700 text-sm">No hay órdenes médicas prescritas</p>
+            <p className="text-xs text-slate-400 mt-1">Presiona "Nueva Orden" o "Actualizar Rápido" para prescribir medicamentos o soluciones.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {orders.map((ord) => {
+              const discussion = getTherapeuticDiscussion(ord.name);
+              const isExpanded = !!expandedDiscussion[ord.id];
+
+              return (
+                <div
+                  key={ord.id}
+                  className={`bg-white rounded-2xl border p-4 shadow-sm space-y-3 ${
+                    ord.allergyWarningIgnored ? 'border-amber-400 bg-amber-50/20' : 'border-slate-200'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-black text-slate-900">{ord.name}</span>
+                        <span className="text-[10px] font-bold uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                          {ord.type}
+                        </span>
+                        {ord.allergyWarningIgnored && (
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            Alerta Justificada
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        <strong>Dosis: </strong>{ord.dose} • <strong>Vía: </strong>{ord.route} • <strong>Frecuencia: </strong>{ord.frequency}
+                      </p>
+                      {ord.indication && (
+                        <p className="text-xs text-slate-500 mt-0.5">Indicación: {ord.indication}</p>
+                      )}
+                      {ord.allergyOverrideReason && (
+                        <p className="text-[11px] text-amber-800 font-semibold mt-1 bg-amber-50 p-1.5 rounded-lg border border-amber-200">
+                          Justificación médica: {ord.allergyOverrideReason}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Status and actions */}
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={ord.status}
+                        onChange={(e) => onUpdateOrderStatus(ord.id, e.target.value as OrderStatus)}
+                        className={`text-xs font-bold px-2.5 py-1.5 rounded-xl border cursor-pointer ${
+                          ord.status === 'Completada'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : ord.status === 'Administrada'
+                            ? 'bg-blue-100 text-blue-800 border-blue-300'
+                            : ord.status === 'Suspendida'
+                            ? 'bg-slate-200 text-slate-700 border-slate-300'
+                            : 'bg-amber-100 text-amber-800 border-amber-300'
+                        }`}
+                      >
+                        <option value="Indicada">Indicada</option>
+                        <option value="Administrada">Administrada</option>
+                        <option value="Completada">Completada</option>
+                        <option value="Suspendida">Suspendida</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditOrder(ord)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-teal-800 hover:text-white hover:bg-[#0F4C5C] border border-teal-300 hover:border-[#0F4C5C] rounded-lg transition-all shadow-xs active:scale-95"
+                        title="Modificar fármaco, dosis, vía, frecuencia o indicación"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Modificar</span>
+                      </button>
+
+                      <button
+                        onClick={() => onDeleteOrder(ord.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 hover:border-red-600 rounded-lg transition-all shadow-xs active:scale-95"
+                        title="Eliminar esta orden médica"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* DISCUSIÓN TERAPÉUTICA BASADA EN GUÍAS */}
+                  {discussion && (
+                    <div className="pt-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => toggleDiscussion(ord.id)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-800 hover:text-teal-950 transition-colors"
+                      >
+                        <BookOpen className="w-3.5 h-3.5 text-teal-600" />
+                        <span>Discusión Terapéutica Basada en Guías Clínicas ({discussion.primaryGuide.split('(')[0]})</span>
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+
+                      {isExpanded && (
+                        <div className="mt-2 p-3 bg-teal-50/70 border border-teal-200 rounded-xl text-xs text-slate-700 space-y-2 leading-relaxed">
+                          <div className="font-bold text-teal-950 flex items-center gap-1.5">
+                            <span>Guía de Referencia:</span>
+                            <span className="font-semibold text-teal-800">{discussion.primaryGuide}</span>
+                          </div>
+
+                          <div>
+                            <strong>Mecanismo y Justificación:</strong> {discussion.therapeuticRationale}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            <div className="bg-white p-2 rounded-lg border border-teal-100">
+                              <strong>Dosis recomendada:</strong> {discussion.recommendedDose}
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-teal-100">
+                              <strong>Ajuste renal / hepático:</strong> {discussion.renalHepaticAdjustment}
+                            </div>
+                          </div>
+
+                          <div>
+                            <strong>Seguridad y Monitoreo:</strong> {discussion.monitoringAndSafety}
+                          </div>
+
+                          <div className="bg-white/80 p-2.5 rounded-lg border border-teal-200/80 text-[11px] text-teal-950 italic">
+                            "{discussion.discussionSummary}"
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 3. SECCIÓN: PARACLÍNICOS SOLICITADOS */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+          <div className="flex items-center gap-2">
+            <FlaskConical className="w-4 h-4 text-teal-700" />
+            <h3 className="text-xs font-black uppercase text-slate-800 tracking-wide">
+              3. Paraclínicos Solicitados
+            </h3>
+            <span className="text-[10px] font-bold bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full">
+              {selectedParaclinics.length} seleccionados
+            </span>
+            {paraclinicsFeedback && (
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Check className="w-3 h-3" /> ¡Actualizado!
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSelectAllHospitalParaclinics}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg transition-all active:scale-95"
+              title="Selecciona el paquete estándar de 20 paraclínicos oficiales del hospital"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              <span>⭐️ Paquete Oficial Hospital (20)</span>
+            </button>
+            {selectedParaclinics.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearParaclinics}
+                className="text-[11px] font-semibold text-red-600 hover:text-red-800 px-2 py-1"
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Dropdown Multi-Selección de Paraclínicos */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsParaclinicsDropdownOpen(!isParaclinicsDropdownOpen)}
+            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-700 flex items-center justify-between transition-all"
+          >
+            <span className="flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-slate-400" />
+              <span>Desplegar menú multi-selección de pruebas ({PRELOADED_PARACLINICS_OPTIONS.length} disponibles)...</span>
+            </span>
+            {isParaclinicsDropdownOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+          </button>
+
+          {isParaclinicsDropdownOpen && (
+            <div className="absolute z-20 top-full left-0 right-0 mt-1.5 bg-white rounded-2xl border border-slate-200 shadow-xl p-3 space-y-2 max-h-72 overflow-y-auto">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  value={paraclinicsSearch}
+                  onChange={(e) => setParaclinicsSearch(e.target.value)}
+                  placeholder="Buscar prueba (ej: Hemograma, Tipificación, Urea...)"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs font-medium focus:bg-white focus:ring-2 focus:ring-teal-600 outline-hidden"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 pt-1">
+                {filteredParaclinics.map((test, idx) => {
+                  const isChecked = selectedParaclinics.includes(test);
+                  return (
+                    <label
+                      key={`paraclinic-${idx}`}
+                      className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                        isChecked ? 'bg-teal-50 text-teal-950 font-bold border border-teal-200' : 'hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleToggleParaclinic(test)}
+                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="truncate">{test}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Selected Paraclinics Chips */}
+        {selectedParaclinics.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {selectedParaclinics.map((p, idx) => (
+              <span
+                key={`p-chip-${idx}`}
+                className="inline-flex items-center gap-1.5 text-xs font-bold bg-teal-50 text-teal-900 border border-teal-200 px-2.5 py-1 rounded-lg"
+              >
+                <span>{p}</span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleParaclinic(p)}
+                  className="text-teal-500 hover:text-red-600 hover:bg-white rounded-full p-0.5 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 italic">No hay paraclínicos seleccionados para esta orden.</p>
+        )}
+
+        {/* Add Custom Paraclinic Input */}
+        <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+          <input
+            type="text"
+            value={customParaclinicInput}
+            onChange={(e) => setCustomParaclinicInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddCustomParaclinic();
+              }
+            }}
+            placeholder="Añadir prueba o laboratorio personalizado..."
+            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:bg-white focus:ring-2 focus:ring-teal-600 outline-hidden"
+          />
+          <button
+            type="button"
+            onClick={handleAddCustomParaclinic}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition-all active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Agregar</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 4. SECCIÓN: IMÁGENES Y ESTUDIOS */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-sky-700" />
+            <h3 className="text-xs font-black uppercase text-slate-800 tracking-wide">
+              4. Imágenes y Estudios Diagnósticos
+            </h3>
+            <span className="text-[10px] font-bold bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full">
+              {selectedImaging.length} seleccionados
+            </span>
+            {imagingFeedback && (
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Check className="w-3 h-3" /> ¡Actualizado!
+              </span>
+            )}
+          </div>
+
+          {selectedImaging.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearImaging}
+              className="text-[11px] font-semibold text-red-600 hover:text-red-800 px-2 py-1"
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+
+        {/* Dropdown Multi-Selección de Imágenes */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsImagingDropdownOpen(!isImagingDropdownOpen)}
+            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-700 flex items-center justify-between transition-all"
+          >
+            <span className="flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-slate-400" />
+              <span>Desplegar menú multi-selección de imágenes ({PRELOADED_IMAGING_OPTIONS.length} disponibles)...</span>
+            </span>
+            {isImagingDropdownOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+          </button>
+
+          {isImagingDropdownOpen && (
+            <div className="absolute z-20 top-full left-0 right-0 mt-1.5 bg-white rounded-2xl border border-slate-200 shadow-xl p-3 space-y-2 max-h-72 overflow-y-auto">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  value={imagingSearch}
+                  onChange={(e) => setImagingSearch(e.target.value)}
+                  placeholder="Buscar imagen (ej: Radiografía, TAC, Ecografía, EKG...)"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs font-medium focus:bg-white focus:ring-2 focus:ring-sky-600 outline-hidden"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                {filteredImaging.map((study, idx) => {
+                  const isChecked = selectedImaging.includes(study);
+                  return (
+                    <label
+                      key={`imaging-${idx}`}
+                      className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                        isChecked ? 'bg-sky-50 text-sky-950 font-bold border border-sky-200' : 'hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleToggleImaging(study)}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span className="truncate">{study}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Selected Imaging Chips */}
+        {selectedImaging.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {selectedImaging.map((img, idx) => (
+              <span
+                key={`img-chip-${idx}`}
+                className="inline-flex items-center gap-1.5 text-xs font-bold bg-sky-50 text-sky-900 border border-sky-200 px-2.5 py-1 rounded-lg"
+              >
+                <span>{img}</span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleImaging(img)}
+                  className="text-sky-500 hover:text-red-600 hover:bg-white rounded-full p-0.5 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 italic">No hay imágenes ni estudios seleccionados para esta orden.</p>
+        )}
+
+        {/* Add Custom Imaging Input */}
+        <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+          <input
+            type="text"
+            value={customImagingInput}
+            onChange={(e) => setCustomImagingInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddCustomImaging();
+              }
+            }}
+            placeholder="Añadir estudio o imagen personalizada..."
+            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:bg-white focus:ring-2 focus:ring-sky-600 outline-hidden"
+          />
+          <button
+            type="button"
+            onClick={handleAddCustomImaging}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition-all active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Agregar</span>
+          </button>
+        </div>
+      </div>
 
       {/* Bottom Save & Download Button */}
       <div className="flex justify-end pt-2">

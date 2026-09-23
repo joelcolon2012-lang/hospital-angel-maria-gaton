@@ -1097,6 +1097,7 @@ export default function App() {
                   onEditOrder={handleEditOrder}
                   onUpdateOrderStatus={handleUpdateOrderStatus}
                   onDeleteOrder={handleDeleteOrder}
+                  onUpdatePatient={(updatedData) => handleEditPatient(updatedData, [])}
                 />
               )}
               {activeDossierTab === 'evolutions' && (
