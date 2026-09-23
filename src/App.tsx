@@ -72,6 +72,7 @@ import { StrokeAutoPromptModal } from './components/stroke/StrokeAutoPromptModal
 import { strokeRegistryService } from './services/strokeRegistryService';
 import { guardiaAppService } from './services/guardiaAppService';
 import { cloudSyncService } from './services/cloudSyncService';
+import { appVersionService } from './services/appVersionService';
 
 import {
   Activity,
@@ -147,6 +148,14 @@ export default function App() {
   // Side-by-side compare
   const [compareStudy1, setCompareStudy1] = useState<MedicalStudy | null>(null);
   const [compareStudy2, setCompareStudy2] = useState<MedicalStudy | null>(null);
+  const [hasAppUpdate, setHasAppUpdate] = useState(false);
+
+  useEffect(() => {
+    const unsub = appVersionService.subscribe((updateAvail) => {
+      setHasAppUpdate(updateAvail);
+    });
+    return unsub;
+  }, []);
 
   // Load database
   const refreshData = async () => {
@@ -903,6 +912,22 @@ export default function App() {
 
       {/* Main Content Viewport */}
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
+        {/* Banner de Actualización Disponible para iPhone y Navegadores */}
+        {hasAppUpdate && (
+          <div className="bg-gradient-to-r from-teal-700 via-[#0F4C5C] to-emerald-700 text-white px-4 py-2 flex items-center justify-between shadow-md z-40 animate-pulse">
+            <div className="flex items-center gap-2 text-xs font-bold">
+              <Sparkles className="w-4 h-4 text-emerald-300 shrink-0" />
+              <span>¡Nueva versión disponible con las últimas actualizaciones!</span>
+            </div>
+            <button
+              onClick={() => appVersionService.forceUpdateApp()}
+              className="px-3 py-1 bg-white text-teal-900 rounded-xl text-xs font-black hover:bg-emerald-50 active:scale-95 transition-all shadow-xs shrink-0 cursor-pointer"
+            >
+              🔄 Actualizar Ahora
+            </button>
+          </div>
+        )}
+
         {/* Compact Apple-style Header */}
         <Header
           currentUser={currentUser}

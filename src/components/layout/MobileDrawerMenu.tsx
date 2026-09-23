@@ -18,9 +18,11 @@ import {
   FileCheck, 
   Stethoscope, 
   ShieldAlert,
-  Search
+  Search,
+  RefreshCw
 } from 'lucide-react';
 import { User } from '../../types';
+import { appVersionService } from '../../services/appVersionService';
 
 interface MobileDrawerMenuProps {
   isOpen: boolean;
@@ -266,6 +268,18 @@ export const MobileDrawerMenu: React.FC<MobileDrawerMenuProps> = ({
             >
               <Settings className="w-4 h-4 text-slate-500" />
               <span>Configuración del Hospital</span>
+            </button>
+
+            {/* Forzar Actualización / Limpiar Caché en iPhone */}
+            <button
+              onClick={() => {
+                appVersionService.forceUpdateApp();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-left text-teal-900 border border-teal-200 font-bold text-xs active:scale-95 transition-all"
+              title="Limpia la caché de Safari / iPhone y carga la última versión desplegada"
+            >
+              <RefreshCw className="w-4 h-4 text-teal-700 animate-spin-slow" />
+              <span>Actualizar App / Limpiar Caché</span>
             </button>
           </div>
         </div>

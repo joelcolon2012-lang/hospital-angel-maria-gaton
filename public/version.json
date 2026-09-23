@@ -1,0 +1,11 @@
+{
+  "version": "2.5.0",
+  "buildTime": 1790131500000,
+  "buildDate": "2026-09-22T22:45:00Z",
+  "features": [
+    "Medidas Generales editables con chips preestablecidos",
+    "Paraclínicos e Imágenes multi-selección con 20 pruebas estándar",
+    "Impresión Directa Oficial 1:1 sin demoras ni descargas obligatorias",
+    "Limpieza de encabezado y pie de firma anónima oficial"
+  ]
+}
