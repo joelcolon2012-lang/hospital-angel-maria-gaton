@@ -520,7 +520,7 @@ export async function generateMedicalOrderDocx(
     const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS` : 'N/D'}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
 
     const v = patient.vitals || {};
-    const vitalsLine = formatClinicalVitals(v).summaryLine;
+    const vitalsLine = formatClinicalVitals(v, true).summaryLine;
 
     let diagnosesLines = 'DIAGNÓSTICOS:\n';
     if (patient.diagnosesList && patient.diagnosesList.length > 0) {
@@ -550,34 +550,41 @@ export async function generateMedicalOrderDocx(
       createDocxParagraphXml('MEDICACIÓN Y SOLUCIONES:', true, false, 100),
     ];
 
-    if (solutions.length > 0) {
-      solutions.forEach(s => {
-        const d = (s.dose || '').toUpperCase();
-        const r = (s.route || '').toUpperCase();
-        const f = (s.frequency || '').toUpperCase();
-        newParagraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
-      });
-    }
+    if (solutions.length > 0 || medications.length > 0) {
+      if (solutions.length > 0) {
+        solutions.forEach(s => {
+          const d = (s.dose || '').toUpperCase();
+          const r = (s.route || '').toUpperCase();
+          const f = (s.frequency || '').toUpperCase();
+          newParagraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
+        });
+      }
 
-    if (medications.length > 0) {
-      medications.forEach(m => {
-        const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
-        const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
-        const d = (m.dose || '').toUpperCase();
-        const r = (m.route || 'EV').toUpperCase();
-        const f = (m.frequency || '').toUpperCase();
-        newParagraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
-      });
-    } else if (solutions.length === 0) {
-      newParagraphs.push(createDocxParagraphXml('• SOLUCIÓN SALINA AL 0.9% 1000 ML C/24 HORAS EV A 42 GOTAS/MINUTO', false, false, 60));
+      if (medications.length > 0) {
+        medications.forEach(m => {
+          const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
+          const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
+          const d = (m.dose || '').toUpperCase();
+          const r = (m.route || 'EV').toUpperCase();
+          const f = (m.frequency || '').toUpperCase();
+          newParagraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
+        });
+      }
+    } else {
+      newParagraphs.push(createDocxParagraphXml('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', false, false, 60));
     }
 
     if (paraclinics.length > 0) {
-      newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS Y ESTUDIOS SOLICITADOS:', true, false, 100));
+      newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS Y ESTUDIOS ESPECÍFICOS REGISTRADOS:', true, false, 100));
       paraclinics.forEach(p => {
         newParagraphs.push(createDocxParagraphXml(`• ${p.name.toUpperCase()} (${(p.type || 'ESTUDIO').toUpperCase()})`, false, false, 60));
       });
     }
+
+    newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS, IMÁGENES E INTERCONSULTAS:', true, false, 100));
+    newParagraphs.push(createDocxParagraphXml('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.', false, false, 60));
+    newParagraphs.push(createDocxParagraphXml('IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.', false, false, 60));
+    newParagraphs.push(createDocxParagraphXml('INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.', false, false, 60));
 
     // Directrices farmacológicas (solo si se solicitan explícitamente)
     if (options.includeTherapeuticDiscussion === true) {
@@ -747,7 +754,7 @@ export async function generateCombinedNoteAndOrderDocx(
     const headerLineOrder = `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${ageText}. SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
     paragraphs.push(createDocxParagraphXml(headerLineOrder, true, false, 140));
 
-    const vitalsLine = vitalsResult.summaryLine;
+    const vitalsLine = formatClinicalVitals(v, true).summaryLine;
     paragraphs.push(createDocxParagraphXml('MEDIDAS GENERALES: DIETA ADECUADA SEGÚN CONDICIÓN, CABECERA A 30°, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.', false, false, 120));
 
     let diagnosesLines = 'DIAGNÓSTICOS ACTIVOS:\n' + pureDiags.map((d, i) => `${i + 1}. ${d.toUpperCase()}`).join('\n');
@@ -760,28 +767,28 @@ export async function generateCombinedNoteAndOrderDocx(
     const medications = orders.filter(o => o.type === 'Medicamento');
     const paraclinics = orders.filter(o => o.type === 'Estudio' || o.type === 'Procedimiento' || o.type === 'Interconsulta');
 
-    if (solutions.length > 0) {
-      solutions.forEach(s => {
-        const d = (s.dose || '').toUpperCase();
-        const r = (s.route || '').toUpperCase();
-        const f = (s.frequency || '').toUpperCase();
-        paragraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
-      });
-    } else {
-      paragraphs.push(createDocxParagraphXml('• SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV CON FINES DE HIDRATACIÓN', false, false, 60));
-    }
+    if (solutions.length > 0 || medications.length > 0) {
+      if (solutions.length > 0) {
+        solutions.forEach(s => {
+          const d = (s.dose || '').toUpperCase();
+          const r = (s.route || '').toUpperCase();
+          const f = (s.frequency || '').toUpperCase();
+          paragraphs.push(createDocxParagraphXml(`• ${s.name.toUpperCase()} ${d} ${r} ${f}`.trim(), false, false, 60));
+        });
+      }
 
-    if (medications.length > 0) {
-      medications.forEach(m => {
-        const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
-        const d = (m.dose || '').toUpperCase();
-        const r = (m.route || 'EV').toUpperCase();
-        const f = (m.frequency || '').toUpperCase();
-        const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
-        paragraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
-      });
+      if (medications.length > 0) {
+        medications.forEach(m => {
+          const pres = m.presentation ? `(${m.presentation.toUpperCase()}) ` : '';
+          const d = (m.dose || '').toUpperCase();
+          const r = (m.route || 'EV').toUpperCase();
+          const f = (m.frequency || '').toUpperCase();
+          const dayText = m.treatmentDay ? ` [DÍA ${m.treatmentDay}]` : '';
+          paragraphs.push(createDocxParagraphXml(`• ${m.name.toUpperCase()} ${pres}${d} ${r} ${f}${dayText}`.trim(), false, false, 60));
+        });
+      }
     } else {
-      paragraphs.push(createDocxParagraphXml('• OMEPRAZOL 40 MG C/24 HORAS EV GASTROPROTECCIÓN', false, false, 60));
+      paragraphs.push(createDocxParagraphXml('• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', false, false, 60));
     }
 
     if (paraclinics.length > 0) {
@@ -790,6 +797,11 @@ export async function generateCombinedNoteAndOrderDocx(
         paragraphs.push(createDocxParagraphXml(`• ${p.name.toUpperCase()} (${(p.type || 'ESTUDIO').toUpperCase()})`, false, false, 60));
       });
     }
+
+    paragraphs.push(createDocxParagraphXml('PARACLÍNICOS, IMÁGENES E INTERCONSULTAS:', true, false, 80));
+    paragraphs.push(createDocxParagraphXml('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.', false, false, 60));
+    paragraphs.push(createDocxParagraphXml('IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.', false, false, 60));
+    paragraphs.push(createDocxParagraphXml('INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.', false, false, 60));
 
     // Directrices farmacológicas (solo si se solicitan explícitamente)
     if (options.includeTherapeuticDiscussion === true) {
@@ -944,7 +956,7 @@ export async function generateEvolutionDocx(
     const headerLine = `NOMBRE: ${patient.fullName.toUpperCase()}  EDAD: ${patient.age ? `${patient.age} AÑOS` : 'N/D'}  SALA: ${bed.toUpperCase()}  FECHA: ${date}  HORA: ${time}`;
 
     const v = patient.vitals || {};
-    const vitalsLine = `SIGNOS VITALES DEL TURNO: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG | FC: ${v.heartRate || '78'} LPM | FR: ${v.respiratoryRate || '18'} RPM | SPO2: ${v.oxygenSaturation || '98'}% AA | TEMP: ${v.temperature || '36.8'} °C | GLICEMIA: ${v.bloodGlucose || '95'} MG/DL`;
+    const vitalsLine = `SIGNOS VITALES DEL TURNO: ${formatClinicalVitals(v).summaryLine.replace(/^SIGNOS VITALES:\s*/i, '')}`;
 
     const subjectiveText = lastEvo ? lastEvo.clinicalChanges.toUpperCase() : 'PACIENTE EN ADECUADA CONDICIÓN CLÍNICA GENERAL, AFEBRIL, HEMODINÁMICAMENTE ESTABLE, TOLERANDO VÍA ORAL Y SIN REGISTRO DE EVENTOS AGUDOS DURANTE EL TURNO.';
     const objectiveExamText = 'EXAMEN FÍSICO DIRIGIDO: PACIENTE CONSCIENTE, ORIENTADO, ADECUADA MECÁNICA VENTILATORIA. CORAZÓN: RUIDOS CARDÍACOS RÍTMICOS, NO SOPLOS. PULMONES: MURMULLO VESICULAR CONSERVADO EN AMBOS CAMPOS PULMONARES, SIN ESTERTORES. ABDOMEN: BLANDO, DEPRESIBLE, RUIDOS PRESENTES, NO DOLOROSO. EXTREMIDADES: SIN EDEMAS.';

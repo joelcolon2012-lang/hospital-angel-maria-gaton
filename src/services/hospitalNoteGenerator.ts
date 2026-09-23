@@ -73,43 +73,36 @@ export function generateIndividualMedicalOrder(patient: Patient, orders: Medical
   }
   out += `\n`;
 
-  // SIGNOS VITALES
-  const tas = v.systolicBP || '120';
-  const tad = v.diastolicBP || '80';
-  const fc = v.heartRate || '78';
-  const fr = v.respiratoryRate || '19';
-  const sat = v.oxygenSaturation || '98';
-  const temp = v.temperature || '37';
-  const glic = v.bloodGlucose || '110';
-  out += `SIGNOS VITALES: TA: ${tas}/${tad} MMHG, FC: ${fc} L/M, FR: ${fr} R/M, SPO2: ${sat}% TEMP: ${temp} GRADOS, GLICEMIA: ${glic} MG/DL\n\n`;
+  // SIGNOS VITALES (Formato real estricto, sin inventar glicemia)
+  const vitalsRes = formatClinicalVitals(v, true);
+  out += `${vitalsRes.summaryLine}\n\n`;
 
   // MEDICACIÓN
   out += `MEDICACIÓN:\n`;
   let medIndex = 1;
 
-  // Soluciones
-  if (solutionOrders.length > 0) {
+  if (solutionOrders.length > 0 || medicationOrders.length > 0) {
     solutionOrders.forEach((s) => {
-      out += `${medIndex++}. ${s.name.toUpperCase()} ${s.dose ? s.dose.toUpperCase() : '2,000 ML'} ${s.frequency ? s.frequency.toUpperCase() : 'C/24 HORAS'} ${s.route ? s.route.toUpperCase() : 'EV'}\n`;
+      const dose = s.dose ? s.dose.toUpperCase() : '';
+      const freq = s.frequency ? s.frequency.toUpperCase() : '';
+      const route = s.route ? s.route.toUpperCase() : 'EV';
+      out += `${medIndex++}. ${s.name.toUpperCase()} ${dose} ${freq} ${route}`.trim() + `\n`;
     });
-  } else {
-    out += `${medIndex++}. SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV\n`;
-  }
-
-  // Medicamentos
-  if (medicationOrders.length > 0) {
     medicationOrders.forEach((m) => {
-      out += `${medIndex++}. ${m.name.toUpperCase()} ${m.dose ? m.dose.toUpperCase() : ''} ${m.frequency ? m.frequency.toUpperCase() : ''} ${m.route ? m.route.toUpperCase() : 'EV'}\n`;
+      const dose = m.dose ? m.dose.toUpperCase() : '';
+      const freq = m.frequency ? m.frequency.toUpperCase() : '';
+      const route = m.route ? m.route.toUpperCase() : 'EV';
+      out += `${medIndex++}. ${m.name.toUpperCase()} ${dose} ${freq} ${route}`.trim() + `\n`;
     });
   } else {
-    out += `${medIndex++}. OMEPRAZOL 40 MG C/24 HORAS EV\n`;
+    out += ` PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS\n`;
   }
   out += `\n`;
 
-  // PARACLÍNICOS & IMÁGENES
-  out += `PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, HIV, VDRL, HEP B, HEP C, ELECTROLITOS SÉRICOS.\n\n`;
-  out += `IMÁGENES: RADIOGRAFÍA DE TÓRAX, TAC CRANEO, ELECTROCARDIOGRAMA\n\n`;
-
+  // PARACLÍNICOS, IMÁGENES E INTERCONSULTAS
+  out += `PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.\n\n`;
+  out += `IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.\n\n`;
+  out += `INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.\n\n`;
   out += `NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y CONTROL EVOLUTIVO EN CADA TURNO.\n`;
 
   return normalizeMedicalText(out);
@@ -514,17 +507,17 @@ export function generateOfficialSoapEvolutionNote(
 
   // 2. ESTADO ACTUAL Y SIGNOS VITALES
   out += `2. ESTADO ACTUAL Y CONSTANTES VITALES DETALLADAS:\n`;
-  const tas = v.systolicBP || '120';
-  const tad = v.diastolicBP || '80';
-  const fc = v.heartRate || '78';
-  const fr = v.respiratoryRate || '18';
-  const sat = v.oxygenSaturation || '98';
-  const temp = v.temperature || '37.0';
-  const glic = v.bloodGlucose || '105';
-  const pain = v.painScale ?? '0';
+  const tas = v.systolicBP || '--';
+  const tad = v.diastolicBP || '--';
+  const fc = v.heartRate || '--';
+  const fr = v.respiratoryRate || '--';
+  const sat = v.oxygenSaturation || '--';
+  const temp = v.temperature || '--';
+  const glic = v.bloodGlucose ? `${v.bloodGlucose} mg/dL` : '______';
+  const pain = v.painScale !== undefined && v.painScale !== null ? `${v.painScale}/10` : '--/10';
 
   out += `• Estado General: ${(patient.clinicalHistory?.physicalExam?.general || 'ALERTA, CONSCIENTE, ORIENTADO EN SUS TRES ESFERAS').toUpperCase()}\n`;
-  out += `• TA: ${tas}/${tad} mmHg  |  FC: ${fc} lpm  |  FR: ${fr} rpm  |  SpO2: ${sat}%  |  Temp: ${temp} °C  |  Glicemia: ${glic} mg/dL  |  Dolor (EVA): ${pain}/10\n\n`;
+  out += `• TA: ${tas}/${tad} mmHg  |  FC: ${fc} lpm  |  FR: ${fr} rpm  |  SpO2: ${sat}%  |  Temp: ${temp} °C  |  Glicemia: ${glic}  |  Dolor (EVA): ${pain}\n\n`;
 
   // 3. PLAN TERAPÉUTICO Y CONDUCTA
   out += `3. PLAN TERAPÉUTICO Y CONDUCTA MÉDICA:\n`;

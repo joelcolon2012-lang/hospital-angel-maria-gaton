@@ -23,7 +23,7 @@ import {
   Save
 } from 'lucide-react';
 import { Patient, MedicalOrder, LabResult, MedicalStudy, PatientEvolution } from '../../types';
-import { ClinicalDocumentBuilder, FinalDocumentAuditResult, ClinicalValidationReport } from '../../services/clinicalDocumentBuilder';
+import { ClinicalDocumentBuilder, FinalDocumentAuditResult, ClinicalValidationReport, formatClinicalVitals } from '../../services/clinicalDocumentBuilder';
 import { ClinicalDataNormalizer } from '../../services/clinicalDataNormalizer';
 import { ClinicalDeduplicationEngine } from '../../services/clinicalDeduplicationEngine';
 import { ClinicalTextCorrector } from '../../services/clinicalTextCorrector';
@@ -135,7 +135,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         
         const cleanedPe = ClinicalDataNormalizer.cleanPhysicalExamSections(h?.physicalExam);
         txt += `VIII. EXAMEN FÍSICO AL INGRESO:\n`;
-        txt += `SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} mmHg, FC: ${v.heartRate || '78'} lpm, FR: ${v.respiratoryRate || '18'} rpm, SpO2: ${v.oxygenSaturation || '98'}%, Temp: ${v.temperature || '36.8'} °C, Glicemia: ${v.bloodGlucose || '105'} mg/dL.\n`;
+        txt += `${formatClinicalVitals(v).summaryLine}\n`;
         txt += `CABEZA Y CUELLO: ${cleanedPe.head.toUpperCase()}.\n`;
         txt += `TÓRAX Y PULMONES: ${cleanedPe.chest.toUpperCase()}. ${cleanedPe.respiratory.toUpperCase()}.\n`;
         txt += `CORAZÓN: ${cleanedPe.cardiovascular.toUpperCase()}.\n`;
@@ -173,7 +173,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         txt += `${latestEvol?.clinicalChanges || 'PACIENTE SE ENCUENTRA EN SU CUBÍCULO/CAMA, REFIERE MEJORÍA CLÍNICA SINTOMÁTICA RESPECTO AL INGRESO. TOLERA VÍA ORAL Y NIEGA DISNEA O DOLOR PRECORDIAL EN EL MOMENTO.'}\n\n`;
 
         txt += `O (OBJETIVO):\n`;
-        txt += `SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '76'} L/M, FR: ${v.respiratoryRate || '18'} R/M, SPO2: ${v.oxygenSaturation || '98'}%, TEMP: ${v.temperature || '36.8'} °C, GLIC: ${v.bloodGlucose || '105'} MG/DL.\n`;
+        txt += `${formatClinicalVitals(v).summaryLine}\n`;
         txt += `EXAMEN FÍSICO: PACIENTE VIGIL, ALERTA, BIEN HIDRATADO Y PERFUNDIDO. CAMPOS PULMONARES CLAROS Y VENTILADOS SIN RUIDOS PATOLÓGICOS. RUIDOS CARDÍACOS RÍTMICOS DE BUENA INTENSIDAD. ABDOMEN NO DOLOROSO, PERISTALSIS ACTIVA. EXTREMIDADES SIN EDEMAS.\n`;
         if (labs && labs.length > 0) {
           txt += `PARACLÍNICOS RECIENTES: ${labs.slice(0, 8).map(l => `${l.parameter}: ${l.value} ${l.unit}`).join(', ')}.\n`;

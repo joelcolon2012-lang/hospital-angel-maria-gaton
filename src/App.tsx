@@ -225,33 +225,41 @@ export default function App() {
 
   useEffect(() => {
     const initializeDataAndSync = async () => {
-      // 1. Cargar datos locales inmediatamente (para visualización instantánea)
-      await refreshData();
-
-      // 2. Inicializar sincronización con backend central en Render (SSE y persistencia indestructible)
+      // 1. Iniciar conexión en tiempo real con backend central de Render (SSE)
       centralSyncService.init();
 
-      // 3. Traer novedades de la nube y otros dispositivos
-      const hadUpdates = await cloudSyncService.pullLatestData();
-      if (hadUpdates) {
-        await refreshData();
+      // 2. NETWORK FIRST: Intentar consultar de inmediato el servidor central en Render (ÚNICA FUENTE DE VERDAD)
+      try {
+        await Promise.race([
+          centralSyncService.pullCentralMasterData(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Init timeout')), 2500))
+        ]);
+      } catch (e) {
+        console.log('[Sync] Network-First timeout/offline, cargando caché local:', e);
       }
 
-      // 4. Sincronizar hacia la nube SOLO si hay pacientes reales creados localmente y no acabamos de recibir actualización remota
-      const localData = await cloudSyncService.getLocalMasterData();
-      const hasRealPatients = localData.patients.some((p) => !p.id.startsWith('pat-00'));
-      if (hasRealPatients && !hadUpdates) {
-        await cloudSyncService.triggerPushSync();
-      }
+      // 3. Cargar la base de datos (con los datos más frescos recibidos)
+      await refreshData();
     };
 
     initializeDataAndSync();
 
-    // 5. Suscribirse a cambios en tiempo real del backend central y de otros dispositivos vía SSE
+    // 4. Suscribirse a cambios en tiempo real del backend central y de otros dispositivos vía SSE
     const handleCentralDataChange = () => {
       refreshData();
     };
     window.addEventListener('hospital_central_data_changed', handleCentralDataChange);
+
+    // 5. Revalidación inmediata al desbloquear celular, cambiar pestaña o reconectar (Network-First)
+    const handleWakeupSync = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        await centralSyncService.pullCentralMasterData();
+        await refreshData();
+      }
+    };
+    window.addEventListener('visibilitychange', handleWakeupSync);
+    window.addEventListener('focus', handleWakeupSync);
+    window.addEventListener('online', handleWakeupSync);
 
     const unsubscribe = cloudSyncService.subscribe(() => {
       refreshData();
@@ -259,6 +267,9 @@ export default function App() {
 
     return () => {
       window.removeEventListener('hospital_central_data_changed', handleCentralDataChange);
+      window.removeEventListener('visibilitychange', handleWakeupSync);
+      window.removeEventListener('focus', handleWakeupSync);
+      window.removeEventListener('online', handleWakeupSync);
       unsubscribe();
     };
   }, []);

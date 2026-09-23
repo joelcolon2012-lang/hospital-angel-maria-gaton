@@ -35,7 +35,7 @@ export interface NoteValidationResult {
  * Prohibido inventar 120/80 si no existe, no 0/0, no 0 bpm, etc.
  * Bajo ninguna circunstancia imprime undefined, null, NaN o [].
  */
-export function formatClinicalVitals(vitals?: Partial<Vitals>): FormattedVitalsResult {
+export function formatClinicalVitals(vitals?: Vitals, includeBlankGlicemia: boolean = false): FormattedVitalsResult {
   if (!vitals) {
     return {
       hasVitals: false,
@@ -86,11 +86,14 @@ export function formatClinicalVitals(vitals?: Partial<Vitals>): FormattedVitalsR
     lineParts.push(`TEMP: ${temp} °C`);
   }
 
-  // Glicemia capilar
+  // Glicemia capilar (NUNCA inventar valores, solo si está documentada explícitamente)
   const glu = vitals.bloodGlucose !== undefined && vitals.bloodGlucose !== null && !isNaN(Number(vitals.bloodGlucose)) && Number(vitals.bloodGlucose) > 0 ? Number(vitals.bloodGlucose) : null;
   if (glu) {
     parts.push(`GLICEMIA: ${glu} MG/DL`);
     lineParts.push(`GLICEMIA: ${glu} MG/DL`);
+  } else if (includeBlankGlicemia) {
+    parts.push(`GLICEMIA: ______`);
+    lineParts.push(`GLICEMIA: ______`);
   }
 
   if (parts.length === 0) {

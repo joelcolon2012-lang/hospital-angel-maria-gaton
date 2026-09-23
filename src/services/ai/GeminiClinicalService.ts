@@ -485,9 +485,9 @@ DATOS DEL PACIENTE:
 - Motivo: ${patient.chiefComplaint}
 - HDA: ${h.currentIllnessHistory || patient.chiefComplaint}
 - Antecedentes: Mórbidos: ${h.pathologicalHistory || 'Negados'}, Quirúrgicos: ${h.surgicalHistory || 'Negados'}, Tóxicos: ${h.toxicHabits || 'Negados'}, Alergias: ${h.allergicHistory || 'Negadas'}
-- Vitales: TA ${v.systolicBP || '120'}/${v.diastolicBP || '80'} mmHg, FC ${v.heartRate || '80'} lpm, FR ${v.respiratoryRate || '18'} rpm, SpO2 ${v.oxygenSaturation || '98'}%, Temp ${v.temperature || '37'}°C, Glicemia ${v.bloodGlucose || '100'} mg/dL
+- Vitales: ${v.systolicBP && v.diastolicBP ? `TA ${v.systolicBP}/${v.diastolicBP} mmHg, ` : ''}${v.heartRate ? `FC ${v.heartRate} lpm, ` : ''}${v.respiratoryRate ? `FR ${v.respiratoryRate} rpm, ` : ''}${v.oxygenSaturation ? `SpO2 ${v.oxygenSaturation}%, ` : ''}${v.temperature ? `Temp ${v.temperature}°C, ` : ''}${v.bloodGlucose ? `Glicemia ${v.bloodGlucose} mg/dL` : 'Glicemia no documentada'}
 - Laboratorios: ${labs.map(l => `${l.parameter}: ${l.value} ${l.unit || ''}`).join(', ') || 'Pendientes de reporte'}
-- Órdenes activas: ${orders.map(o => `${o.name} ${o.dose || ''} ${o.frequency || ''}`).join('; ') || 'Solución salina al 0.9% 2000ml'}
+- Órdenes activas: ${orders.map(o => `${o.name} ${o.dose || ''} ${o.frequency || ''}`).join('; ') || 'Pendiente de esquema'}
 
 Responde en formato JSON estricto:
 {
@@ -519,9 +519,13 @@ Responde en formato JSON estricto:
     }
 
     // Fallback nativo institucional del Dr. Colón
+    const vitalsSummary = v.systolicBP && v.diastolicBP 
+      ? `TA: ${v.systolicBP}/${v.diastolicBP} MMHG, FC: ${v.heartRate || '--'} LPM, FR: ${v.respiratoryRate || '--'} RPM, SPO2: ${v.oxygenSaturation || '--'}% AA, TEMP: ${v.temperature || '--'} °C${v.bloodGlucose ? `, GLICEMIA: ${v.bloodGlucose} MG/DL` : ''}`
+      : 'SIGNOS VITALES REGISTRADOS EN EXPEDIENTE';
+
     const draftText = `SE TRATA DE PACIENTE ${sexText} DE ${ageText} DE EDAD, CON ANTECEDENTES MÓRBIDOS CONOCIDOS DE ${h.pathologicalHistory ? h.pathologicalHistory.toUpperCase() : 'NIEGA ENFERMEDADES CRÓNICAS'}, ANTECEDENTES QUIRÚRGICOS DE ${h.surgicalHistory ? h.surgicalHistory.toUpperCase() : 'QUIRÚRGICOS NEGADOS'}, HÁBITOS TÓXICOS ${h.toxicHabits ? h.toxicHabits.toUpperCase() : 'NEGADOS'}, ALERGIAS ${h.allergicHistory ? h.allergicHistory.toUpperCase() : 'NEGADAS'}. REFIERE QUE SE ENCONTRABA EN APARENTE ESTADO DE SALUD HASTA HACE POCO TIEMPO CUANDO INICIA CUADRO CARACTERIZADO POR ${h.currentIllnessHistory ? h.currentIllnessHistory.toUpperCase() : patient.chiefComplaint.toUpperCase()}, MOTIVO POR EL CUAL ACUDE A NUESTRO CENTRO HOSPITALARIO DONDE TRAS EVALUACIÓN CLÍNICA Y PARACLÍNICA SE DECIDE SU INGRESO CON FINES DIAGNÓSTICOS Y TERAPÉUTICOS.
 
-ACTUALMENTE PACIENTE ALERTA Y CONSCIENTE, MANEJANDO SIGNOS VITALES: TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AA, TEMP: ${v.temperature || '37'} °C, GLICEMIA: ${v.bloodGlucose || '95'} MG/DL. AL EXAMEN FÍSICO: CABEZA/CUELLO: SIMÉTRICO, PUPILAS ISOCÓRICAS Y FOTORREACTIVAS. TÓRAX: SIMÉTRICO, NORMOEXPANSIBLE. PULMONES: MURMULLO VESICULAR CONSERVADO EN AMBOS CAMPOS PULMONARES, NO ESTERTORES. CORAZÓN: RUIDOS CARDÍACOS RÍTMICOS, NO SOPLOS. ABDOMEN: BLANDO, DEPRESIBLE, PERISTALSIS PRESENTE, NO DOLOROSO A LA PALPACIÓN. EXTREMIDADES: SIMÉTRICAS, SIN EDEMAS. NEUROLÓGICO: GLASGOW 15/15, SIN DÉFICIT MOTOR FOCAL.
+ACTUALMENTE PACIENTE ALERTA Y CONSCIENTE, MANEJANDO SIGNOS VITALES: ${vitalsSummary}. AL EXAMEN FÍSICO: CABEZA/CUELLO: SIMÉTRICO, PUPILAS ISOCÓRICAS Y FOTORREACTIVAS. TÓRAX: SIMÉTRICO, NORMOEXPANSIBLE. PULMONES: MURMULLO VESICULAR CONSERVADO EN AMBOS CAMPOS PULMONARES, NO ESTERTORES. CORAZÓN: RUIDOS CARDÍACOS RÍTMICOS, NO SOPLOS. ABDOMEN: BLANDO, DEPRESIBLE, PERISTALSIS PRESENTE, NO DOLOROSO A LA PALPACIÓN. EXTREMIDADES: SIMÉTRICAS, SIN EDEMAS. NEUROLÓGICO: GLASGOW 15/15, SIN DÉFICIT MOTOR FOCAL.
 
 EN CUANTO AL PLAN TERAPÉUTICO: SE INDICA SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24H EV PARA MANTENER HIDRATACIÓN Y VÍA PERMEABLE, GASTROPROTECCIÓN CON OMEPRAZOL 40 MG EV C/24H Y CONTINUAR PROTOCOLO MÉDICO ESTABLECIDO CON VIGILANCIA ESTRICTA DE CONSTANTES VITALES.`;
 

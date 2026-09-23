@@ -176,9 +176,9 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
   }
   y += 2;
 
-  // 3. SIGNOS VITALES
+  // 3. SIGNOS VITALES (Formato oficial estricto, sin inventar glicemia)
   const v = patient.vitals || {};
-  const vitalsResult = formatClinicalVitals(v);
+  const vitalsResult = formatClinicalVitals(v, true);
   printWrapped(
     'SIGNOS VITALES:',
     vitalsResult.summaryLine.replace(/^SIGNOS VITALES:\s*/i, '')
@@ -191,60 +191,66 @@ export function exportOfficialMedicalOrderPdf(patient: Patient, orders: MedicalO
 
   doc.setFont('helvetica', 'normal');
   let medIndex = 1;
+  const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
 
-  // Soluciones primero
-  if (solutionOrders.length > 0) {
+  if (solutionOrders.length > 0 || medicationOrders.length > 0) {
+    // Soluciones primero
     solutionOrders.forEach((s) => {
       if (y > pageHeight - 15) {
         doc.addPage();
         y = 15;
       }
+      const dose = s.dose ? s.dose.toUpperCase() : '';
+      const freq = s.frequency ? s.frequency.toUpperCase() : '';
+      const route = s.route ? s.route.toUpperCase() : 'EV';
       doc.text(
-        `${medIndex++}.  ${s.name.toUpperCase()} ${s.dose ? s.dose.toUpperCase() : '2,000 ML'} ${s.frequency ? s.frequency.toUpperCase() : 'C/24 HORAS'} ${s.route ? s.route.toUpperCase() : 'EV'}`,
+        `${medIndex++}.  ${s.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(),
         margin,
         y
       );
       y += 4.5;
     });
-  } else {
-    doc.text(`${medIndex++}.  SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV`, margin, y);
-    y += 4.5;
-  }
 
-  // Medicamentos
-  const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
-  if (medicationOrders.length > 0) {
+    // Medicamentos
     medicationOrders.forEach((m) => {
       if (y > pageHeight - 15) {
         doc.addPage();
         y = 15;
       }
+      const dose = m.dose ? m.dose.toUpperCase() : '';
+      const freq = m.frequency ? m.frequency.toUpperCase() : '';
+      const route = m.route ? m.route.toUpperCase() : 'EV';
       doc.text(
-        `${medIndex++}.  ${m.name.toUpperCase()} ${m.dose ? m.dose.toUpperCase() : ''} ${m.frequency ? m.frequency.toUpperCase() : ''} ${m.route ? m.route.toUpperCase() : 'EV'}`,
+        `${medIndex++}.  ${m.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(),
         margin,
         y
       );
       y += 4.5;
     });
   } else {
-    doc.text(`${medIndex++}.  OMEPRAZOL 40 MG C/24 HORAS EV`, margin, y);
+    doc.text('  PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', margin, y);
     y += 4.5;
   }
   y += 3;
 
-  // 5. PARACLÍNICOS & IMÁGENES
+  // 5. PARACLÍNICOS, IMÁGENES E INTERCONSULTAS
   printWrapped(
     'PARACLÍNICOS:',
-    'HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, HIV, VDRL, HEP B, HEP C, ELECTROLITOS SÉRICOS.'
+    'HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.'
   );
 
   printWrapped(
     'IMÁGENES:',
-    'RADIOGRAFÍA DE TÓRAX, TAC CRANEO, ELECTROCARDIOGRAMA'
+    'RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.'
+  );
+
+  printWrapped(
+    'INTERCONSULTAS:',
+    'CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.'
   );
 
   // 6. NOTAS FARMACOLÓGICAS Y DIRECTRICES DE SERVICIO
-  printWrapped('NOTA:', 'VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y PATRÓN CLÍNICO EN EL SERVICIO.');
+  printWrapped('NOTA:', 'VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y CONTROL EVOLUTIVO EN CADA TURNO.');
 
   // Firma institucional del médico en turno
   y = drawDoctorSignatureFooter(doc, y + 4, patient);
@@ -569,8 +575,8 @@ export function exportOfficialCombinedNoteAndOrderPdf(
   });
   y += 2;
 
-  // Signos vitales
-  printBlock(formatClinicalVitals(v).summaryLine, false, 8.5);
+  // Signos vitales (Formato oficial estricto, sin inventar glicemia)
+  printBlock(formatClinicalVitals(v, true).summaryLine, false, 8.5);
   y += 2;
 
   // Medicación y Soluciones
@@ -581,40 +587,46 @@ export function exportOfficialCombinedNoteAndOrderPdf(
 
   let medIdx = 1;
   const solOrders = orders.filter(o => o.type === 'Solución');
-  if (solOrders.length > 0) {
-    solOrders.forEach(s => {
-      if (y > pageHeight - 15) { doc.addPage(); y = 15; }
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${medIdx++}.  ${s.name.toUpperCase()} ${(s.dose || '2,000 ML').toUpperCase()} ${(s.frequency || 'C/24 HORAS').toUpperCase()} ${(s.route || 'EV').toUpperCase()}`, margin + 2, y);
-      y += 4.2;
-    });
-  } else {
-    doc.setFont('helvetica', 'normal');
-    doc.text(`${medIdx++}.  SOLUCIÓN SALINA AL 0.9% 2,000 ML C/24 HORAS EV`, margin + 2, y);
-    y += 4.2;
-  }
-
   const medOrders = orders.filter(o => o.type === 'Medicamento');
-  if (medOrders.length > 0) {
-    medOrders.forEach(m => {
-      if (y > pageHeight - 15) { doc.addPage(); y = 15; }
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${medIdx++}.  ${m.name.toUpperCase()} ${(m.dose || '').toUpperCase()} ${(m.frequency || '').toUpperCase()} ${(m.route || 'EV').toUpperCase()}`, margin + 2, y);
-      y += 4.2;
-    });
+
+  if (solOrders.length > 0 || medOrders.length > 0) {
+    if (solOrders.length > 0) {
+      solOrders.forEach(s => {
+        if (y > pageHeight - 15) { doc.addPage(); y = 15; }
+        doc.setFont('helvetica', 'normal');
+        const dose = s.dose ? s.dose.toUpperCase() : '';
+        const freq = s.frequency ? s.frequency.toUpperCase() : '';
+        const route = s.route ? s.route.toUpperCase() : 'EV';
+        doc.text(`${medIdx++}.  ${s.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(), margin + 2, y);
+        y += 4.2;
+      });
+    }
+
+    if (medOrders.length > 0) {
+      medOrders.forEach(m => {
+        if (y > pageHeight - 15) { doc.addPage(); y = 15; }
+        doc.setFont('helvetica', 'normal');
+        const dose = m.dose ? m.dose.toUpperCase() : '';
+        const freq = m.frequency ? m.frequency.toUpperCase() : '';
+        const route = m.route ? m.route.toUpperCase() : 'EV';
+        doc.text(`${medIdx++}.  ${m.name.toUpperCase()} ${dose} ${freq} ${route}`.trim(), margin + 2, y);
+        y += 4.2;
+      });
+    }
   } else {
     doc.setFont('helvetica', 'normal');
-    doc.text(`${medIdx++}.  OMEPRAZOL 40 MG C/24 HORAS EV`, margin + 2, y);
+    doc.text('  PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS', margin + 2, y);
     y += 4.2;
   }
   y += 2;
 
-  // Paraclínicos
-  printBlock('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, TGO, TGP, ELECTROLITOS SÉRICOS, HIV, VDRL, HEPATITIS B Y C.', false, 8);
-  printBlock('IMÁGENES: RADIOGRAFÍA DE TÓRAX, ELECTROCARDIOGRAMA, TAC CRÁNEO SEGÚN PROTOCOLO.', false, 8);
+  // Paraclínicos, Imágenes e Interconsultas
+  printBlock('PARACLÍNICOS: HEMOGRAMA, UREA, CREATININA, BUN, PERFIL LIPÍDICO, AMILASA, LIPASA, TGO, TGP, ALBUMINA, PROTEÍNAS TOTALES, ELECTROLITOS SÉRICOS (NA, K, CL), GASOMETRÍA ARTERIAL, TIEMPOS DE COAGULACIÓN (TP, TTP, INR), TROPONINAS, HIV, VDRL, HEPATITIS B, HEPATITIS C, EXAMEN GENERAL DE ORINA.', false, 8);
+  printBlock('IMÁGENES: RADIOGRAFÍA DE TÓRAX (PA), TOMOGRAFÍA AXIAL COMPUTARIZADA (TAC) DE CRÁNEO SIMPLE/CONTRASTADA, ELECTROCARDIOGRAMA (EKG 12 DERIVACIONES), ECOGRAFÍA ABDOMINAL/RENAL, ECOCARDIOGRAMA TRANSTORÁCICO.', false, 8);
+  printBlock('INTERCONSULTAS: CARDIOLOGÍA, NEFROLOGÍA, NEUROLOGÍA, CIRUGÍA GENERAL, MEDICINA INTERNA, CUIDADOS INTENSIVOS (UCI), INFECTOLOGÍA.', false, 8);
 
   // Notas y directrices
-  printBlock('NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y PATRÓN CLÍNICO.', false, 8);
+  printBlock('NOTA: VIGILANCIA ESTRICTA DE CONSTANTES VITALES Y CONTROL EVOLUTIVO EN CADA TURNO.', false, 8);
 
   // Firma Orden Oficial
   y = drawDoctorSignatureFooter(doc, y, patient);

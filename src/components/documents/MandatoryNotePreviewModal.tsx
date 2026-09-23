@@ -39,7 +39,7 @@ import {
 } from '../../services/pdfHospitalDocumentService';
 import { clinicalTemplateService } from '../../services/clinicalTemplateService';
 import { findRepeatedPhrases, checkMedicalSpelling } from '../../services/ai/ClinicalSpellChecker';
-import { validateDownloadableClinicalNote } from '../../services/clinicalDocumentBuilder';
+import { validateDownloadableClinicalNote, formatClinicalVitals } from '../../services/clinicalDocumentBuilder';
 
 export type NoteType = 'emergencia' | 'sala' | 'evolucion' | 'orden';
 
@@ -112,8 +112,7 @@ export const MandatoryNotePreviewModal: React.FC<Props> = ({
         evoText += `DÍA DE HOSPITALIZACIÓN: DÍA ${dayNumber} • MÉDICO: ${(patient.attendingDoctor || 'DR. COLÓN').toUpperCase()}\n\n`;
 
         const v = patient.vitals || {};
-        evoText += `SIGNOS VITALES DEL TURNO:\n`;
-        evoText += `TA: ${v.systolicBP || '120'}/${v.diastolicBP || '80'} MMHG, FC: ${v.heartRate || '78'} LPM, FR: ${v.respiratoryRate || '18'} RPM, SPO2: ${v.oxygenSaturation || '98'}% AA, TEMP: ${v.temperature || '36.8'} °C, GLICEMIA: ${v.bloodGlucose || '95'} MG/DL.\n\n`;
+        evoText += `${formatClinicalVitals(v).summaryLine}\n\n`;
 
         evoText += `EVOLUCIÓN SUBJETIVA Y NOVEDADES:\n`;
         evoText += `${lastEvo ? lastEvo.clinicalChanges.toUpperCase() : 'PACIENTE REFIERE EVOLUCIÓN CLÍNICA ESTABLE, TOLERANDO VÍA ORAL Y SIN EVENTOS AGUDOS EN LAS ÚLTIMAS 24 HORAS.'}\n\n`;

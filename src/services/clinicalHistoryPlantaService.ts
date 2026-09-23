@@ -304,7 +304,7 @@ export class ClinicalHistoryPlantaService {
       respiratoryRate: vit?.respiratoryRate || 18,
       temperature: vit?.temperature || 36.8,
       oxygenSaturation: vit?.oxygenSaturation || 98,
-      bloodGlucose: vit?.bloodGlucose || 105,
+      bloodGlucose: vit?.bloodGlucose || undefined,
       weight: vit?.weight || 70,
       height: vit?.height || 170,
       bmi: this.calculateBmi(vit?.weight || 70, vit?.height || 170),
