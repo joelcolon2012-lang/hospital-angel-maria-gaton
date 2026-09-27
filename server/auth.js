@@ -20,37 +20,59 @@ const RELAY_WINDOW_MS = 5 * 60 * 1000;
 const b64u = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const unb64u = (s) => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
 
-export function ensureAuthSecret(memoryData) {
-  if (!memoryData.authSecret) {
-    memoryData.authSecret = process.env.SYNC_SECRET || crypto.randomBytes(32).toString('hex');
+/**
+ * Clave con que se firman las sesiones. Debe sobrevivir a los reinicios del
+ * servidor gratuito (que borra su disco): por eso se deriva de un secreto que
+ * Render guarda de forma permanente (SYNC_SECRET, o la clave de Gemini).
+ */
+function stableSecret() {
+  if (process.env.SYNC_SECRET) return process.env.SYNC_SECRET;
+  if (process.env.GEMINI_API_KEY) {
+    return crypto.createHash('sha256').update(`hr-gaton-sesiones|${process.env.GEMINI_API_KEY}`).digest('hex');
   }
+  return null;
+}
+
+export function ensureAuthSecret(memoryData) {
+  const stable = stableSecret();
+  if (stable) memoryData.authSecret = stable;
+  else if (!memoryData.authSecret) memoryData.authSecret = crypto.randomBytes(32).toString('hex');
   return memoryData.authSecret;
 }
 
-function sign(secret, payload, user) {
-  return b64u(crypto.createHmac('sha256', secret).update(`${payload}|${user.id}|${user.pinHash || ''}`).digest());
+function sign(secret, payload) {
+  return b64u(crypto.createHmac('sha256', secret).update(`hr-token|${payload}`).digest());
 }
 
 export function issueToken(memoryData, user, days = TOKEN_DAYS) {
   const secret = ensureAuthSecret(memoryData);
-  const payload = b64u(JSON.stringify({ u: user.id, e: Date.now() + days * 86400000 }));
-  return `v1.${payload}.${sign(secret, payload, user)}`;
+  const now = Date.now();
+  const payload = b64u(JSON.stringify({ u: user.id, i: now, e: now + days * 86400000 }));
+  return `v1.${payload}.${sign(secret, payload)}`;
 }
 
-/** Devuelve el usuario dueño del token, o null si no es válido. */
+/**
+ * Devuelve el usuario dueño del token, o null si no es válido.
+ * - Cambiar el PIN (tokensValidAfter) cierra las sesiones anteriores.
+ * - Si el servidor se reinició vacío y aún no conoce al usuario, la sesión sigue
+ *   valiendo como médico sin permisos de administrador, para que los dispositivos
+ *   puedan volver a subir sus datos.
+ */
 export function verifyToken(memoryData, token) {
   try {
     if (!token || !memoryData.authSecret) return null;
     const [v, payload, sig] = String(token).split('.');
     if (v !== 'v1' || !payload || !sig) return null;
-    const { u, e } = JSON.parse(unb64u(payload).toString('utf8'));
-    if (!u || !e || Date.now() > Number(e)) return null;
-    const user = (memoryData.users || []).find((x) => x.id === u);
-    if (!user || user.isDeleted || user.isActive === false) return null;
-    const expected = sign(memoryData.authSecret, payload, user);
+    const expected = sign(memoryData.authSecret, payload);
     const a = Buffer.from(expected);
     const b = Buffer.from(sig);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const { u, e, i } = JSON.parse(unb64u(payload).toString('utf8'));
+    if (!u || !e || Date.now() > Number(e)) return null;
+    const user = (memoryData.users || []).find((x) => x.id === u);
+    if (!user) return { id: u, role: 'MÉDICO', name: '', _restoring: true };
+    if (user.isDeleted || user.isActive === false) return null;
+    if (user.tokensValidAfter && Number(i || 0) < Number(user.tokensValidAfter)) return null;
     return user;
   } catch {
     return null;
@@ -114,5 +136,5 @@ export function authContext(req, memoryData) {
 }
 
 export function isAdminUser(user) {
-  return Boolean(user && (user.isSuperAdmin || user.id === 'usr-admin-colon' || String(user.role || '').toUpperCase() === 'ADMINISTRADOR'));
+  return Boolean(user && !user._restoring && (user.isSuperAdmin || user.id === 'usr-admin-colon' || String(user.role || '').toUpperCase() === 'ADMINISTRADOR'));
 }

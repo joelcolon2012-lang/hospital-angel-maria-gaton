@@ -188,6 +188,42 @@ try {
     await waitForServer();
     all = await getAll();
     check('la sesión sigue válida tras reiniciar', Array.isArray(all.tables?.patients));
+
+    console.log('\n9) Servidor reiniciado VACÍO (Render gratuito): las sesiones siguen valiendo');
+    server2.kill();
+    await new Promise((r) => setTimeout(r, 400));
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hospital-sync-empty-'));
+    const server3 = spawn(process.execPath, ['server/index.js'], {
+      env: { ...process.env, PORT: String(PORT), HOSPITAL_DB_DIR: emptyDir, GEMINI_API_KEY: 'clave-de-prueba' },
+      stdio: ['ignore', 'ignore', 'inherit']
+    });
+    try {
+      await waitForServer();
+      const medTok = (await loginAs('usr-res-martinez', '1234')).json.token;
+      // Reinicio vacío con la misma clave permanente
+      server3.kill();
+      await new Promise((r) => setTimeout(r, 400));
+      fs.rmSync(emptyDir, { recursive: true, force: true });
+      fs.mkdirSync(emptyDir);
+      const server4 = spawn(process.execPath, ['server/index.js'], {
+        env: { ...process.env, PORT: String(PORT), HOSPITAL_DB_DIR: emptyDir, GEMINI_API_KEY: 'clave-de-prueba' },
+        stdio: ['ignore', 'ignore', 'inherit']
+      });
+      try {
+        await waitForServer();
+        const up = await sync('CEL', 0, { patients: [{ id: 'p-restaurado', fullName: 'Vuelve a subir', _mtime: Date.now() }] }, [], medTok);
+        check('el celular puede volver a subir sus datos sin iniciar sesión de nuevo', up.accepted === 1, JSON.stringify(up).slice(0, 120));
+        const adm2 = (await loginAs('usr-admin-colon', '2026')).json.token;
+        await fetch(`${BASE}/api/users/usr-res-martinez/password`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adm2}` }, body: JSON.stringify({ newPassword: '5555', confirmPassword: '5555' }) });
+        const after = await fetch(`${BASE}/api/sync/v2?since=0`, { headers: { Authorization: `Bearer ${medTok}` } });
+        check('al cambiar el PIN se cierran las sesiones anteriores', after.status === 401, `HTTP ${after.status}`);
+      } finally {
+        server4.kill();
+      }
+    } finally {
+      server3.kill();
+      fs.rmSync(emptyDir, { recursive: true, force: true });
+    }
     check('pacientes, laboratorios y lápidas persisten', !!find(all, 'patients', 'p-x') && !!find(all, 'labs', 'l-1') && !find(all, 'orders', 'o-1'));
   } finally {
     server2.kill();

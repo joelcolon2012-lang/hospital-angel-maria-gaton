@@ -91,10 +91,11 @@ function sameContent(a, b) {
 }
 
 const PROTECTED_USER_FIELDS = ['role', 'isSuperAdmin', 'isActive', 'isDeleted', 'permissions'];
+const SERVER_ONLY_USER_FIELDS = ['tokensValidAfter'];
 
 function isAdminCtx(ctx) {
   const u = ctx && ctx.user;
-  return Boolean(u && (u.isSuperAdmin || u.id === 'usr-admin-colon' || String(u.role || '').toUpperCase() === 'ADMINISTRADOR'));
+  return Boolean(u && !u._restoring && (u.isSuperAdmin || u.id === 'usr-admin-colon' || String(u.role || '').toUpperCase() === 'ADMINISTRADOR'));
 }
 
 function keyOf(record) {
@@ -209,6 +210,10 @@ export class SyncStore {
     if (table === 'users' && ctx && ctx.kind !== 'relay') {
       // Nadie puede fijar la huella del PIN por sincronización (sólo la PC del hospital)
       delete rec.pinHash;
+      for (const f of SERVER_ONLY_USER_FIELDS) {
+        if (existing && existing[f] !== undefined) rec[f] = existing[f];
+        else delete rec[f];
+      }
       const admin = isAdminCtx(ctx);
       const self = ctx.user && ctx.user.id === rec.id;
       if (!admin && !self) return null; // un médico no modifica cuentas ajenas
@@ -236,10 +241,12 @@ export class SyncStore {
     if (table === 'users') {
       if (rec.pin) {
         rec.pinHash = this.hashPassword(String(rec.pin));
+        rec.tokensValidAfter = Date.now();
         delete rec.pin;
       }
       if (rec.password) {
         rec.pinHash = this.hashPassword(String(rec.password));
+        rec.tokensValidAfter = Date.now();
         delete rec.password;
       }
       if (!rec.pinHash && existing?.pinHash) rec.pinHash = existing.pinHash;

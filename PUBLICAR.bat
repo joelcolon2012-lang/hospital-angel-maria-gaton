@@ -11,7 +11,7 @@ git rm -r --cached --ignore-unmatch database database_backup_pre_upgrade backup_
 
 echo [2/5] Guardando cambios en Git... >> "%LOG%"
 git add -A >> "%LOG%" 2>&1
-git commit -m "v2.7.0: una sola base central en la nube (MongoDB), acceso con sesion, enlace PC-nube" >> "%LOG%" 2>&1
+git commit -m "v2.7.1: sesiones estables aunque el servidor gratuito se reinicie" >> "%LOG%" 2>&1
 echo COMMIT_EXIT=%errorlevel% >> "%LOG%"
 
 echo [3/5] Subiendo a GitHub (Render se actualiza desde aqui)... >> "%LOG%"

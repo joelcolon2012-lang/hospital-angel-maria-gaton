@@ -568,6 +568,7 @@ class CentralDatabaseManager {
     // Si viene un nuevo PIN/password en la actualización
     if (updates.newPin || updates.password) {
       updated.pinHash = hashPassword(updates.newPin || updates.password);
+      updated.tokensValidAfter = Date.now(); // cerrar sesiones abiertas con el PIN anterior
       delete updated.newPin;
       delete updated.password;
     }
@@ -598,6 +599,7 @@ class CentralDatabaseManager {
     }
 
     user.pinHash = hashPassword(String(newPassword).trim());
+    user.tokensValidAfter = Date.now(); // cerrar sesiones abiertas con el PIN anterior
     user.updatedAt = new Date().toISOString();
     user._mtime = Date.now();
     this.sync.touch(user);
