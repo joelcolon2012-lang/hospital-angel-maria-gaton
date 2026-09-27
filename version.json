@@ -1,8 +1,10 @@
 {
-  "version": "2.6.1",
-  "buildTime": 1790529398302,
-  "buildDate": "2026-09-27T17:16:38.302Z",
+  "version": "2.7.0",
+  "buildTime": 1790538461125,
+  "buildDate": "2026-09-27T19:47:41.125Z",
   "features": [
+    "Una sola base de datos central para todos los dispositivos",
+    "Los datos de pacientes sólo se entregan con sesión iniciada (PIN)",
     "Sincronización registro por registro entre PC, iPhone y Android",
     "Cambios sin señal se envían solos al reconectar",
     "Dos médicos pueden editar el mismo paciente sin perder datos",
