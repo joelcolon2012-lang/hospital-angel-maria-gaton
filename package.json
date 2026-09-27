@@ -1,13 +1,16 @@
 {
   "name": "emergencia-clinica-dr-colon",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.6.0",
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "vite",
+    "dev": "node scripts/dev.js",
+    "dev:web": "vite",
     "build": "tsc && vite build",
+    "serve": "npm run build && node server/index.js",
     "preview": "vite preview",
+    "test:sync": "node scripts/test-sync.mjs",
     "deploy": "node scripts/deploy.js"
   },
   "dependencies": {

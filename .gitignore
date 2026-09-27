@@ -20,3 +20,11 @@ Thumbs.db
 # Scratch and test bundles
 scratch/test_bundle*
 scratch/test_out/
+
+# Respaldos locales (pueden contener datos clínicos): nunca publicar
+respaldo_antes_sync_v2/
+database/
+database_backup_pre_upgrade/
+backup_pre_upgrade/database/
+diagnostico_git.txt
+publicar_log.txt

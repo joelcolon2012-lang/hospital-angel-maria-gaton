@@ -1,151 +1,102 @@
-import { defineConfig, Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
 
-function hospitalDatabasePlugin(): Plugin {
-  const dbDir = path.resolve(__dirname, 'database');
-  const dbFile = path.join(dbDir, 'hospital_master_db.json');
+const BUILD_TIME = Date.now();
+const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 
-  // Asegurar que exista el directorio de base de datos
-  if (!fs.existsSync(dbDir)) {
-    try {
-      fs.mkdirSync(dbDir, { recursive: true });
-    } catch (e) {
-      console.error('Error creando directorio database:', e);
-    }
-  }
-
-  const dbMiddleware = (req: any, res: any, next: any) => {
-        const url = req.url || '';
-
-        // API Health
-        if (url === '/api/health') {
-          res.setHeader('Content-Type', 'application/json');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.end(JSON.stringify({ 
-            status: 'ok', 
-            serverTime: Date.now(), 
-            fileExists: fs.existsSync(dbFile) 
-          }));
-          return;
-        }
-
-        // API Sync (GET / POST)
-        if (url === '/api/sync' || url.startsWith('/api/sync?')) {
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-          res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-          if (req.method === 'OPTIONS') {
-            res.statusCode = 204;
-            res.end();
-            return;
-          }
-
-          if (req.method === 'GET') {
-            res.setHeader('Content-Type', 'application/json');
-            if (fs.existsSync(dbFile)) {
-              try {
-                const content = fs.readFileSync(dbFile, 'utf-8');
-                res.end(content);
-              } catch (err) {
-                res.statusCode = 500;
-                res.end(JSON.stringify({ error: 'Error leyendo base de datos en el servidor' }));
-              }
-            } else {
-              res.end(JSON.stringify({ version: 1, lastUpdated: 0, data: null }));
-            }
-            return;
-          }
-
-          if (req.method === 'POST') {
-            let body = '';
-            req.on('data', (chunk) => {
-              body += chunk;
-            });
-            req.on('end', () => {
-              try {
-                const parsed = JSON.parse(body);
-                const toSave = {
-                  version: parsed.version || 1,
-                  lastUpdated: parsed.lastUpdated || Date.now(),
-                  savedAtIso: new Date().toISOString(),
-                  data: parsed.data || parsed
-                };
-                fs.writeFileSync(dbFile, JSON.stringify(toSave, null, 2), 'utf-8');
-                console.log(`[Hospital Master DB] Sincronización persistida en disco (${new Date().toLocaleTimeString('es-ES')})`);
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ success: true, lastUpdated: toSave.lastUpdated }));
-              } catch (err: any) {
-                res.statusCode = 400;
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ success: false, error: err?.message || 'JSON inválido' }));
-              }
-            });
-            return;
-          }
-        }
-
-        // API Backup Download
-        if (url === '/api/backup') {
-          if (fs.existsSync(dbFile)) {
-            const filename = `Respaldo_Emergencia_Dr_Colon_${new Date().toISOString().slice(0, 10)}.json`;
-            res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-            const content = fs.readFileSync(dbFile, 'utf-8');
-            res.end(content);
-            return;
-          } else {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ error: 'No hay respaldo guardado aún en disco' }));
-            return;
-          }
-        }
-
-        next();
-  };
-
+/** Genera dist/version.json en cada compilación: los dispositivos detectan solos la versión nueva. */
+function versionFilePlugin() {
   return {
-    name: 'hospital-database-sync-middleware',
-    configureServer(server) {
-      server.middlewares.use(dbMiddleware);
-    },
-    configurePreviewServer(server) {
-      server.middlewares.use(dbMiddleware);
+    name: 'hospital-version-file',
+    apply: 'build' as const,
+    // Se escribe al final (después de copiar public/) para reemplazar cualquier version.json antiguo
+    closeBundle() {
+      const outDir = path.resolve(__dirname, 'dist');
+      if (!fs.existsSync(outDir)) return;
+      fs.writeFileSync(
+        path.join(outDir, 'version.json'),
+        JSON.stringify(
+          {
+            version: PKG.version,
+            buildTime: BUILD_TIME,
+            buildDate: new Date(BUILD_TIME).toISOString(),
+            features: [
+              'Sincronización registro por registro entre PC, iPhone y Android',
+              'Cambios sin señal se envían solos al reconectar',
+              'Dos médicos pueden editar el mismo paciente sin perder datos',
+              'Carga más rápida (la app se descarga por partes)'
+            ]
+          },
+          null,
+          2
+        )
+      );
     }
   };
 }
 
+/**
+ * Toda la API (/api/*) la atiende el servidor central Express (server/index.js).
+ * - Producción / INICIAR.bat: Express sirve la app y la API en el mismo puerto (3000),
+ *   así PC, iPhone y Android usan la misma dirección y la misma base de datos.
+ * - Desarrollo (npm run dev:full): Vite en 5173 reenvía /api al servidor en 3001.
+ *
+ * Antes existía aquí un segundo "mini servidor" que guardaba otra copia de la base
+ * de datos; se eliminó porque competía con el servidor central y causaba datos
+ * distintos según el puerto que se abriera.
+ */
+const API_TARGET = process.env.API_TARGET || 'http://localhost:3001';
+
+const apiProxy = {
+  '/api': {
+    target: API_TARGET,
+    changeOrigin: true,
+    // Necesario para el canal en tiempo real (SSE)
+    configure: (proxy: any) => {
+      proxy.on('proxyRes', (proxyRes: any) => {
+        if (String(proxyRes.headers['content-type'] || '').includes('text/event-stream')) {
+          proxyRes.headers['cache-control'] = 'no-cache, no-transform';
+        }
+      });
+    }
+  }
+};
+
 export default defineConfig({
   base: './',
-  plugins: [react(), hospitalDatabasePlugin()],
+  plugins: [react(), versionFilePlugin()],
+  define: {
+    __APP_BUILD_TIME__: JSON.stringify(BUILD_TIME),
+    __APP_VERSION__: JSON.stringify(PKG.version)
+  },
   server: {
-    port: 3000,
+    port: 5173,
     host: true,
     allowedHosts: true,
-    proxy: {
-      '/api/gemini': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
-      },
-      '/api/ai': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
-      }
-    }
+    proxy: apiProxy
   },
   preview: {
-    port: 3000,
+    port: 4173,
     host: true,
-    proxy: {
-      '/api/gemini': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
-      },
-      '/api/ai': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
+    proxy: apiProxy
+  },
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // Librerías grandes en archivos separados: se descargan una vez y quedan en caché
+        manualChunks(id) {
+          // Ayudantes internos de Vite/Rollup: siempre con el núcleo (si no, arrastran otros bloques al inicio)
+          if (id.includes('vite/preload-helper') || id.includes('commonjsHelpers')) return 'vendor-react';
+          if (!id.includes('node_modules')) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react';
+          if (id.includes('lucide-react')) return 'vendor-icons';
+          if (id.includes('dexie')) return 'vendor-db';
+          // El resto (PDF, Word, IA…) lo divide Rollup automáticamente y sólo se descarga al usarse
+          return undefined;
+        }
       }
     }
   }

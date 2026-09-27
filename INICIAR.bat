@@ -12,13 +12,26 @@ echo.
 set "PATH=C:\Program Files\nodejs;C:\Users\PC\AppData\Local\Microsoft\WindowsApps;%PATH%"
 set "NODE_OPTIONS=--use-system-ca"
 
-:: Si no existe la carpeta dist, compilar la aplicacion
-if not exist "dist" (
-    echo Compilando la aplicacion por primera vez...
-    call npm.cmd run build
+:: Instalar dependencias si faltan
+if not exist "node_modules" (
+    echo Instalando dependencias por primera vez...
+    call npm.cmd install
 )
 
-:: Detectar IP local para conectar desde iPhone
+:: Recompilar SOLO si hay cambios nuevos en el codigo (antes nunca se actualizaba)
+node scripts\needs-build.js
+if errorlevel 1 (
+    echo Compilando la version mas reciente de la aplicacion...
+    call npm.cmd run build
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] La compilacion fallo. Revisa los mensajes de arriba.
+        pause
+        exit /b 1
+    )
+)
+
+:: Detectar IP local para conectar desde iPhone / Android
 for /f "tokens=4" %%a in ('route print ^| find " 0.0.0.0 "') do (
     set "LOCAL_IP=%%a"
     goto :ip_done
@@ -29,19 +42,28 @@ echo ====================================================================
 echo   [PC] Enlace para usar en esta computadora:
 echo        http://localhost:3000
 echo.
-echo   [IPHONE] Enlace para usar en tu iPhone (en la misma red Wi-Fi):
+echo   [CELULAR] Enlace para iPhone / Android (en la misma red Wi-Fi):
 echo        http://%LOCAL_IP%:3000
+echo.
+echo   Todos los dispositivos comparten la MISMA base de datos central
+echo   y se actualizan en tiempo real.
 echo ====================================================================
 echo.
 echo Abriendo aplicacion en el navegador de tu PC...
-timeout /t 2 >nul
-start http://localhost:3000
+start "" cmd /c "timeout /t 3 >nul & start http://localhost:3000"
 
 echo.
 echo Servidor en ejecucion. (Manten esta ventana abierta mientras uses la app)
 echo Para detener el servidor, simplemente cierra esta ventana.
 echo.
 
-call npm.cmd run preview -- --port 3000 --host
+:: Cerrar un servidor anterior de esta app que siga ocupando el puerto 3000
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":3000 .*LISTENING"') do (
+    tasklist /fi "PID eq %%p" | find /i "node.exe" >nul && taskkill /pid %%p /f >nul 2>&1
+)
+
+:: Servidor central: API + tiempo real + aplicacion web en el puerto 3000
+set "PORT=3000"
+node server\index.js
 
 pause

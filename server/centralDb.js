@@ -2,12 +2,13 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { SyncStore, SYNC_TABLES, recordClock } from './syncEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Ruta al archivo de almacenamiento central persistente
-const DB_DIR = path.join(__dirname, '..', 'database');
+const DB_DIR = process.env.HOSPITAL_DB_DIR || path.join(__dirname, '..', 'database');
 const DB_FILE = path.join(DB_DIR, 'hospital_master_db.json');
 
 // Helper para hashing seguro de contraseñas y PINs con salt criptográfico
@@ -101,19 +102,28 @@ class CentralDatabaseManager {
       patients: [],
       studies: [],
       labs: [],
+      problems: [],
       orders: [],
       evolutions: [],
       pendingTasks: [],
       users: [...SEED_USERS],
       auditLogs: [],
+      clinicalNotes: [],
       clinicalHistoriesPlanta: [],
+      clinicalHistoryVersions: [],
       strokeRegistry: [],
+      sourceDocuments: [],
+      tombstones: [],
+      seq: 0,
       lastUpdated: Date.now(),
       version: 1
     };
     this.isWriting = false;
     this.writeQueue = [];
     this.initDatabase();
+    // Motor de sincronización registro-por-registro (delta + lápidas)
+    this.sync = new SyncStore(this.memoryData, { hashPassword });
+    this.persistToDiskSync();
   }
 
   initDatabase() {
@@ -128,15 +138,13 @@ class CentralDatabaseManager {
         const data = parsed.data || parsed;
         
         if (data && Array.isArray(data.patients)) {
-          this.memoryData.patients = data.patients || [];
-          this.memoryData.studies = data.studies || [];
-          this.memoryData.labs = data.labs || [];
-          this.memoryData.orders = data.orders || [];
-          this.memoryData.evolutions = data.evolutions || [];
-          this.memoryData.pendingTasks = data.pendingTasks || [];
-          this.memoryData.auditLogs = data.auditLogs || [];
-          this.memoryData.clinicalHistoriesPlanta = data.clinicalHistoriesPlanta || [];
-          this.memoryData.strokeRegistry = data.strokeRegistry || [];
+          for (const t of SYNC_TABLES) {
+            if (t === 'users') continue;
+            this.memoryData[t] = Array.isArray(data[t]) ? data[t] : [];
+          }
+          this.memoryData.tombstones = Array.isArray(data.tombstones) ? data.tombstones : [];
+          this.memoryData.seq = Number(data.seq) || 0;
+          if (data.dbId) this.memoryData.dbId = data.dbId;
           this.memoryData.lastUpdated = data.lastUpdated || Date.now();
           this.memoryData.version = data.version || 1;
 
@@ -182,6 +190,7 @@ class CentralDatabaseManager {
     this.writeQueue = [];
 
     try {
+      if (this.sync) this.sync.autoStamp();
       this.memoryData.lastUpdated = Date.now();
       this.memoryData.version = (this.memoryData.version || 0) + 1;
       
@@ -192,7 +201,7 @@ class CentralDatabaseManager {
         data: this.memoryData
       };
 
-      const jsonString = JSON.stringify(payload, null, 2);
+      const jsonString = JSON.stringify(payload);
       const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
 
       // 1. Escribir a archivo temporal
@@ -201,13 +210,8 @@ class CentralDatabaseManager {
       // 2. Renombrar atómicamente
       await fs.promises.rename(tempFile, DB_FILE);
 
-      // 3. Opcional: Mantener copia en public/hospital_master_db.json si existe la carpeta
-      try {
-        const publicFile = path.join(__dirname, '..', 'public', 'hospital_master_db.json');
-        if (fs.existsSync(path.dirname(publicFile))) {
-          await fs.promises.writeFile(publicFile, jsonString, 'utf-8');
-        }
-      } catch {}
+      // Nota de privacidad: ya NO se copia la base de pacientes a public/,
+      // porque esa carpeta se publica en GitHub Pages.
 
       currentBatch.forEach(b => b.resolve(true));
     } catch (err) {
@@ -223,6 +227,7 @@ class CentralDatabaseManager {
 
   persistToDiskSync() {
     try {
+      if (this.sync) this.sync.autoStamp();
       this.memoryData.lastUpdated = Date.now();
       const payload = {
         success: true,
@@ -256,6 +261,10 @@ class CentralDatabaseManager {
       const index = this.memoryData.patients.findIndex(p => p.id === patientData.id);
       if (index !== -1) {
         const existing = this.memoryData.patients[index];
+        // Protección: no aceptar una versión más antigua que la del servidor
+        if (recordClock(patientData) && recordClock(patientData) < recordClock(existing)) {
+          return existing;
+        }
         patient = {
           ...existing,
           ...patientData,
@@ -344,6 +353,8 @@ class CentralDatabaseManager {
     p.deletedAt = new Date().toISOString();
     p.updatedBy = user;
     p.updatedAt = new Date().toISOString();
+    p._mtime = Date.now();
+    this.sync.touch(p);
 
     this.recordAuditLogSync({
       action: 'ELIMINAR',
@@ -504,6 +515,8 @@ class CentralDatabaseManager {
 
     user.pinHash = hashPassword(String(newPassword).trim());
     user.updatedAt = new Date().toISOString();
+    user._mtime = Date.now();
+    this.sync.touch(user);
     user.updatedBy = updatedBy;
 
     this.recordAuditLogSync({
@@ -524,6 +537,8 @@ class CentralDatabaseManager {
 
     user.isActive = Boolean(active);
     user.updatedAt = new Date().toISOString();
+    user._mtime = Date.now();
+    this.sync.touch(user);
     user.updatedBy = updatedBy;
     if (!active) {
       user.deletedAt = user.updatedAt;
@@ -726,7 +741,9 @@ class CentralDatabaseManager {
       delete task.completedBy;
     }
 
+    task._mtime = Date.now();
     this.memoryData.pendingTasks[index] = task;
+    this.sync.touch(task);
 
     this.recordAuditLogSync({
       action: 'MODIFICAR',
@@ -746,7 +763,7 @@ class CentralDatabaseManager {
     if (index === -1) return false;
 
     const task = this.memoryData.pendingTasks[index];
-    this.memoryData.pendingTasks.splice(index, 1);
+    this.sync.tombstone('pendingTasks', id, Date.now(), user);
 
     this.recordAuditLogSync({
       action: 'ELIMINAR_SUAVE',
@@ -757,11 +774,15 @@ class CentralDatabaseManager {
       details: `Pendiente eliminado: "${task.description}"`
     });
 
+    await this.persistToDisk();
+    return true;
+  }
+
   async deleteOrder(id, user = 'Dr. Joel Colón') {
     const index = this.memoryData.orders.findIndex(o => o.id === id);
     if (index === -1) return false;
     const ord = this.memoryData.orders[index];
-    this.memoryData.orders.splice(index, 1);
+    this.sync.tombstone('orders', id, Date.now(), user);
     this.recordAuditLogSync({
       action: 'ELIMINAR_SUAVE',
       entity: 'ORDEN_MEDICA',
@@ -778,7 +799,7 @@ class CentralDatabaseManager {
     const index = this.memoryData.evolutions.findIndex(e => e.id === id);
     if (index === -1) return false;
     const evo = this.memoryData.evolutions[index];
-    this.memoryData.evolutions.splice(index, 1);
+    this.sync.tombstone('evolutions', id, Date.now(), user);
     this.recordAuditLogSync({
       action: 'ELIMINAR_SUAVE',
       entity: 'EVOLUCION',
@@ -795,7 +816,7 @@ class CentralDatabaseManager {
     const index = this.memoryData.labs.findIndex(l => l.id === id);
     if (index === -1) return false;
     const lab = this.memoryData.labs[index];
-    this.memoryData.labs.splice(index, 1);
+    this.sync.tombstone('labs', id, Date.now(), user);
     this.recordAuditLogSync({
       action: 'ELIMINAR_SUAVE',
       entity: 'LABORATORIO',
@@ -843,7 +864,7 @@ class CentralDatabaseManager {
     const index = this.memoryData.studies.findIndex(s => s.id === id);
     if (index === -1) return false;
     const std = this.memoryData.studies[index];
-    this.memoryData.studies.splice(index, 1);
+    this.sync.tombstone('studies', id, Date.now(), user);
     this.recordAuditLogSync({
       action: 'ELIMINAR_SUAVE',
       entity: 'ESTUDIO',
@@ -902,87 +923,35 @@ class CentralDatabaseManager {
   // FUSIÓN Y SINCRONIZACIÓN COMPLETA
   // ==========================================
   async syncMasterData(incomingData, originDevice = 'Dispositivo Clínico') {
+    // Compatibilidad con clientes antiguos que envían la base completa:
+    // se fusiona registro por registro (gana el más reciente) y nunca se borra nada.
     if (!incomingData) return this.getMasterData();
-
     let changesApplied = 0;
-
-    // 1. Fusionar pacientes
-    if (Array.isArray(incomingData.patients)) {
-      const patientMap = new Map(this.memoryData.patients.map(p => [p.id, p]));
-      for (const p of incomingData.patients) {
-        const existing = patientMap.get(p.id);
-        if (!existing) {
-          this.memoryData.patients.unshift(p);
-          changesApplied++;
-        } else {
-          const remoteTime = new Date(p.updatedAt || p.createdAt || 0).getTime();
-          const localTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-          if (remoteTime >= localTime) {
-            const index = this.memoryData.patients.findIndex(item => item.id === p.id);
-            if (index !== -1) {
-              this.memoryData.patients[index] = { ...existing, ...p };
-              changesApplied++;
-            }
-          }
-        }
-      }
+    for (const t of SYNC_TABLES) {
+      if (Array.isArray(incomingData[t])) changesApplied += this.sync.mergeRecords(t, incomingData[t]);
     }
-
-    // 2. Fusionar usuarios (respetando hashes y evitando borrar usuarios centrales)
-    if (Array.isArray(incomingData.users)) {
-      const userMap = new Map(this.memoryData.users.map(u => [u.id, u]));
-      for (const u of incomingData.users) {
-        const existing = userMap.get(u.id);
-        if (!existing) {
-          const pinHash = u.pin ? hashPassword(u.pin) : (u.pinHash || hashPassword('1234'));
-          const copy = { ...u, pinHash };
-          delete copy.pin;
-          this.memoryData.users.push(copy);
-          changesApplied++;
-        } else {
-          const remoteTime = new Date(u.updatedAt || u.createdAt || 0).getTime();
-          const localTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-          if (remoteTime >= localTime) {
-            const pinHash = u.pin ? hashPassword(u.pin) : (u.pinHash || existing.pinHash);
-            const copy = { ...existing, ...u, pinHash };
-            delete copy.pin;
-            const index = this.memoryData.users.findIndex(item => item.id === u.id);
-            if (index !== -1) {
-              this.memoryData.users[index] = copy;
-              changesApplied++;
-            }
-          }
-        }
-      }
-    }
-
-    // 3. Fusionar órdenes, evoluciones, estudios, laboratorios, historia de planta, tareas pendientes
-    ['orders', 'evolutions', 'studies', 'labs', 'clinicalHistoriesPlanta', 'strokeRegistry', 'pendingTasks'].forEach(key => {
-      if (Array.isArray(incomingData[key])) {
-        const map = new Map((this.memoryData[key] || []).map(item => [item.id || item.patientId, item]));
-        for (const item of incomingData[key]) {
-          const itemId = item.id || item.patientId;
-          if (!map.has(itemId)) {
-            if (!this.memoryData[key]) this.memoryData[key] = [];
-            this.memoryData[key].unshift(item);
-            changesApplied++;
-          } else {
-            const index = this.memoryData[key].findIndex(x => (x.id || x.patientId) === itemId);
-            if (index !== -1) {
-              this.memoryData[key][index] = { ...this.memoryData[key][index], ...item };
-            }
-          }
-        }
-      }
-    });
-
-    if (changesApplied > 0) {
-      this.memoryData.version = (this.memoryData.version || 1) + 1;
-      this.memoryData.lastUpdated = Date.now();
-      await this.persistToDisk();
-    }
-
+    if (Array.isArray(incomingData.tombstones)) changesApplied += this.sync.applyTombstones(incomingData.tombstones);
+    if (changesApplied > 0) await this.persistToDisk();
     return this.getMasterData();
+  }
+
+  /**
+   * Sincronización delta v2: recibe los cambios del dispositivo y devuelve
+   * todo lo que cambió en el servidor desde `since`.
+   */
+  async syncV2(payload = {}) {
+    const tables = payload.tables || {};
+    let accepted = 0;
+    for (const t of Object.keys(tables)) {
+      accepted += this.sync.mergeRecords(t, tables[t]);
+    }
+    accepted += this.sync.applyTombstones(payload.tombstones || []);
+    if (accepted > 0) await this.persistToDisk();
+    return { accepted, ...this.sync.changesSince(payload.since || 0) };
+  }
+
+  getChangesSince(since = 0) {
+    return this.sync.changesSince(since);
   }
 
   getMasterData() {

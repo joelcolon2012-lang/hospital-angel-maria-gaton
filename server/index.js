@@ -4,6 +4,13 @@ import dotenv from 'dotenv';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GeminiAIService } from './geminiAiService.js';
 import { centralDb } from './centralDb.js';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DIST_DIR = path.join(__dirname, '..', 'dist');
 
 dotenv.config();
 
@@ -54,12 +61,29 @@ const corsOptions = {
     // Permitir cualquier cliente (GitHub Pages, móviles, localhost, red local hospitalaria)
     return callback(null, true);
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-name', 'x-user-role', 'x-device-origin', 'Cache-Control', 'Accept']
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-name', 'x-user-role', 'x-device-origin', 'x-device-id', 'Cache-Control', 'Accept']
 };
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '35mb' }));
+app.use(express.json({ limit: '50mb' }));
+
+// Cualquier escritura exitosa en la API avisa a TODOS los dispositivos conectados
+// para que descarguen los cambios de inmediato (tiempo real).
+const NON_DATA_ROUTES = /^\/api\/(ai|gemini|users\/login|sync\/v2)/;
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'OPTIONS' && req.path.startsWith('/api/') && !NON_DATA_ROUTES.test(req.path)) {
+    res.on('finish', () => {
+      if (res.statusCode < 400) {
+        broadcastRealtimeEvent('sync.changed', {
+          seq: centralDb.memoryData.seq,
+          deviceId: req.headers['x-device-id'] || null
+        });
+      }
+    });
+  }
+  next();
+});
 
 // Helper: traduce errores de Gemini a mensajes claros
 function translateGeminiError(err) {
@@ -144,10 +168,15 @@ app.get('/api/events', (req, res) => {
     totalPatients: centralDb.memoryData.patients.length,
     totalUsers: centralDb.memoryData.users.length
   };
+  res.write(`retry: 3000\n`);
+  initData.seq = centralDb.memoryData.seq;
+  initData.connectedDevices = sseClients.size;
   res.write(`event: init\ndata: ${JSON.stringify(initData)}\n\n`);
+  broadcastRealtimeEvent('devices', { connectedDevices: sseClients.size });
 
   req.on('close', () => {
     sseClients.delete(clientObj);
+    broadcastRealtimeEvent('devices', { connectedDevices: sseClients.size });
     console.log(`[SSE] Dispositivo desconectado (${clientId}). Total activos: ${sseClients.size}`);
   });
 });
@@ -155,7 +184,7 @@ app.get('/api/events', (req, res) => {
 // =========================================================================
 // 2. ENDPOINTS DE ESTADO & SALUD
 // =========================================================================
-app.get('/', (req, res) => {
+app.get('/api/status', (req, res) => {
   res.json({
     service: 'Hospital Angel Maria Gaton Backend API Central',
     status: 'online',
@@ -167,8 +196,21 @@ app.get('/', (req, res) => {
   });
 });
 
+function lanUrls() {
+  const port = process.env.PORT || 3001;
+  const urls = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const ni of list || []) {
+      if (ni.family === 'IPv4' && !ni.internal) urls.push(`http://${ni.address}:${port}`);
+    }
+  }
+  return urls;
+}
+
 app.get('/api/health', (req, res) => {
   res.json({
+    lanUrls: lanUrls(),
+    seq: centralDb.memoryData.seq,
     status: 'ok',
     service: 'Hospital Angel Maria Gaton Central Database & AI API',
     database: 'active',
@@ -180,6 +222,33 @@ app.get('/api/health', (req, res) => {
 // =========================================================================
 // 3. ENDPOINTS DE SINCRONIZACIÓN CENTRAL (FULL SYNC)
 // =========================================================================
+// ---- Sincronización delta v2 (registro por registro, con lápidas) ----
+app.get('/api/sync/v2', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true, ...centralDb.getChangesSince(Number(req.query.since) || 0) });
+});
+
+app.post('/api/sync/v2', async (req, res) => {
+  try {
+    const deviceId = req.headers['x-device-id'] || req.body?.deviceId || null;
+    const result = await centralDb.syncV2(req.body || {});
+    if (result.accepted > 0) {
+      broadcastRealtimeEvent('sync.changed', { seq: result.seq, deviceId });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[POST /api/sync/v2 Error]', err);
+    res.status(500).json({ success: false, error: err.message || 'Error de sincronización' });
+  }
+});
+
+app.get('/api/backup', (req, res) => {
+  const filename = `Respaldo_Emergencia_Dr_Colon_${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.json({ version: centralDb.memoryData.version, lastUpdated: centralDb.memoryData.lastUpdated, data: centralDb.getMasterData().data });
+});
+
 app.get('/api/sync', (req, res) => {
   const master = centralDb.getMasterData();
   res.json(master);
@@ -845,6 +914,30 @@ app.post('/api/ai/search', async (req, res) => {
     }
   }
 });
+
+// =========================================================================
+// APLICACIÓN WEB (misma dirección para PC, iPhone y Android en la red)
+// =========================================================================
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (/[\\/]assets[\\/]/.test(filePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        // index.html, version.json, manifest: siempre la versión más nueva
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    }
+  }));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+} else {
+  app.get('/', (req, res) => res.redirect('/api/status'));
+}
 
 // Inicio del servidor
 app.listen(PORT, '0.0.0.0', () => {

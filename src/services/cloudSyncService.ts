@@ -22,6 +22,7 @@ import {
   StrokeRecord 
 } from '../types';
 import { googleDriveService, DEFAULT_GAS_URL } from './googleDriveService';
+import { syncEngine, SYNC_TABLES, recordClock } from './syncEngine';
 
 export interface HospitalMasterData {
   patients: Patient[];
@@ -59,6 +60,7 @@ class CloudSyncService {
   private pollInterval: any = null;
   private isProcessingSync = false;
   private lastLocalTimestamp = 0;
+  private pendingGasPush = false;
   private listeners: Array<() => void> = [];
 
   constructor() {
@@ -135,21 +137,14 @@ class CloudSyncService {
 
   private initNetworkListeners() {
     if (typeof window === 'undefined') return;
-
-    // Cuando la pestaña se activa o el usuario desbloquea el celular
-    window.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        this.pullLatestData();
-      }
-    });
-
-    window.addEventListener('focus', () => {
-      this.pullLatestData();
-    });
-
-    window.addEventListener('online', () => {
-      this.triggerPushSync();
-    });
+    const wake = () => {
+      if (document.visibilityState === 'visible') this.pullLatestData();
+    };
+    window.addEventListener('visibilitychange', wake);
+    window.addEventListener('focus', wake);
+    window.addEventListener('online', () => this.scheduleAutoSync());
+    // Cualquier cambio local programa también el respaldo en la nube de Google
+    syncEngine.onLocalChange(() => this.scheduleAutoSync());
   }
 
   public getGasUrl(): string {
@@ -159,404 +154,244 @@ class CloudSyncService {
 
   private startBackgroundSync() {
     if (typeof window === 'undefined') return;
-
-    // Polling regular cada 12 segundos para recibir cambios de otros dispositivos
     if (this.pollInterval) clearInterval(this.pollInterval);
+    // Nube de Google: canal secundario (funciona aunque el servidor central esté apagado)
     this.pollInterval = setInterval(() => {
       if (document.visibilityState === 'visible' && !this.isProcessingSync) {
         this.pullLatestData();
       }
-    }, 12000);
+    }, 20000);
   }
 
   /**
    * Obtiene todos los datos clínicos actuales de IndexedDB (Dexie)
    */
   public async getLocalMasterData(): Promise<HospitalMasterData> {
-    const patients = await db.patients.toArray();
-    const studies = await db.studies.toArray();
-    const labs = await db.labs.toArray();
-    const orders = await db.orders.toArray();
-    const evolutions = await db.evolutions.toArray();
-    const users = await db.users.toArray();
-    const auditLogs = await db.auditLogs.toArray();
-    const clinicalHistoriesPlanta = await db.clinicalHistoriesPlanta.toArray();
-    const strokeRegistry = await db.strokeRegistry.toArray();
-
+    const snap = await syncEngine.snapshot({ includeAudit: true });
+    const t = snap.tables as any;
     return {
-      patients,
-      studies,
-      labs,
-      orders,
-      evolutions,
-      users,
-      auditLogs,
-      clinicalHistoriesPlanta,
-      strokeRegistry,
-      lastUpdated: this.lastLocalTimestamp || Date.now(),
+      ...t,
+      patients: t.patients || [],
+      studies: t.studies || [],
+      labs: t.labs || [],
+      orders: t.orders || [],
+      evolutions: t.evolutions || [],
+      tombstones: snap.tombstones,
+      lastUpdated: Date.now(),
       deviceOrigin: navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Escritorio PC',
-    };
+    } as any;
   }
 
   /**
-   * Programa una sincronización automática cada vez que se guarda o modifica un campo
+   * Programa la sincronización (servidor central inmediato + nube de Google con espera)
    */
   public scheduleAutoSync() {
     this.lastLocalTimestamp = Date.now();
+    syncEngine.schedulePush();
     if (this.syncTimeout) clearTimeout(this.syncTimeout);
-
     this.syncTimeout = setTimeout(() => {
       this.triggerPushSync();
-    }, this.config.autoSyncDebounceSeconds * 1000);
+    }, 4000);
+  }
+
+  private async fetchGasSnapshot(): Promise<any | null> {
+    const gasUrl = this.getGasUrl();
+    if (!gasUrl) return null;
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${gasUrl}?t=${Date.now()}`, { signal: controller.signal, cache: 'no-store' });
+      if (!res.ok) return null;
+      const json = await res.json().catch(() => null);
+      if (!json) return null;
+      return json.data || json;
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  private async fetchFirebaseSnapshot(): Promise<any | null> {
+    if (!(this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl)) return null;
+    let url = this.config.firebaseUrl.trim();
+    if (!url.endsWith('.json')) url = url.replace(/\/+$/, '') + '/hospital_master.json';
+    const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    return json ? json.data || json : null;
+  }
+
+  /** Convierte una instantánea (formato antiguo o nuevo) a cambios fusionables. */
+  private toRemoteChanges(master: any) {
+    const tables: Record<string, any[]> = {};
+    for (const name of SYNC_TABLES) {
+      if (Array.isArray(master?.[name])) tables[name] = master[name];
+    }
+    return { tables, tombstones: Array.isArray(master?.tombstones) ? master.tombstones : [] };
   }
 
   /**
-   * Envía los datos locales a Google Drive en la Nube y al Servidor Local
+   * Envía los datos a la nube de Google: primero DESCARGA y FUSIONA lo que otros
+   * dispositivos subieron, luego sube la unión. Así nunca se pierden registros.
    */
   public async triggerPushSync(): Promise<{ success: boolean; message: string }> {
-    if (this.isProcessingSync) return { success: false, message: 'Sincronización en curso' };
+    // El servidor central siempre primero (rápido y con tiempo real)
+    const centralOk = await syncEngine.syncNow().catch(() => false);
+
+    if (this.isProcessingSync) {
+      this.pendingGasPush = true;
+      return { success: centralOk, message: 'Sincronización en curso' };
+    }
     this.isProcessingSync = true;
     this.config.syncState = 'syncing';
     this.notifyListeners();
 
+    const synced: string[] = [];
+    if (centralOk) synced.push('Servidor central');
+
     try {
-      const data = await this.getLocalMasterData();
-      data.lastUpdated = Date.now();
+      // 1. Descargar y fusionar la copia de la nube (no destructivo)
+      for (const fetcher of [() => this.fetchGasSnapshot(), () => this.fetchFirebaseSnapshot()]) {
+        try {
+          const remote = await fetcher();
+          if (remote) {
+            const changed = await syncEngine.applyRemote(this.toRemoteChanges(remote));
+            if (changed > 0) this.emitChanged(changed);
+          }
+        } catch (e) {
+          console.warn('[Sync] Nube: no se pudo descargar antes de subir', e);
+        }
+      }
+
+      // 2. Subir la unión (sin imágenes pesadas: el límite de Google es ~500 KB)
+      const snap = await syncEngine.snapshot({ maxFieldBytes: 60000 });
+      const data: any = {
+        ...snap.tables,
+        tombstones: snap.tombstones,
+        lastUpdated: Date.now(),
+        deviceOrigin: navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Escritorio PC',
+        syncProtocol: 2
+      };
       this.lastLocalTimestamp = data.lastUpdated;
 
-      let syncedServers: string[] = [];
-
-      // 1. Sincronizar con Google Drive en la Nube 24/7 (Google Apps Script)
       const gasUrl = this.getGasUrl();
       if (gasUrl) {
         try {
           const res = await fetch(gasUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'sync_push',
-              payload: {
-                version: 1,
-                lastUpdated: data.lastUpdated,
-                data: data,
-              },
-            }),
+            body: JSON.stringify({ action: 'sync_push', payload: { version: 2, lastUpdated: data.lastUpdated, data } })
           });
-          if (res.ok || res.type === 'opaque') {
+          if (res.ok) {
             const resJson = await res.json().catch(() => null);
-            if (resJson && resJson.success) {
-              syncedServers.push(`Google Drive Cloud (${resJson.patientCount || data.patients.length} pac.)`);
-            } else if (res.ok) {
-              syncedServers.push('Google Drive Cloud (Dr. Colón)');
-            }
+            if (!resJson || resJson.success !== false) synced.push('Google Drive Cloud');
           }
         } catch (e) {
           console.warn('[Sync] Error con Google Drive Cloud push:', e);
         }
       }
 
-      // 2. Sincronizar con Firebase (si está configurado)
       if (this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl) {
         try {
           let url = this.config.firebaseUrl.trim();
-          if (!url.endsWith('.json')) {
-            url = url.replace(/\/+$/, '') + '/hospital_master.json';
-          }
+          if (!url.endsWith('.json')) url = url.replace(/\/+$/, '') + '/hospital_master.json';
           const res = await fetch(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              version: 1,
-              lastUpdated: data.lastUpdated,
-              data: data,
-            }),
+            body: JSON.stringify({ version: 2, lastUpdated: data.lastUpdated, data })
           });
-          if (res.ok) {
-            syncedServers.push('Google Firebase Realtime');
-          }
+          if (res.ok) synced.push('Google Firebase Realtime');
         } catch (e) {
           console.warn('[Sync] Error Firebase push:', e);
         }
       }
 
-      // 3. Sincronizar con el Servidor Local de la PC (/api/sync)
-      if (this.config.enableLocalServerSync) {
-        try {
-          const res = await fetch('/api/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              version: 1,
-              lastUpdated: data.lastUpdated,
-              data,
-            }),
-          });
-          if (res.ok) {
-            syncedServers.push('PC Local (Disco Duro)');
-          }
-        } catch (e) {
-          // Servidor local no disponible en red externa
-        }
-      }
-
-      // 4. Guardar respaldo local inmediato en el navegador
       try {
-        localStorage.setItem('hr_colon_patients_backup', JSON.stringify(data.patients));
         localStorage.setItem('hr_colon_last_local_timestamp', String(data.lastUpdated));
       } catch {}
 
       const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      this.config.syncState = 'synced';
-      this.config.lastSyncedTime = nowTime;
-      this.saveConfig({ syncState: 'synced', lastSyncedTime: nowTime });
-
-      this.isProcessingSync = false;
-      this.notifyListeners();
-
-      const summary = syncedServers.length > 0 ? syncedServers.join(', ') : 'Guardado local en navegador';
-      return { success: true, message: `Guardado en: ${summary} (${nowTime})` };
+      const ok = synced.length > 0;
+      this.saveConfig({ syncState: ok ? 'synced' : 'error', lastSyncedTime: ok ? nowTime : this.config.lastSyncedTime, errorMessage: ok ? undefined : 'Sin conexión: los cambios quedan guardados en este dispositivo y se enviarán solos.' });
+      return {
+        success: true,
+        message: ok ? `Guardado en: ${synced.join(', ')} (${nowTime})` : 'Guardado en este dispositivo. Se enviará al recuperar la conexión.'
+      };
     } catch (err: any) {
-      this.config.syncState = 'error';
-      this.config.errorMessage = err?.message || 'Error durante la sincronización';
+      this.saveConfig({ syncState: 'error', errorMessage: err?.message || 'Error durante la sincronización' });
+      return { success: false, message: this.config.errorMessage || 'Error de sincronización' };
+    } finally {
       this.isProcessingSync = false;
       this.notifyListeners();
-      return { success: false, message: this.config.errorMessage || 'Error de sincronización' };
+      if (this.pendingGasPush) {
+        this.pendingGasPush = false;
+        this.scheduleAutoSync();
+      }
     }
   }
 
   /**
-   * Consulta Google Drive y Servidores para traer cambios hechos en otros dispositivos
+   * Trae cambios de otros dispositivos (servidor central + nube de Google)
+   * y los FUSIONA registro por registro. Nunca borra datos locales más nuevos.
    */
   public async pullLatestData(): Promise<boolean> {
     if (this.isProcessingSync) return false;
-
-    let remoteData: HospitalMasterData | null = null;
-    let remoteTimestamp = 0;
-
-    // 1. Consultar Google Drive en la Nube 24/7 (Google Apps Script)
-    const gasUrl = this.getGasUrl();
-    if (gasUrl) {
-      try {
-        const res = await fetch(`${gasUrl}?t=${Date.now()}`);
-        if (res.ok) {
-          const json = await res.json().catch(() => null);
-          if (json) {
-            const master = json.data || json;
-            if (master && Array.isArray(master.patients) && master.patients.length > 0) {
-              const ts = json.lastUpdated || master.lastUpdated || 0;
-              if (ts > remoteTimestamp || !remoteData) {
-                remoteData = master;
-                remoteTimestamp = ts;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Sync] Google Drive Cloud pull:', e);
-      }
-    }
-
-    // 2. Consultar Firebase Realtime Database (si está configurado)
-    if (this.config.enableCloudSync && this.config.cloudProvider === 'firebase' && this.config.firebaseUrl) {
-      try {
-        let url = this.config.firebaseUrl.trim();
-        if (!url.endsWith('.json')) {
-          url = url.replace(/\/+$/, '') + '/hospital_master.json';
-        }
-        const res = await fetch(`${url}?t=${Date.now()}`);
-        if (res.ok) {
-          const json = await res.json().catch(() => null);
-          if (json) {
-            const master = json.data || json;
-            if (master && Array.isArray(master.patients) && master.patients.length > 0) {
-              const ts = json.lastUpdated || master.lastUpdated || 0;
-              if (ts > remoteTimestamp || !remoteData) {
-                remoteData = master;
-                remoteTimestamp = ts;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Sync] Firebase pull:', e);
-      }
-    }
-
-    // 3. Consultar Servidor Local de la PC (/api/sync)
-    if (this.config.enableLocalServerSync) {
-      try {
-        const res = await fetch('/api/sync');
-        if (res.ok) {
-          const json = await res.json().catch(() => null);
-          if (json && json.data && json.lastUpdated) {
-            if (json.lastUpdated > remoteTimestamp) {
-              remoteData = json.data;
-              remoteTimestamp = json.lastUpdated;
-            }
-          }
-        }
-      } catch {}
-    }
-
-    // 3. Consultar Base de Datos Maestra desplegada (public/hospital_master_db.json)
-    if (!remoteData) {
-      try {
-        const baseUrl = (import.meta as any).env?.BASE_URL || './';
-        const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
-        if (res.ok) {
-          const json = await res.json();
-          const master = json.data || json;
-          if (master && Array.isArray(master.patients) && master.patients.length > 0) {
-            remoteData = master;
-            remoteTimestamp = json.lastUpdated || Date.now();
-          }
-        }
-      } catch {}
-    }
-
-    // 4. Si no hay datos remotos válidos, no hidratar
-    if (!remoteData || !remoteData.patients || remoteData.patients.length === 0) {
-      return false;
-    }
-
-    // Comprobar si el dispositivo local está vacío o solo contiene los casos ficticios iniciales
-    const localPatients = await db.patients.toArray();
-    const hasOnlyMockData = localPatients.length === 0 || 
-      (localPatients.length <= 4 && localPatients.every(p => p.id.startsWith('pat-00')));
-
-    // Si el dispositivo local solo tiene casos modelo de prueba, SIEMPRE hidratar con los datos reales
-    if (hasOnlyMockData) {
-      console.log('[Sync] Dispositivo nuevo o con datos modelo detectado. Reemplazando con pacientes reales de la nube...');
-    } else if (remoteTimestamp <= this.lastLocalTimestamp) {
-      return false;
-    }
-
-    // Hidratar Dexie
+    this.isProcessingSync = true;
+    let changedTotal = 0;
+    let needsPush = false;
     try {
-      this.isProcessingSync = true;
-      await this.hydrateDexie(remoteData);
-      this.lastLocalTimestamp = Math.max(remoteTimestamp, this.lastLocalTimestamp);
-      try {
-        localStorage.setItem('hr_colon_last_local_timestamp', String(this.lastLocalTimestamp));
-      } catch {}
+      await syncEngine.syncNow().catch(() => false);
 
-      const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-      this.config.lastSyncedTime = nowTime;
-      this.config.syncState = 'synced';
-      this.saveConfig({ lastSyncedTime: nowTime, syncState: 'synced' });
+      for (const fetcher of [() => this.fetchGasSnapshot(), () => this.fetchFirebaseSnapshot()]) {
+        try {
+          const remote = await fetcher();
+          if (!remote) continue;
+          const changes = this.toRemoteChanges(remote);
+          changedTotal += await syncEngine.applyRemote(changes);
+          // Si este dispositivo tiene registros que la nube no tiene (o más nuevos), resubir
+          needsPush = needsPush || (await this.localHasNewer(changes));
+        } catch (e) {
+          console.warn('[Sync] Nube: descarga fallida', e);
+        }
+      }
 
+      if (changedTotal > 0) {
+        const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        this.saveConfig({ lastSyncedTime: nowTime, syncState: 'synced' });
+        this.emitChanged(changedTotal);
+      }
+    } finally {
       this.isProcessingSync = false;
-      this.notifyListeners();
-      return true;
-    } catch (err) {
-      console.error('[Sync] Error hidratando base de datos local:', err);
-      this.isProcessingSync = false;
-      return false;
+    }
+    if (needsPush) this.scheduleAutoSync();
+    return changedTotal > 0;
+  }
+
+  private async localHasNewer(changes: { tables: Record<string, any[]> }): Promise<boolean> {
+    for (const name of ['patients', 'orders', 'evolutions', 'labs', 'pendingTasks', 'studies'] as const) {
+      const remoteRows = changes.tables[name];
+      if (!remoteRows) continue;
+      const remoteMap = new Map(remoteRows.map((r: any) => [r.id, recordClock(r)]));
+      const localRows: any[] = await (db as any)[name].toArray();
+      for (const l of localRows) {
+        const rc = remoteMap.get(l.id);
+        if (rc === undefined || recordClock(l) > rc) return true;
+      }
+    }
+    return false;
+  }
+
+  private emitChanged(changed: number) {
+    this.notifyListeners();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('hospital_central_data_changed', { detail: { type: 'cloud_sync', changed, timestamp: Date.now() } }));
     }
   }
 
   /**
-   * Hidrata la base de datos Dexie con los datos suministrados (Fusión no destructiva)
+   * Compatibilidad: hidrata la base local desde una instantánea (fusión no destructiva)
    */
   public async hydrateDexie(data: HospitalMasterData): Promise<void> {
-    if (!data.patients) return;
-
-    await db.transaction('rw', [db.patients, db.studies, db.labs, db.orders, db.evolutions, db.users, db.auditLogs, db.clinicalHistoriesPlanta, db.strokeRegistry], async () => {
-      // Fusión no destructiva: NUNCA borrar datos existentes, siempre conservar y actualizar
-      const localPatients = await db.patients.toArray();
-      const localMap = new Map(localPatients.map((p) => [p.id, p]));
-
-      for (const remoteP of data.patients) {
-        const localP = localMap.get(remoteP.id);
-        if (!localP) {
-          await db.patients.add(remoteP);
-        } else {
-          const localTime = new Date(localP.updatedAt || localP.createdAt || 0).getTime();
-          const remoteTime = new Date(remoteP.updatedAt || remoteP.createdAt || 0).getTime();
-          if (remoteTime >= localTime) {
-            await db.patients.put(remoteP);
-          }
-        }
-      }
-
-      // 2. Actualizar estudios
-      if (data.studies && data.studies.length > 0) {
-        for (const s of data.studies) {
-          await db.studies.put(s);
-        }
-      }
-
-      // 3. Actualizar labs
-      if (data.labs && data.labs.length > 0) {
-        for (const l of data.labs) {
-          await db.labs.put(l);
-        }
-      }
-
-      // 4. Actualizar orders
-      if (data.orders && data.orders.length > 0) {
-        for (const o of data.orders) {
-          await db.orders.put(o);
-        }
-      }
-
-      // 5. Actualizar evolutions
-      if (data.evolutions && data.evolutions.length > 0) {
-        for (const e of data.evolutions) {
-          await db.evolutions.put(e);
-        }
-      }
-
-      // 6. Actualizar usuarios (Smart merge: NUNCA borrar usuarios locales creados)
-      if (data.users && data.users.length > 0) {
-        const localUsers = await db.users.toArray();
-        const localUserMap = new Map(localUsers.map((u) => [u.id, u]));
-        for (const remoteU of data.users) {
-          const localU = localUserMap.get(remoteU.id);
-          if (!localU) {
-            await db.users.put(remoteU);
-          } else {
-            const localTime = new Date(localU.updatedAt || localU.createdAt || 0).getTime();
-            const remoteTime = new Date(remoteU.updatedAt || remoteU.createdAt || 0).getTime();
-            if (remoteTime >= localTime) {
-              await db.users.put(remoteU);
-            }
-          }
-        }
-      }
-
-      // 7. Actualizar auditLogs
-      if (data.auditLogs && data.auditLogs.length > 0) {
-        for (const log of data.auditLogs) {
-          await db.auditLogs.put(log);
-        }
-      }
-
-      // 8. Actualizar clinicalHistoriesPlanta
-      if (data.clinicalHistoriesPlanta && data.clinicalHistoriesPlanta.length > 0) {
-        for (const ch of data.clinicalHistoriesPlanta) {
-          await db.clinicalHistoriesPlanta.put(ch);
-        }
-      }
-
-      // 9. Actualizar strokeRegistry
-      if (data.strokeRegistry && data.strokeRegistry.length > 0) {
-        for (const sr of data.strokeRegistry) {
-          await db.strokeRegistry.put(sr);
-        }
-      }
-    });
-
-    // Guardar copia de seguridad en localStorage
-    try {
-      const allP = await db.patients.toArray();
-      const allU = await db.users.toArray();
-      localStorage.setItem('hr_colon_patients_backup', JSON.stringify(allP));
-      localStorage.setItem('hr_colon_users_backup', JSON.stringify(allU));
-      if (data.lastUpdated) {
-        localStorage.setItem('hr_colon_last_local_timestamp', String(data.lastUpdated));
-      }
-    } catch {}
+    await syncEngine.applyRemote(this.toRemoteChanges(data));
   }
 
   /**
@@ -591,7 +426,9 @@ class CloudSyncService {
           }
 
           parsed.lastUpdated = Date.now();
+          // Fusión no destructiva (gana el registro más reciente) y luego se propaga
           await this.hydrateDexie(parsed);
+          syncEngine.requestFullResend();
           this.lastLocalTimestamp = parsed.lastUpdated;
 
           // Propagar inmediatamente al servidor local y a la nube

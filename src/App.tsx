@@ -18,61 +18,36 @@ import {
 import { Navbar } from './components/layout/Navbar';
 import { BottomNav } from './components/layout/BottomNav';
 import { PrivacyShield } from './components/layout/PrivacyShield';
+import { SyncToast } from './components/common/SyncToast';
 import { authService, recordAuditLog } from './services/authService';
 import { LoginModal } from './components/auth/LoginModal';
-import { UserProfileModal } from './components/auth/UserProfileModal';
 import { centralSyncService } from './services/centralSyncService';
-import { PreviousHistoryImportModal } from './components/documents/PreviousHistoryImportModal';
+import { syncEngine, newSyncId, recordClock as recordClockOf } from './services/syncEngine';
 import { User, PendingTask } from './types';
-import { GuardiaMedicinaInternaView } from './components/guardia/GuardiaMedicinaInternaView';
 
 // Dashboard
 import { DashboardStats } from './components/dashboard/DashboardStats';
 import { TriageFilter } from './components/dashboard/TriageFilter';
 import { PatientCard } from './components/dashboard/PatientCard';
 import { PatientSearchView } from './components/dashboard/PatientSearchView';
-import { EmergencyStatsView } from './components/dashboard/EmergencyStatsView';
 import { AttentionRequiredSection } from './components/dashboard/AttentionRequiredSection';
 import { Sidebar, SidebarNavId } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
-import { EpidemiologyView } from './components/epidemiology/EpidemiologyView';
-import { PatientAIAnalysisModal } from './components/ai/PatientAIAnalysisModal';
 
 // Registration
-import { QuickRegisterModal } from './components/registration/QuickRegisterModal';
 
 // Patient Dossier
 import { PatientHeader } from './components/patient-detail/PatientHeader';
-import { TriageVitalsTab } from './components/patient-detail/TriageVitalsTab';
-import { ClinicalHistoryTab } from './components/patient-detail/ClinicalHistoryTab';
-import { StudiesGalleryTab } from './components/patient-detail/StudiesGalleryTab';
-import { LabsTab } from './components/patient-detail/LabsTab';
-import { DiagnosticAssistantTab } from './components/patient-detail/DiagnosticAssistantTab';
-import { MedicalOrdersTab } from './components/patient-detail/MedicalOrdersTab';
-import { EvolutionsTab } from './components/patient-detail/EvolutionsTab';
-import { FinalDispositionTab } from './components/patient-detail/FinalDispositionTab';
 
 // Modals
-import { DocumentExporterModal } from './components/documents/DocumentExporterModal';
-import { GoogleDriveModal } from './components/documents/GoogleDriveModal';
-import { ImageCompareModal } from './components/image-tools/ImageCompareModal';
-import { QuickCalculatorBar } from './components/common/QuickCalculatorBar';
-import { UnifiedClinicalDocumentModal, UnifiedDocType } from './components/documents/UnifiedClinicalDocumentModal';
-import { HospitalNotesModal, HospitalDocType } from './components/documents/HospitalNotesModal';
-import { MedicalOrderPrintModal } from './components/documents/MedicalOrderPrintModal';
-import { CloudSyncModal } from './components/documents/CloudSyncModal';
-import { ShareAppModal } from './components/documents/ShareAppModal';
-import { HospitalSettingsModal } from './components/settings/HospitalSettingsModal';
-import { SendToGuardiaModal } from './components/guardia/SendToGuardiaModal';
-import { ClinicalHistoryPlantaModal } from './components/history-planta/ClinicalHistoryPlantaModal';
+import type { UnifiedDocType } from './components/documents/UnifiedClinicalDocumentModal';
+import type { HospitalDocType } from './components/documents/HospitalNotesModal';
 import { MobileDrawerMenu } from './components/layout/MobileDrawerMenu';
-import { StrokeAnalyticsDashboard } from './components/stroke/StrokeAnalyticsDashboard';
-import { StrokeRegistryModal } from './components/stroke/StrokeRegistryModal';
-import { StrokeAutoPromptModal } from './components/stroke/StrokeAutoPromptModal';
 import { strokeRegistryService } from './services/strokeRegistryService';
 import { guardiaAppService } from './services/guardiaAppService';
 import { cloudSyncService } from './services/cloudSyncService';
 import { appVersionService } from './services/appVersionService';
+import { lazyView, lazyModal, preloadLazyChunks } from './components/common/lazyLoad';
 
 import {
   Activity,
@@ -86,6 +61,37 @@ import {
   UserPlus,
   ChevronDown,
 } from 'lucide-react';
+
+// ---- Carga diferida: cada pantalla/modal se descarga sólo cuando se usa ----
+const EpidemiologyView = lazyView(() => import('./components/epidemiology/EpidemiologyView'), 'EpidemiologyView');
+const EmergencyStatsView = lazyView(() => import('./components/dashboard/EmergencyStatsView'), 'EmergencyStatsView');
+const StrokeAnalyticsDashboard = lazyView(() => import('./components/stroke/StrokeAnalyticsDashboard'), 'StrokeAnalyticsDashboard');
+const GuardiaMedicinaInternaView = lazyView(() => import('./components/guardia/GuardiaMedicinaInternaView'), 'GuardiaMedicinaInternaView');
+const TriageVitalsTab = lazyView(() => import('./components/patient-detail/TriageVitalsTab'), 'TriageVitalsTab');
+const ClinicalHistoryTab = lazyView(() => import('./components/patient-detail/ClinicalHistoryTab'), 'ClinicalHistoryTab');
+const StudiesGalleryTab = lazyView(() => import('./components/patient-detail/StudiesGalleryTab'), 'StudiesGalleryTab');
+const LabsTab = lazyView(() => import('./components/patient-detail/LabsTab'), 'LabsTab');
+const DiagnosticAssistantTab = lazyView(() => import('./components/patient-detail/DiagnosticAssistantTab'), 'DiagnosticAssistantTab');
+const MedicalOrdersTab = lazyView(() => import('./components/patient-detail/MedicalOrdersTab'), 'MedicalOrdersTab');
+const EvolutionsTab = lazyView(() => import('./components/patient-detail/EvolutionsTab'), 'EvolutionsTab');
+const FinalDispositionTab = lazyView(() => import('./components/patient-detail/FinalDispositionTab'), 'FinalDispositionTab');
+const ImageCompareModal = lazyView(() => import('./components/image-tools/ImageCompareModal'), 'ImageCompareModal');
+const PatientAIAnalysisModal = lazyModal(() => import('./components/ai/PatientAIAnalysisModal'), 'PatientAIAnalysisModal');
+const QuickRegisterModal = lazyModal(() => import('./components/registration/QuickRegisterModal'), 'QuickRegisterModal');
+const DocumentExporterModal = lazyModal(() => import('./components/documents/DocumentExporterModal'), 'DocumentExporterModal');
+const GoogleDriveModal = lazyModal(() => import('./components/documents/GoogleDriveModal'), 'GoogleDriveModal');
+const QuickCalculatorBar = lazyModal(() => import('./components/common/QuickCalculatorBar'), 'QuickCalculatorBar');
+const MedicalOrderPrintModal = lazyModal(() => import('./components/documents/MedicalOrderPrintModal'), 'MedicalOrderPrintModal');
+const CloudSyncModal = lazyModal(() => import('./components/documents/CloudSyncModal'), 'CloudSyncModal');
+const ShareAppModal = lazyModal(() => import('./components/documents/ShareAppModal'), 'ShareAppModal');
+const HospitalSettingsModal = lazyModal(() => import('./components/settings/HospitalSettingsModal'), 'HospitalSettingsModal');
+const SendToGuardiaModal = lazyModal(() => import('./components/guardia/SendToGuardiaModal'), 'SendToGuardiaModal');
+const ClinicalHistoryPlantaModal = lazyModal(() => import('./components/history-planta/ClinicalHistoryPlantaModal'), 'ClinicalHistoryPlantaModal');
+const StrokeRegistryModal = lazyModal(() => import('./components/stroke/StrokeRegistryModal'), 'StrokeRegistryModal');
+const StrokeAutoPromptModal = lazyModal(() => import('./components/stroke/StrokeAutoPromptModal'), 'StrokeAutoPromptModal');
+const PreviousHistoryImportModal = lazyModal(() => import('./components/documents/PreviousHistoryImportModal'), 'PreviousHistoryImportModal');
+const UserProfileModal = lazyModal(() => import('./components/auth/UserProfileModal'), 'UserProfileModal');
+const UnifiedClinicalDocumentModal = lazyModal(() => import('./components/documents/UnifiedClinicalDocumentModal'), 'UnifiedClinicalDocumentModal');
 
 export default function App() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -158,13 +164,40 @@ export default function App() {
   }, []);
 
   // Load database
-  const refreshData = async () => {
+  const activePatientRef = React.useRef<Patient | null>(null);
+  activePatientRef.current = activePatient;
+  const refreshInFlight = React.useRef<Promise<void> | null>(null);
+  const refreshQueued = React.useRef(false);
+
+  // Evita refrescos simultáneos: si llega otro aviso mientras se refresca, se repite una sola vez al final
+  const refreshData = (): Promise<void> => {
+    if (refreshInFlight.current) {
+      refreshQueued.current = true;
+      return refreshInFlight.current;
+    }
+    refreshInFlight.current = doRefreshData().finally(() => {
+      refreshInFlight.current = null;
+      if (refreshQueued.current) {
+        refreshQueued.current = false;
+        refreshData();
+      }
+    });
+    return refreshInFlight.current;
+  };
+
+  const doRefreshData = async () => {
     try {
-      await seedDatabaseIfEmpty(db);
+      // Los datos de demostración/respaldo local se insertan SIN marcarlos como cambios,
+      // para que nunca sobrescriban los expedientes reales del servidor central.
+      const hadPatients = (await db.patients.count()) > 0;
+      // Casos de demostración sólo en un dispositivo que nunca se ha conectado al servidor central
+      const everSynced = syncEngine.getStatus().lastSyncedAtMs > 0 || localStorage.getItem('hr_colon_has_synced') === '1';
+      if (!everSynced && !hadPatients) await syncEngine.withoutTracking(() => seedDatabaseIfEmpty(db));
+      if (!hadPatients && (await db.patients.count()) > 0) syncEngine.requestFullResend();
       let pList = await db.patients.toArray();
 
-      // Auto-reparación si por alguna razón la lista local no tiene pacientes o falta Joel Colón
-      if (pList.length === 0 || !pList.some((p) => p.id === 'pat-1788843084862')) {
+      // Sólo si la base local quedó vacía, intentar cargar la copia publicada
+      if (pList.length === 0) {
         try {
           const baseUrl = (import.meta as any).env?.BASE_URL || './';
           const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
@@ -174,12 +207,7 @@ export default function App() {
             const json = JSON.parse(text);
             const masterData = json.data || json;
             if (masterData && Array.isArray(masterData.patients)) {
-              await db.patients.bulkPut(masterData.patients);
-              if (masterData.studies) await db.studies.bulkPut(masterData.studies);
-              if (masterData.labs) await db.labs.bulkPut(masterData.labs);
-              if (masterData.orders) await db.orders.bulkPut(masterData.orders);
-              if (masterData.evolutions) await db.evolutions.bulkPut(masterData.evolutions);
-              if (masterData.pendingTasks) await db.pendingTasks.bulkPut(masterData.pendingTasks);
+              await syncEngine.applyRemote({ tables: masterData });
               pList = await db.patients.toArray();
             }
           }
@@ -202,6 +230,7 @@ export default function App() {
       setPendingTasks(tList);
 
       // Keep active patient updated if open (sin interrumpir la escritura activa del usuario)
+      const activePatient = activePatientRef.current;
       if (activePatient) {
         const isUserActivelyTyping =
           typeof document !== 'undefined' &&
@@ -209,9 +238,14 @@ export default function App() {
            document.activeElement?.tagName === 'TEXTAREA' ||
            (document.activeElement as HTMLElement)?.isContentEditable);
 
-        if (!isUserActivelyTyping) {
-          const updatedActive = pList.find((p) => p.id === activePatient.id);
-          if (updatedActive) setActivePatient(updatedActive);
+        const updatedActive = pList.find((p) => p.id === activePatient.id);
+        if (updatedActive && recordClockOf(updatedActive) > recordClockOf(activePatient)) {
+          if (!isUserActivelyTyping) {
+            setActivePatient(updatedActive);
+          } else {
+            // Reintentar cuando el usuario deje de escribir
+            pendingActiveRefresh.current = true;
+          }
         }
       }
 
@@ -225,6 +259,18 @@ export default function App() {
     }
   };
 
+  const pendingActiveRefresh = React.useRef(false);
+  useEffect(() => {
+    const onBlur = () => {
+      if (pendingActiveRefresh.current) {
+        pendingActiveRefresh.current = false;
+        setTimeout(() => refreshData(), 50);
+      }
+    };
+    document.addEventListener('focusout', onBlur);
+    return () => document.removeEventListener('focusout', onBlur);
+  }, []);
+
   const saveLocalBackup = async () => {
     try {
       const allP = await db.patients.toArray();
@@ -234,21 +280,24 @@ export default function App() {
 
   useEffect(() => {
     const initializeDataAndSync = async () => {
-      // 1. Iniciar conexión en tiempo real con backend central de Render (SSE)
-      centralSyncService.init();
+      // 1. Mostrar de inmediato lo que ya está en el dispositivo (funciona sin señal)
+      if ((await db.patients.count()) > 0) await refreshData();
 
-      // 2. NETWORK FIRST: Intentar consultar de inmediato el servidor central en Render (ÚNICA FUENTE DE VERDAD)
+      // 2. Iniciar el motor de sincronización (tiempo real + cola de envío)
+      centralSyncService.init();
       try {
         await Promise.race([
           centralSyncService.pullCentralMasterData(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Init timeout')), 2500))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Init timeout')), 3000))
         ]);
       } catch (e) {
-        console.log('[Sync] Network-First timeout/offline, cargando caché local:', e);
+        console.log('[Sync] Servidor central lento o sin conexión; trabajando con datos locales:', e);
       }
 
-      // 3. Cargar la base de datos (con los datos más frescos recibidos)
+      // 3. Cargar (o sembrar si es un dispositivo nuevo sin conexión) y traer la nube de Google
       await refreshData();
+      cloudSyncService.pullLatestData().catch(() => {});
+      preloadLazyChunks();
     };
 
     initializeDataAndSync();
@@ -262,7 +311,6 @@ export default function App() {
     // 5. Revalidación inmediata al desbloquear celular, cambiar pestaña o reconectar (Network-First)
     const handleWakeupSync = async () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        await centralSyncService.pullCentralMasterData();
         await refreshData();
       }
     };
@@ -270,9 +318,7 @@ export default function App() {
     window.addEventListener('focus', handleWakeupSync);
     window.addEventListener('online', handleWakeupSync);
 
-    const unsubscribe = cloudSyncService.subscribe(() => {
-      refreshData();
-    });
+    const unsubscribe = () => {};
 
     return () => {
       window.removeEventListener('hospital_central_data_changed', handleCentralDataChange);
@@ -344,7 +390,7 @@ export default function App() {
 
   // Patient Actions
   const handleSaveNewPatient = async (newPatientData: Partial<Patient>) => {
-    const id = `pat-${Date.now()}`;
+    const id = newSyncId('pat');
     const newP: Patient = {
       id,
       internalCode: newPatientData.internalCode || `EMG-${Date.now()}`,
@@ -440,7 +486,7 @@ export default function App() {
     if (changes && changes.length > 0) {
       try {
         const auditEntry: AuditLogEntry = {
-          id: `audit-${Date.now()}`,
+          id: newSyncId('audit'),
           timestamp: nowIso,
           userId: currentUser.id || 'usr-admin-colon',
           userName: currentUser.name || 'Dr. Joel Colón',
@@ -523,7 +569,7 @@ export default function App() {
 
   // Studies
   const handleAddStudy = async (study: Partial<MedicalStudy>) => {
-    const id = `std-${Date.now()}`;
+    const id = newSyncId('std');
     const fullStudy = {
       ...study,
       id,
@@ -545,7 +591,7 @@ export default function App() {
 
   // Labs
   const handleAddLab = async (lab: Partial<LabResult>) => {
-    const id = `lab-${Date.now()}`;
+    const id = newSyncId('lab');
     const fullLab = {
       ...lab,
       id,
@@ -567,7 +613,7 @@ export default function App() {
 
   // Orders
   const handleAddOrder = async (ord: Partial<MedicalOrder>) => {
-    const id = `ord-${Date.now()}`;
+    const id = newSyncId('ord');
     const fullOrder = {
       ...ord,
       id,
@@ -603,7 +649,7 @@ export default function App() {
 
   // Evolutions
   const handleAddEvolution = async (evo: Partial<PatientEvolution>) => {
-    const id = `evo-${Date.now()}`;
+    const id = newSyncId('evo');
     const fullEvo = {
       ...evo,
       id,
@@ -894,6 +940,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-row font-sans">
       {/* Privacy Shield */}
+      <SyncToast />
       <PrivacyShield
         isManualActive={isPrivacyActive}
         onDeactivate={() => setIsPrivacyActive(false)}

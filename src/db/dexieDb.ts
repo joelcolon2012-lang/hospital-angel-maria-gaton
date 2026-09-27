@@ -37,6 +37,7 @@ export class EmergencyDatabase extends Dexie {
   clinicalHistoryVersions!: Table<any, string>;
   strokeRegistry!: Table<StrokeRecord, string>;
   aiSearchHistory!: Table<AISearchHistoryItem, string>;
+  syncTombstones!: Table<SyncTombstone, string>;
 
   constructor() {
     super('EmergenciaDrColonDB');
@@ -133,7 +134,39 @@ export class EmergencyDatabase extends Dexie {
       strokeRegistry: 'id, patientId, strokeType, eventDate, inHospitalMortality, createdAt, updatedAt',
       aiSearchHistory: 'id, userId, timestamp, mode'
     });
+
+    // v7: sincronización registro-por-registro.
+    // `_lmod` = hora de la última modificación hecha EN ESTE dispositivo (cola de envío).
+    // `syncTombstones` = borrados pendientes de propagar a los demás dispositivos.
+    this.version(7).stores({
+      patients: 'id, internalCode, fullName, idDocument, medicalRecordNumber, cubicle, status, triageLevel, arrivalDateTime, isDeleted, isArchived, _lmod',
+      studies: 'id, patientId, category, status, createdAt, _lmod',
+      labs: 'id, patientId, panel, flag, timestamp, _lmod',
+      problems: 'id, patientId, status, createdAt, _lmod',
+      orders: 'id, patientId, type, status, createdAt, _lmod',
+      evolutions: 'id, patientId, timestamp, _lmod',
+      pendingTasks: 'id, patientId, bedCode, priority, status, category, date, time, createdAt, _lmod',
+      settings: 'id',
+      auditLogs: 'id, timestamp, userId, patientId, action, recordId, _lmod',
+      users: 'id, email, role, isActive, isDeleted, _lmod',
+      sourceDocuments: 'id, patientId, uploadedAt, _lmod',
+      clinicalNotes: 'id, patientId, noteType, status, createdAt, _lmod',
+      clinicalHistoriesPlanta: 'id, patientId, admissionId, status, version, createdAt, updatedAt, _lmod',
+      clinicalHistoryVersions: 'id, clinicalHistoryId, patientId, admissionId, version, createdAt, _lmod',
+      strokeRegistry: 'id, patientId, strokeType, eventDate, inHospitalMortality, createdAt, updatedAt, _lmod',
+      aiSearchHistory: 'id, userId, timestamp, mode',
+      syncTombstones: 'key, table, deletedAt'
+    });
   }
+}
+
+export interface SyncTombstone {
+  key: string; // `${table}|${id}`
+  table: string;
+  id: string;
+  deletedAt: number;
+  deletedBy?: string;
+  serverAckedAt?: number;
 }
 
 export const db = new EmergencyDatabase();

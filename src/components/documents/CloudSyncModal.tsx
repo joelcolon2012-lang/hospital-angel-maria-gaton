@@ -13,8 +13,11 @@ import {
   Globe,
   Database,
   Check,
-  AlertCircle
+  AlertCircle,
+  Server
 } from 'lucide-react';
+import { centralSyncService } from '../../services/centralSyncService';
+import { syncEngine, type EngineStatus } from '../../services/syncEngine';
 import { cloudSyncService, SyncConfiguration } from '../../services/cloudSyncService';
 import { googleDriveService } from '../../services/googleDriveService';
 
@@ -38,6 +41,25 @@ export const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, onOpenGoogleD
     const unsub = cloudSyncService.subscribe(() => {
       setConfig(cloudSyncService.getConfig());
     });
+    return () => unsub();
+  }, [isOpen]);
+
+  const [engine, setEngine] = useState<EngineStatus>(() => syncEngine.getStatus());
+  const [serverDraft, setServerDraft] = useState<string>(() => centralSyncService.getBackendUrl());
+  const [lanUrls, setLanUrls] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const unsub = syncEngine.subscribe(setEngine);
+    setServerDraft(centralSyncService.getBackendUrl());
+    // Dirección real de la PC en la red (antes estaba fija y dejaba de funcionar al cambiar la IP)
+    fetch(`${centralSyncService.getBackendUrl()}/api/health`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const isLocalServer = /^https?:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(centralSyncService.getBackendUrl());
+        setLanUrls(isLocalServer && Array.isArray(j?.lanUrls) ? j.lanUrls : []);
+      })
+      .catch(() => setLanUrls([]));
     return () => unsub();
   }, [isOpen]);
 
@@ -151,23 +173,25 @@ export const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, onOpenGoogleD
                   <span>Estado de Sincronización:</span>
                   <span
                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
-                      config.syncState === 'synced'
+                      engine.state === 'connected' && engine.pendingChanges === 0
                         ? 'bg-emerald-100 text-emerald-800'
-                        : config.syncState === 'syncing'
-                        ? 'bg-amber-100 text-amber-800 animate-pulse'
-                        : config.syncState === 'error'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-slate-200 text-slate-700'
+                        : engine.state === 'syncing' || isSyncing
+                        ? 'bg-sky-100 text-sky-800 animate-pulse'
+                        : 'bg-amber-100 text-amber-900'
                     }`}
                   >
-                    {config.syncState === 'synced' && '● Al Día'}
-                    {config.syncState === 'syncing' && '● Sincronizando...'}
-                    {config.syncState === 'error' && '● Requiere Conexión'}
-                    {config.syncState === 'idle' && '● En Espera'}
+                    {engine.state === 'syncing' || isSyncing
+                      ? '● Sincronizando…'
+                      : engine.state === 'connected'
+                      ? engine.pendingChanges === 0
+                        ? '● Al día'
+                        : `● ${engine.pendingChanges} por enviar`
+                      : '● Sin conexión (guardado en el equipo)'}
                   </span>
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">
-                  Última sincronización: <strong>{config.lastSyncedTime || 'Recién iniciado'}</strong>
+                  Servidor central: <strong>{engine.lastSyncedAt}</strong>
+                  {config.lastSyncedTime ? <> · Nube de Google: <strong>{config.lastSyncedTime}</strong></> : null}
                 </div>
               </div>
             </div>
@@ -183,6 +207,80 @@ export const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, onOpenGoogleD
             </button>
           </div>
 
+          {/* Servidor central (tiempo real) */}
+          <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <Server className="w-4 h-4 text-[#0F4C5C]" />
+                <span>Servidor central en tiempo real</span>
+              </div>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                  engine.state === 'connected'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : engine.state === 'syncing'
+                    ? 'bg-sky-100 text-sky-800'
+                    : 'bg-amber-100 text-amber-900'
+                }`}
+              >
+                {engine.state === 'connected' && `● Conectado · ${engine.connectedDevices} dispositivo${engine.connectedDevices === 1 ? '' : 's'}`}
+                {engine.state === 'syncing' && '● Sincronizando…'}
+                {(engine.state === 'offline' || engine.state === 'error') && '● Sin conexión'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="text-slate-500">Cambios por enviar</div>
+                <div className="font-bold text-slate-900 text-sm tabular-nums">{engine.pendingChanges}</div>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="text-slate-500">Última sincronización</div>
+                <div className="font-bold text-slate-900 text-sm">{engine.lastSyncedAt}</div>
+              </div>
+            </div>
+            {engine.errorMessage && engine.state !== 'connected' && (
+              <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-2">{engine.errorMessage}</div>
+            )}
+            <label className="block text-[11px] font-semibold text-slate-600">Dirección del servidor</label>
+            <div className="flex gap-2">
+              <input
+                value={serverDraft}
+                onChange={(e) => setServerDraft(e.target.value)}
+                placeholder="Automático"
+                className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-slate-300 font-mono text-xs"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  centralSyncService.setBackendUrl(serverDraft);
+                  setServerDraft(centralSyncService.getBackendUrl());
+                  setFeedbackMsg({ type: 'success', text: 'Servidor actualizado. Sincronizando…' });
+                }}
+                className="shrink-0 px-3 py-1.5 bg-[#0F4C5C] text-white rounded-lg text-xs font-bold"
+              >
+                Guardar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  centralSyncService.setBackendUrl('');
+                  setServerDraft(centralSyncService.getBackendUrl());
+                  setFeedbackMsg({ type: 'success', text: 'Servidor restablecido a detección automática.' });
+                }}
+                className="shrink-0 px-2.5 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold"
+                title="Usar detección automática"
+              >
+                Auto
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Automático: si abriste la app desde la PC del hospital (INICIAR.bat) se usa esa misma PC; desde GitHub Pages se usa el servidor en Render.
+            </p>
+          </div>
+
           {/* SECTION 1: Red Wi-Fi del Hospital (PC & Celular en la misma red) */}
           <div className="p-4 bg-teal-50/60 border border-teal-200 rounded-xl space-y-2.5">
             <div className="flex items-center gap-2 font-bold text-teal-950">
@@ -192,24 +290,31 @@ export const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, onOpenGoogleD
             <p className="text-xs text-slate-700 leading-relaxed">
               Mientras estés conectado al Wi-Fi del hospital o la misma red, tu teléfono se comunica directamente con el disco duro de esta computadora:
             </p>
-            <div className="p-2.5 bg-white border border-teal-300 rounded-xl flex items-center justify-between">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-teal-700 block">Enlace directo para tu celular:</span>
-                <span className="font-mono text-sm font-bold text-teal-950 select-all">http://172.17.36.154:3000</span>
+            {lanUrls.length === 0 && (
+              <div className="p-2.5 bg-white border border-teal-300 rounded-xl text-xs text-slate-600">
+                Abre la app desde la PC que ejecuta <strong>INICIAR.bat</strong> para ver aquí el enlace de tu celular.
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText('http://172.17.36.154:3000');
-                  setFeedbackMsg({ type: 'success', text: 'Enlace http://172.17.36.154:3000 copiado al portapapeles.' });
-                }}
-                className="px-2.5 py-1 text-xs font-semibold bg-teal-100 text-teal-800 hover:bg-teal-200 rounded-lg transition-colors"
-              >
-                Copiar
-              </button>
-            </div>
+            )}
+            {lanUrls.map((u) => (
+              <div key={u} className="p-2.5 bg-white border border-teal-300 rounded-xl flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-[10px] uppercase font-bold text-teal-700 block">Enlace directo para tu celular:</span>
+                  <span className="font-mono text-sm font-bold text-teal-950 select-all break-all">{u}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(u).catch(() => {});
+                    setFeedbackMsg({ type: 'success', text: `Enlace ${u} copiado al portapapeles.` });
+                  }}
+                  className="shrink-0 px-2.5 py-1 text-xs font-semibold bg-teal-100 text-teal-800 hover:bg-teal-200 rounded-lg transition-colors"
+                >
+                  Copiar
+                </button>
+              </div>
+            ))}
             <div className="text-[11px] text-teal-900 bg-teal-100/50 p-2 rounded-lg border border-teal-200/60">
-              💾 <strong>Persistencia en Disco Duro:</strong> Los datos se escriben automáticamente en el archivo <code>database/hospital_master_db.json</code> de la PC. Aunque cierres el navegador, nada se borra.
+              💾 <strong>Persistencia:</strong> cada dispositivo guarda sus datos al instante y el servidor central los guarda en <code>database/hospital_master_db.json</code>. Los cambios hechos sin señal se envían solos al reconectar, y si dos personas editan el mismo paciente se conservan los cambios de ambas.
             </div>
           </div>
 

@@ -90,7 +90,7 @@ export const DashboardStats: React.FC<Props> = ({
             Hospital Regional Dr. Ángel María Gatón
           </h2>
           <p className="text-xs text-slate-500">
-            {activeCount} pacientes en seguimiento clínico hoy
+            {activeCount} {activeCount === 1 ? 'paciente' : 'pacientes'} en seguimiento clínico hoy
           </p>
         </div>
 

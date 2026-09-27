@@ -1,5 +1,7 @@
 import { User, UserRole, AuditLogEntry, AuditAction } from '../types';
 import { db } from '../db/dexieDb';
+import { syncEngine } from './syncEngine';
+import { pinVerifier } from './pinVerifier';
 import { cloudSyncService } from './cloudSyncService';
 import { centralSyncService } from './centralSyncService';
 
@@ -98,20 +100,26 @@ export class AuthService {
       }
 
       // 1. Respaldo de seguridad local (LocalStorage fallback para proteger contra reseteos de caché de navegadores móviles)
-      const backupUsersStr = localStorage.getItem('hr_colon_users_backup');
-      if (backupUsersStr) {
-        try {
-          const parsed = JSON.parse(backupUsersStr);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            await db.users.bulkPut(parsed);
-          }
-        } catch {}
-      }
+      // Sólo restaura usuarios que FALTEN; nunca sobrescribe versiones más nuevas
+      // (antes se reescribían en cada inicio y revertían cambios hechos en otros dispositivos).
+      await syncEngine.withoutTracking(async () => {
+        const backupUsersStr = localStorage.getItem('hr_colon_users_backup');
+        if (backupUsersStr) {
+          try {
+            const parsed = JSON.parse(backupUsersStr);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const existing = await db.users.bulkGet(parsed.map((u: User) => u.id));
+              const missing = parsed.filter((_: User, i: number) => !existing[i]);
+              if (missing.length) await db.users.bulkPut(missing);
+            }
+          } catch {}
+        }
 
-      const count = await db.users.count();
-      if (count === 0) {
-        await db.users.bulkPut(DEFAULT_USERS);
-      }
+        const count = await db.users.count();
+        if (count === 0) {
+          await db.users.bulkPut(DEFAULT_USERS);
+        }
+      });
     } catch {
       this.currentUser = DEFAULT_USERS[0];
       this.sessionActive = false;
@@ -183,6 +191,7 @@ export class AuthService {
       const newUser = await centralSyncService.createUser(payload, creator);
 
       await db.users.put(newUser);
+      pinVerifier.remember(newUser.id, data.pin.trim());
       this.login(newUser);
 
       return { success: true, user: newUser };
@@ -229,6 +238,8 @@ export class AuthService {
     try {
       const editor = this.currentUser?.name || 'Dr. Joel Colón';
       await centralSyncService.resetUserPassword(userId, newPassword, confirmPassword, editor);
+      // La huella local anterior deja de ser válida en este dispositivo
+      pinVerifier.forget(userId);
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Error restableciendo contraseña' };
@@ -306,7 +317,7 @@ export class AuthService {
     try {
       const users = await db.users.toArray();
       if (!users || users.length === 0) {
-        await db.users.bulkPut(DEFAULT_USERS);
+        await syncEngine.withoutTracking(() => db.users.bulkPut(DEFAULT_USERS));
         return DEFAULT_USERS;
       }
       if (includeInactive) return users;
@@ -365,29 +376,89 @@ export class AuthService {
     return this.currentUser;
   }
 
-  public async authenticate(identifier: string, secret?: string): Promise<{ success: boolean; user?: User; error?: string }> {
+  /**
+   * Inicio de sesión seguro:
+   *  1. El PIN se valida SIEMPRE contra el servidor central (fuente de verdad).
+   *  2. Si el servidor responde, su decisión es definitiva.
+   *  3. Sin conexión: se compara con la huella guardada en ESTE dispositivo tras
+   *     el último inicio correcto (o con el PIN local de las cuentas creadas aquí).
+   * Antes, las cuentas sincronizadas desde el servidor aceptaban cualquier PIN.
+   */
+  public async authenticate(identifier: string, secret?: string): Promise<{ success: boolean; user?: User; error?: string; offline?: boolean }> {
     const all = await this.getAllUsers(true);
     const cleanId = identifier.trim().toLowerCase();
-    const user = all.find(u => 
-      u.id.toLowerCase() === cleanId || 
-      u.email.toLowerCase() === cleanId || 
-      u.name.toLowerCase() === cleanId
+    const user = all.find(u =>
+      u.id.toLowerCase() === cleanId ||
+      (u.email || '').toLowerCase() === cleanId ||
+      (u.name || '').toLowerCase() === cleanId
     );
 
     if (!user) {
       return { success: false, error: 'Usuario o médico no encontrado en el sistema hospitalario' };
     }
-
     if (user.isActive === false || user.isDeleted) {
       return { success: false, error: 'Esta cuenta médica se encuentra inactiva. Contacte al Administrador.' };
     }
-
-    if (secret && user.pin && user.pin !== secret && user.password !== secret) {
-      return { success: false, error: 'Código PIN o contraseña incorrecta' };
+    const pin = (secret || '').trim();
+    if (!pin) {
+      return { success: false, error: 'Introduzca su código PIN o contraseña.' };
     }
 
-    this.login(user);
-    return { success: true, user };
+    // 1. Validación en el servidor central
+    let serverReachable = false;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${syncEngine.getBackendUrl()}/api/users/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: user.id, pin }),
+        signal: controller.signal,
+        cache: 'no-store'
+      }).finally(() => clearTimeout(timer));
+      const isJson = (res.headers.get('content-type') || '').includes('json');
+      if (isJson && (res.ok || res.status === 401 || res.status === 400)) {
+        serverReachable = true;
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.success) {
+          pinVerifier.remember(user.id, pin);
+          const merged = { ...user, ...(json.user || {}) } as User;
+          this.login(merged);
+          return { success: true, user: merged };
+        }
+        // Si el usuario existe sólo en este dispositivo (aún no sincronizado), validar localmente
+        const notOnServer = /no encontrado/i.test(json.error || '');
+        if (!notOnServer) {
+          pinVerifier.forget(user.id);
+          return { success: false, error: json.error || 'Código PIN o contraseña incorrecta' };
+        }
+      }
+    } catch {
+      // sin conexión: continuar con la verificación local
+    }
+
+    // 2. Verificación local (sin señal, o cuenta creada en este dispositivo)
+    // El PIN guardado en texto sólo vale en un dispositivo que NUNCA se ha conectado al
+    // servidor (modo independiente). En los demás, sin señal sólo vale la huella del último
+    // inicio confirmado por el servidor (así un cambio de PIN no se puede esquivar).
+    const standaloneDevice = localStorage.getItem('hr_colon_has_synced') !== '1';
+    const localOk =
+      pinVerifier.check(user.id, pin) ||
+      (standaloneDevice && Boolean((user as any).pin) && (user as any).pin === pin) ||
+      (standaloneDevice && Boolean((user as any).password) && (user as any).password === pin);
+    if (localOk) {
+      pinVerifier.remember(user.id, pin);
+      this.login(user);
+      return { success: true, user, offline: !serverReachable };
+    }
+
+    if (!serverReachable && !pinVerifier.has(user.id)) {
+      return {
+        success: false,
+        error: 'Sin conexión con el servidor. Inicie sesión una vez con conexión en este dispositivo para poder usarlo luego sin señal.'
+      };
+    }
+    return { success: false, error: 'Código PIN o contraseña incorrecta' };
   }
 
   // Permisos según Rol Hospitalario (RBAC)

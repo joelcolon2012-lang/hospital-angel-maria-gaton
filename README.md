@@ -104,3 +104,17 @@ Aplicación Web Progresiva (PWA) móvil, estructurada y de alto rendimiento dise
 
 ## 🔒 Privacidad y Aviso Legal
 *Herramienta de documentación y apoyo clínico. No sustituye el juicio médico ni los protocolos institucionales.*
+
+---
+
+## 🔄 Sincronización multidispositivo (v2.6)
+
+**Cómo usarla en el hospital:** ejecuta `INICIAR.bat` en la PC. Abre `http://localhost:3000` en la PC y, en el celular (misma Wi-Fi), el enlace que aparece en la ventana o en *Sincronización en Tiempo Real & Nube*. Todos los dispositivos usan la misma base central y se actualizan en tiempo real.
+
+- **Registro por registro:** nunca se reemplaza la base completa; un dispositivo no puede borrar lo que otro agregó.
+- **Campo por campo:** si un médico edita signos vitales y otro la historia del mismo paciente, se conservan ambos cambios.
+- **Sin señal:** todo se guarda en el dispositivo y se envía solo al reconectar (indicador ámbar con el número de cambios pendientes).
+- **Borrados:** se propagan a todos los dispositivos y no reaparecen.
+- **Actualizaciones de la app:** `INICIAR.bat` recompila solo si hay cambios, y los dispositivos detectan la versión nueva automáticamente.
+
+Desarrollo: `npm run dev` (servidor + Vite en http://localhost:5173). Pruebas de sincronización: `npm run test:sync`.

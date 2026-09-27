@@ -10,8 +10,11 @@ export interface AppVersionInfo {
   features?: string[];
 }
 
-export const CURRENT_APP_BUILD_TIME = 1790131500000;
-export const CURRENT_APP_VERSION = '2.5.0';
+declare const __APP_BUILD_TIME__: number;
+declare const __APP_VERSION__: string;
+// Se inyectan automáticamente en cada compilación (antes había que cambiarlos a mano)
+export const CURRENT_APP_BUILD_TIME: number = typeof __APP_BUILD_TIME__ !== 'undefined' ? __APP_BUILD_TIME__ : 0;
+export const CURRENT_APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
 
 class AppVersionService {
   private updateAvailable = false;

@@ -700,21 +700,9 @@ export async function seedDatabaseIfEmpty(db: any): Promise<void> {
       await db.orders.bulkPut(SEED_ORDERS);
       await db.evolutions.bulkPut(SEED_EVOLUTIONS);
       console.log('Database successfully seeded.');
-    } else {
-      // Auto-reparación: Asegurar que Joel Colón existe en la base de datos si falta
-      const joel = await db.patients.get('pat-1788843084862');
-      if (!joel) {
-        const joelInSeed = SEED_PATIENTS.find(p => p.id === 'pat-1788843084862');
-        if (joelInSeed) {
-          console.log('[Seed] Restaurando paciente Joel Colón faltante...');
-          await db.patients.put(joelInSeed);
-          const joelLabs = SEED_LABS.filter(l => l.patientId === 'pat-1788843084862');
-          if (joelLabs.length > 0) await db.labs.bulkPut(joelLabs);
-          const joelOrders = SEED_ORDERS.filter(o => o.patientId === 'pat-1788843084862');
-          if (joelOrders.length > 0) await db.orders.bulkPut(joelOrders);
-        }
-      }
     }
+    // Nota: se eliminó la "auto-reparación" que volvía a insertar un paciente fijo en cada
+    // inicio; resucitaba expedientes archivados y sobrescribía cambios de otros dispositivos.
   } catch (err) {
     console.error('[seedDatabaseIfEmpty Error]', err);
   }

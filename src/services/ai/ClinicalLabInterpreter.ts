@@ -456,11 +456,29 @@ export function generateSuggestedLabDiagnoses(
     }
   });
 
+  // Coincidencia segura: exacta, por palabra completa, o por subcadena sólo si la clave es larga.
+  // (Antes "NA" coincidía con "HEMOGLOBINA" y "GB" con "HGB": se reportaba la hemoglobina
+  //  como sodio → falsa "HIPONATREMIA SEVERA", y como leucocitos.)
+  const norm = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
   const getVal = (...keys: string[]): number | undefined => {
-    for (const k of keys) {
-      for (const [mapKey, v] of paramMap.entries()) {
-        if (mapKey === k || mapKey.includes(k)) return v;
-      }
+    const entries = Array.from(paramMap.entries()).map(([k, v]) => [norm(k), v] as const);
+    for (const raw of keys) {
+      const k = norm(raw);
+      if (!k) continue;
+      const exact = entries.find(([mk]) => mk === k);
+      if (exact) return exact[1];
+    }
+    for (const raw of keys) {
+      const k = norm(raw);
+      if (!k) continue;
+      const word = entries.find(([mk]) => mk.split(/[^A-Z0-9+]+/).includes(k));
+      if (word) return word[1];
+    }
+    for (const raw of keys) {
+      const k = norm(raw);
+      if (k.length < 5) continue;
+      const sub = entries.find(([mk]) => mk.includes(k));
+      if (sub) return sub[1];
     }
     return undefined;
   };
@@ -517,7 +535,7 @@ export function generateSuggestedLabDiagnoses(
     const isSevere = k < 2.8;
     suggested.push({
       id: 'sug-hipokalemia',
-      name: isSevere ? 'HIPOKALEMIA SEVERA' : 'HIPOKALEMIA LEVE',
+      name: isSevere ? 'HIPOKALEMIA SEVERA' : 'HIPOKALEMIA LEVE A MODERADA',
       severity: isSevere ? 'SEVERO' : 'LEVE',
       criteria: `Potasio sérico: ${k} mEq/L (Normal 3.5 - 5.1)`,
       category: 'Electrolitos',
