@@ -1,11 +1,11 @@
 {
-  "version": "2.5.0",
-  "buildTime": 1790131500000,
-  "buildDate": "2026-09-22T22:45:00Z",
+  "version": "2.6.0",
+  "buildTime": 1790525690314,
+  "buildDate": "2026-09-27T16:14:50.314Z",
   "features": [
-    "Medidas Generales editables con chips preestablecidos",
-    "Paraclínicos e Imágenes multi-selección con 20 pruebas estándar",
-    "Impresión Directa Oficial 1:1 sin demoras ni descargas obligatorias",
-    "Limpieza de encabezado y pie de firma anónima oficial"
+    "Sincronización registro por registro entre PC, iPhone y Android",
+    "Cambios sin señal se envían solos al reconectar",
+    "Dos médicos pueden editar el mismo paciente sin perder datos",
+    "Carga más rápida (la app se descarga por partes)"
   ]
 }
