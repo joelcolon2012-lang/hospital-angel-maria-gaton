@@ -1,7 +1,7 @@
 {
-  "version": "2.7.0",
-  "buildTime": 1790538461125,
-  "buildDate": "2026-09-27T19:47:41.125Z",
+  "version": "2.7.1",
+  "buildTime": 1790542413127,
+  "buildDate": "2026-09-27T20:53:33.127Z",
   "features": [
     "Una sola base de datos central para todos los dispositivos",
     "Los datos de pacientes sólo se entregan con sesión iniciada (PIN)",
