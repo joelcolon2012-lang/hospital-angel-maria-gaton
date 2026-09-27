@@ -1,3 +1,4 @@
+import { authToken } from '../authToken';
 import { geminiService } from './geminiService';
 import { authService } from '../authService';
 import { AISearchResponse, AISearchSource } from '../../types';
@@ -38,7 +39,7 @@ export class ClinicalAiSearchService {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-user-id': userId,
-      'Authorization': `Bearer ${userId}`
+      ...authToken.headers()
     };
 
     const cleanQuery = query.trim();

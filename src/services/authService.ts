@@ -2,6 +2,7 @@ import { User, UserRole, AuditLogEntry, AuditAction } from '../types';
 import { db } from '../db/dexieDb';
 import { syncEngine } from './syncEngine';
 import { pinVerifier } from './pinVerifier';
+import { authToken, AUTH_REQUIRED_EVENT } from './authToken';
 import { cloudSyncService } from './cloudSyncService';
 import { centralSyncService } from './centralSyncService';
 
@@ -68,15 +69,51 @@ export const DEFAULT_USERS: User[] = [
   }
 ];
 
+const AUTH_NOTICE_KEY = 'hr_colon_auth_notice';
 const STORAGE_KEY = 'hr_angel_gaton_current_user';
 const SESSION_ACTIVE_KEY = 'hr_angel_gaton_session_active';
 
 export class AuthService {
   private currentUser: User = DEFAULT_USERS[0]; // Por defecto Dr. Colón
   private sessionActive: boolean = false;
+  private tokenPending = false;
 
   constructor() {
     this.initUser();
+    // El servidor central pidió iniciar sesión (token ausente, vencido o PIN cambiado):
+    // se muestra la pantalla de acceso. Los datos del dispositivo NO se borran.
+    try {
+      window.addEventListener(AUTH_REQUIRED_EVENT, () => {
+        if (!this.sessionActive || this.tokenPending) return;
+        try {
+          localStorage.setItem(AUTH_NOTICE_KEY, 'Por seguridad, inicie sesión con su PIN para sincronizar con la base central. Sus cambios siguen guardados en este dispositivo.');
+        } catch {}
+        this.logout();
+      });
+    } catch {}
+  }
+
+  /** Mensaje que la pantalla de acceso muestra una vez (p. ej. "inicie sesión para sincronizar"). */
+  public takeAuthNotice(): string {
+    try {
+      const m = localStorage.getItem(AUTH_NOTICE_KEY) || '';
+      localStorage.removeItem(AUTH_NOTICE_KEY);
+      return m;
+    } catch {
+      return '';
+    }
+  }
+
+  /** Lista de médicos del servidor central (para dispositivos nuevos que aún no la tienen). */
+  public async fetchRemoteUsers(): Promise<User[]> {
+    try {
+      const res = await fetch(`${syncEngine.getBackendUrl()}/api/users`, { cache: 'no-store', signal: AbortSignal.timeout?.(8000) });
+      if (!res.ok) return [];
+      const json = await res.json();
+      return Array.isArray(json.users) ? json.users : [];
+    } catch {
+      return [];
+    }
   }
 
   private async initUser() {
@@ -151,10 +188,44 @@ export class AuthService {
     localStorage.setItem(SESSION_ACTIVE_KEY, 'true');
     window.dispatchEvent(new CustomEvent('hospital_user_changed', { detail: user }));
     window.dispatchEvent(new CustomEvent('hospital_auth_state_changed', { detail: { isAuthenticated: true, user } }));
+    try {
+      syncEngine.syncNow();
+    } catch {}
+  }
+
+  /** Inicio sin respuesta del servidor (p. ej. se estaba despertando): pedir la sesión en segundo plano. */
+  private acquireTokenInBackground(userId: string, pin: string) {
+    let tries = 0;
+    this.tokenPending = true;
+    const attempt = async () => {
+      tries++;
+      if ((authToken.get() && authToken.userId() === userId) || this.currentUser?.id !== userId || !this.sessionActive) {
+        this.tokenPending = false;
+        return;
+      }
+      const r = await this.loginOnServer(userId, pin);
+      if (r.user) {
+        this.tokenPending = false;
+        try {
+          syncEngine.syncNow();
+        } catch {}
+        return;
+      }
+      // PIN rechazado por el servidor (p. ej. cambiado en otro dispositivo): pedir acceso de nuevo
+      if (r.error && !/conexi[oó]n/i.test(r.error)) {
+        this.tokenPending = false;
+        window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT));
+        return;
+      }
+      if (tries < 6) setTimeout(attempt, 20000);
+      else this.tokenPending = false;
+    };
+    setTimeout(attempt, 1000);
   }
 
   public logout(): void {
     this.sessionActive = false;
+    authToken.clear();
     localStorage.removeItem(SESSION_ACTIVE_KEY);
     window.dispatchEvent(new CustomEvent('hospital_auth_state_changed', { detail: { isAuthenticated: false } }));
   }
@@ -197,7 +268,11 @@ export class AuthService {
       return { success: true, user: newUser };
     } catch (err: any) {
       console.error('[registerNewUser Error]', err);
-      return { success: false, error: 'Error registrando nuevo médico: ' + (err.message || 'Error desconocido') };
+      const msg = String(err?.message || '');
+      if (/sesi[oó]n requerida|administrador/i.test(msg)) {
+        return { success: false, error: 'Solo el administrador puede crear cuentas nuevas. Inicie sesión como administrador y cree la cuenta desde allí.' };
+      }
+      return { success: false, error: 'Error registrando nuevo médico: ' + (msg || 'Error desconocido') };
     }
   }
 
@@ -384,6 +459,27 @@ export class AuthService {
    *     el último inicio correcto (o con el PIN local de las cuentas creadas aquí).
    * Antes, las cuentas sincronizadas desde el servidor aceptaban cualquier PIN.
    */
+  private async loginOnServer(identifier: string, pin: string): Promise<{ user?: User; error?: string }> {
+    if (!identifier || !pin) return {};
+    try {
+      const res = await fetch(`${syncEngine.getBackendUrl()}/api/users/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, pin }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout?.(15000)
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.success && json.user) {
+        if (json.token) authToken.set(json.token, json.user.id, syncEngine.getBackendUrl());
+        return { user: json.user as User };
+      }
+      return { error: json.error };
+    } catch {
+      return { error: 'Sin conexión con el servidor central.' };
+    }
+  }
+
   public async authenticate(identifier: string, secret?: string): Promise<{ success: boolean; user?: User; error?: string; offline?: boolean }> {
     const all = await this.getAllUsers(true);
     const cleanId = identifier.trim().toLowerCase();
@@ -394,7 +490,15 @@ export class AuthService {
     );
 
     if (!user) {
-      return { success: false, error: 'Usuario o médico no encontrado en el sistema hospitalario' };
+      // Dispositivo nuevo: la cuenta existe en la base central pero aún no se ha descargado
+      const remote = await this.loginOnServer(identifier.trim(), (secret || '').trim());
+      if (remote.user) {
+        await syncEngine.withoutTracking(() => db.users.put(remote.user as User));
+        pinVerifier.remember(remote.user.id, (secret || '').trim());
+        this.login(remote.user);
+        return { success: true, user: remote.user };
+      }
+      return { success: false, error: remote.error || 'Usuario o médico no encontrado en el sistema hospitalario' };
     }
     if (user.isActive === false || user.isDeleted) {
       return { success: false, error: 'Esta cuenta médica se encuentra inactiva. Contacte al Administrador.' };
@@ -408,7 +512,7 @@ export class AuthService {
     let serverReachable = false;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
+      const timer = setTimeout(() => controller.abort(), 20000); // el servidor gratuito puede tardar en despertar
       const res = await fetch(`${syncEngine.getBackendUrl()}/api/users/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -422,6 +526,7 @@ export class AuthService {
         const json = await res.json().catch(() => ({}));
         if (res.ok && json.success) {
           pinVerifier.remember(user.id, pin);
+          if (json.token) authToken.set(json.token, user.id, syncEngine.getBackendUrl());
           const merged = { ...user, ...(json.user || {}) } as User;
           this.login(merged);
           return { success: true, user: merged };
@@ -449,6 +554,7 @@ export class AuthService {
     if (localOk) {
       pinVerifier.remember(user.id, pin);
       this.login(user);
+      if (!(authToken.get() && authToken.userId() === user.id)) this.acquireTokenInBackground(user.id, pin);
       return { success: true, user, offline: !serverReachable };
     }
 

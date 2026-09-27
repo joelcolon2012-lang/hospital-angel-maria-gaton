@@ -50,6 +50,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [enteredPin, setEnteredPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Formulario de Registro de Nuevo Médico
@@ -67,10 +68,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     if (isOpen) {
       authService.getAllUsers().then(list => {
         setUsersList(list);
+        // Dispositivo nuevo: mostrar también los médicos de la base central
+        authService.fetchRemoteUsers().then(remote => {
+          const missing = remote.filter(r => r && r.id && r.isActive !== false && !list.some(l => l.id === r.id));
+          if (missing.length) setUsersList(prev => [...prev, ...missing.filter(m => !prev.some(p => p.id === m.id))]);
+        });
       });
       setSelectedUserForPin(null);
       setEnteredPin('');
       setAuthError('');
+      setNotice(authService.takeAuthNotice());
       setRegError('');
     }
   }, [isOpen]);
@@ -98,6 +105,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     try {
       const res = await authService.authenticate(selectedUserForPin.id, enteredPin.trim());
       if (res.success && res.user) {
+        setNotice('');
         onUserChanged(res.user);
         onClose();
       } else {
@@ -144,6 +152,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       });
 
       if (res.success && res.user) {
+        setNotice('');
         onUserChanged(res.user);
         onClose();
       } else {
@@ -216,6 +225,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </button>
           )}
         </div>
+
+        {notice && (
+          <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            {notice}
+          </div>
+        )}
 
         {/* Barra de Tabs: Iniciar Sesión vs Crear Cuenta */}
         <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex items-center gap-2">

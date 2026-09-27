@@ -25,10 +25,22 @@ function check(name, cond, extra = '') {
   }
 }
 
-async function sync(deviceId, since, tables = {}, tombstones = []) {
+let TOKEN = '';
+const auth = () => ({ Authorization: `Bearer ${TOKEN}` });
+
+async function loginAs(identifier, pin) {
+  const res = await fetch(`${BASE}/api/users/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier, pin })
+  });
+  return { status: res.status, json: await res.json().catch(() => ({})) };
+}
+
+async function sync(deviceId, since, tables = {}, tombstones = [], token = TOKEN) {
   const res = await fetch(`${BASE}/api/sync/v2`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-device-id': deviceId },
+    headers: { 'Content-Type': 'application/json', 'x-device-id': deviceId, Authorization: `Bearer ${token}` },
     body: JSON.stringify({ deviceId, since, tables, tombstones })
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -36,7 +48,7 @@ async function sync(deviceId, since, tables = {}, tombstones = []) {
 }
 
 async function getAll() {
-  const res = await fetch(`${BASE}/api/sync/v2?since=0`);
+  const res = await fetch(`${BASE}/api/sync/v2?since=0`, { headers: auth() });
   return res.json();
 }
 
@@ -64,6 +76,21 @@ try {
   await waitForServer();
   const t0 = Date.now();
 
+  console.log('\n0) Seguridad: sin sesión no se entregan datos');
+  const noAuth = await fetch(`${BASE}/api/sync/v2?since=0`);
+  check('lectura sin sesión rechazada (401)', noAuth.status === 401, `HTTP ${noAuth.status}`);
+  const noAuthPost = await fetch(`${BASE}/api/sync/v2`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ since: 0, tables: { patients: [{ id: 'intruso', fullName: 'X' }] } }) });
+  check('escritura sin sesión rechazada (401)', noAuthPost.status === 401, `HTTP ${noAuthPost.status}`);
+  const bad = await loginAs('usr-admin-colon', '0000');
+  check('PIN incorrecto no entrega token', bad.status === 401 && !bad.json.token);
+  const good = await loginAs('usr-admin-colon', '2026');
+  TOKEN = good.json.token;
+  check('PIN correcto entrega token', good.status === 200 && typeof TOKEN === 'string' && TOKEN.startsWith('v1.'));
+  const fake = await fetch(`${BASE}/api/sync/v2?since=0`, { headers: { Authorization: 'Bearer v1.abc.def' } });
+  check('token falso rechazado', fake.status === 401);
+  const pub = await (await fetch(`${BASE}/api/users`)).json();
+  check('lista pública de médicos sin correos ni PIN', pub.users.length > 0 && pub.users.every((u) => !('email' in u) && !('pinHash' in u)));
+
   console.log('\n1) Dos dispositivos agregan pacientes distintos');
   await sync('PC', 0, { patients: [{ id: 'p-pc', fullName: 'Paciente PC', _mtime: t0 + 1 }] });
   await sync('CEL', 0, { patients: [{ id: 'p-cel', fullName: 'Paciente Celular', _mtime: t0 + 2 }] });
@@ -73,7 +100,7 @@ try {
   console.log('\n2) Un envío con la base INCOMPLETA no borra nada (antes sí ocurría)');
   await fetch(`${BASE}/api/sync`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...auth() },
     body: JSON.stringify({ data: { patients: [{ id: 'p-pc', fullName: 'Paciente PC', _mtime: t0 + 1 }] } })
   });
   all = await getAll();
@@ -127,6 +154,29 @@ try {
   });
   check('el PIN del administrador sigue funcionando tras sincronizar', login.ok, `HTTP ${login.status}`);
 
+  console.log('\n7b) Un médico no puede cambiar PIN ni permisos de otros por sincronización');
+  const med = await loginAs('usr-res-martinez', '1234');
+  const users0 = (await getAll()).tables.users || [];
+  const medId = med.json.user?.id;
+  if (med.status === 200 && med.json.token) {
+    await sync('CEL-MED', 0, {
+      users: [
+        { id: 'usr-admin-colon', name: 'Hackeado', pinHash: 'x', _mtime: Date.now() + 9e6 },
+        { id: medId, role: 'ADMINISTRADOR', isSuperAdmin: true, pinHash: 'x', specialty: 'Cambio propio', _mtime: Date.now() + 9e6 }
+      ]
+    }, [], med.json.token);
+    const after = (await getAll()).tables.users || [];
+    const adm = after.find((u) => u.id === 'usr-admin-colon');
+    const self = after.find((u) => u.id === medId);
+    check('no modificó la cuenta del administrador', adm && adm.name !== 'Hackeado');
+    check('no se dio permisos de administrador', self && self.role !== 'ADMINISTRADOR' && !self.isSuperAdmin);
+    check('sí pudo cambiar su propio dato permitido', self && self.specialty === 'Cambio propio');
+    const relog = await loginAs('usr-admin-colon', '2026');
+    check('el PIN del administrador no cambió', relog.status === 200);
+  } else {
+    check('usuario médico de prueba disponible', false, JSON.stringify(med.json).slice(0, 120) + ' ' + users0.map((u) => u.id).join(','));
+  }
+
   console.log('\n8) Persistencia: al reiniciar el servidor no se pierde nada');
   server.kill();
   await new Promise((r) => setTimeout(r, 400));
@@ -137,6 +187,7 @@ try {
   try {
     await waitForServer();
     all = await getAll();
+    check('la sesión sigue válida tras reiniciar', Array.isArray(all.tables?.patients));
     check('pacientes, laboratorios y lápidas persisten', !!find(all, 'patients', 'p-x') && !!find(all, 'labs', 'l-1') && !find(all, 'orders', 'o-1'));
   } finally {
     server2.kill();

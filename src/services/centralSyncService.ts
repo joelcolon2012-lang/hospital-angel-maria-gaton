@@ -11,6 +11,7 @@
  *    cambios más recientes ni borrar datos.
  */
 
+import { authToken } from './authToken';
 import { db } from '../db/dexieDb';
 import {
   Patient,
@@ -259,7 +260,7 @@ class CentralSyncService {
     const res = await fetch(`${this.backendUrl()}/api/users`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json', ...authToken.headers(),
         'x-user-name': creator
       },
       body: JSON.stringify(userData)
@@ -282,7 +283,7 @@ class CentralSyncService {
     const res = await fetch(`${this.backendUrl()}/api/users/${id}`, {
       method: 'PUT',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json', ...authToken.headers(),
         'x-user-name': editor
       },
       body: JSON.stringify(updates)
@@ -305,7 +306,7 @@ class CentralSyncService {
     const res = await fetch(`${this.backendUrl()}/api/users/${id}/password`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json', ...authToken.headers(),
         'x-user-name': editor
       },
       body: JSON.stringify({ newPassword, confirmPassword })
@@ -323,7 +324,7 @@ class CentralSyncService {
     const res = await fetch(`${this.backendUrl()}/api/users/${id}/photo`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json', ...authToken.headers(),
         'x-user-name': editor
       },
       body: JSON.stringify({ avatarUrl })
@@ -345,7 +346,7 @@ class CentralSyncService {
     const res = await fetch(`${this.backendUrl()}/api/users/${id}/status`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json', ...authToken.headers(),
         'x-user-name': editor
       },
       body: JSON.stringify({ active })

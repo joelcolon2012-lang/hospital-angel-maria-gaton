@@ -1,7 +1,7 @@
 {
   "name": "emergencia-clinica-dr-colon",
   "private": true,
-  "version": "2.6.1",
+  "version": "2.7.0",
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
@@ -23,6 +23,7 @@
     "jspdf": "^2.5.2",
     "lucide-react": "^1.16.0",
     "mammoth": "^1.12.2",
+    "mongodb": "^6.21.0",
     "pizzip": "^3.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

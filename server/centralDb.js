@@ -4,6 +4,8 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { SyncStore, SYNC_TABLES, recordClock } from './syncEngine.js';
 
+export const DB_DIRECTORY = process.env.HOSPITAL_DB_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'database');
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -145,6 +147,7 @@ class CentralDatabaseManager {
           this.memoryData.tombstones = Array.isArray(data.tombstones) ? data.tombstones : [];
           this.memoryData.seq = Number(data.seq) || 0;
           if (data.dbId) this.memoryData.dbId = data.dbId;
+          if (data.authSecret) this.memoryData.authSecret = data.authSecret;
           this.memoryData.lastUpdated = data.lastUpdated || Date.now();
           this.memoryData.version = data.version || 1;
 
@@ -210,6 +213,12 @@ class CentralDatabaseManager {
       // 2. Renombrar atómicamente
       await fs.promises.rename(tempFile, DB_FILE);
 
+      // 3. Base permanente en la nube (MongoDB Atlas), si está configurada
+      if (this.mongo) await this.flushMongo();
+      if (typeof this.onPersist === 'function') {
+        try { this.onPersist(); } catch {}
+      }
+
       // Nota de privacidad: ya NO se copia la base de pacientes a public/,
       // porque esa carpeta se publica en GitHub Pages.
 
@@ -239,6 +248,81 @@ class CentralDatabaseManager {
     } catch (err) {
       console.error('[CentralDB Sync] Error guardando archivo:', err);
     }
+  }
+
+  // ==========================================
+  // BASE PERMANENTE EN LA NUBE (MongoDB Atlas)
+  // ==========================================
+  /**
+   * Conecta la base en memoria con MongoDB. Si la nube ya tiene datos, ésos son
+   * la fuente de verdad (el disco de Render se borra en cada reinicio).
+   */
+  async attachMongo(store) {
+    const loaded = await store.load(SYNC_TABLES);
+    if (loaded) {
+      for (const t of SYNC_TABLES) {
+        const rows = loaded[t] || [];
+        if (t === 'auditLogs') {
+          rows.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+          rows.length = Math.min(rows.length, 3000);
+        } else {
+          rows.sort((a, b) => (a._seq || 0) - (b._seq || 0));
+        }
+        this.memoryData[t] = rows;
+      }
+      // Asegurar que existan los usuarios iniciales (si la nube no los tiene)
+      const ids = new Set(this.memoryData.users.map((u) => u.id));
+      for (const u of SEED_USERS) if (!ids.has(u.id)) this.memoryData.users.push({ ...u });
+      this.memoryData.tombstones = loaded.tombstones || [];
+      this.memoryData.seq = loaded.seq || 0;
+      if (loaded.dbId) this.memoryData.dbId = loaded.dbId;
+      this.memoryData.version = loaded.version || 1;
+      this.memoryData.lastUpdated = loaded.lastUpdated || Date.now();
+      if (loaded.authSecret) this.memoryData.authSecret = loaded.authSecret;
+      this.sync = new SyncStore(this.memoryData, { hashPassword });
+      this.mongo = store;
+      this.persistToDiskSync();
+      await this.flushMongo(); // guarda seq/usuarios nuevos si hubo migraciones
+      console.log(`[CentralDB] Nube conectada: ${this.memoryData.patients.length} pacientes, ${this.memoryData.users.length} usuarios.`);
+    } else {
+      this.sync.autoStamp();
+      this.mongo = store;
+      await store.persist(this.memoryData, SYNC_TABLES, { full: true });
+      console.log('[CentralDB] Nube vacía: se subió la base inicial.');
+    }
+    return this.memoryData;
+  }
+
+  async flushMongo() {
+    if (!this.mongo) return;
+    if (this.mongoFlushing) {
+      this.mongoAgain = true;
+      return this.mongoFlushing;
+    }
+    const run = async () => {
+      do {
+        this.mongoAgain = false;
+        try {
+          await this.mongo.persist(this.memoryData, SYNC_TABLES);
+        } catch (err) {
+          this.mongo.lastError = err?.message || String(err);
+          console.error('[CentralDB] No se pudo guardar en la nube (se reintentará):', this.mongo.lastError);
+          clearTimeout(this.mongoRetry);
+          this.mongoRetry = setTimeout(() => this.flushMongo(), 15000);
+          return;
+        }
+      } while (this.mongoAgain);
+    };
+    this.mongoFlushing = run().finally(() => {
+      this.mongoFlushing = null;
+    });
+    return this.mongoFlushing;
+  }
+
+  storageInfo() {
+    return this.mongo
+      ? { mode: 'mongodb', persistedSeq: this.mongo.persistedSeq, lastError: this.mongo.lastError, lastWriteAt: this.mongo.lastWriteAt }
+      : { mode: 'archivo' };
   }
 
   // ==========================================
@@ -922,15 +1006,15 @@ class CentralDatabaseManager {
   // ==========================================
   // FUSIÓN Y SINCRONIZACIÓN COMPLETA
   // ==========================================
-  async syncMasterData(incomingData, originDevice = 'Dispositivo Clínico') {
+  async syncMasterData(incomingData, originDevice = 'Dispositivo Clínico', ctx) {
     // Compatibilidad con clientes antiguos que envían la base completa:
     // se fusiona registro por registro (gana el más reciente) y nunca se borra nada.
     if (!incomingData) return this.getMasterData();
     let changesApplied = 0;
     for (const t of SYNC_TABLES) {
-      if (Array.isArray(incomingData[t])) changesApplied += this.sync.mergeRecords(t, incomingData[t]);
+      if (Array.isArray(incomingData[t])) changesApplied += this.sync.mergeRecords(t, incomingData[t], ctx);
     }
-    if (Array.isArray(incomingData.tombstones)) changesApplied += this.sync.applyTombstones(incomingData.tombstones);
+    if (Array.isArray(incomingData.tombstones)) changesApplied += this.sync.applyTombstones(incomingData.tombstones, ctx);
     if (changesApplied > 0) await this.persistToDisk();
     return this.getMasterData();
   }
@@ -939,19 +1023,19 @@ class CentralDatabaseManager {
    * Sincronización delta v2: recibe los cambios del dispositivo y devuelve
    * todo lo que cambió en el servidor desde `since`.
    */
-  async syncV2(payload = {}) {
+  async syncV2(payload = {}, ctx) {
     const tables = payload.tables || {};
     let accepted = 0;
     for (const t of Object.keys(tables)) {
-      accepted += this.sync.mergeRecords(t, tables[t]);
+      accepted += this.sync.mergeRecords(t, tables[t], ctx);
     }
-    accepted += this.sync.applyTombstones(payload.tombstones || []);
+    accepted += this.sync.applyTombstones(payload.tombstones || [], ctx);
     if (accepted > 0) await this.persistToDisk();
-    return { accepted, ...this.sync.changesSince(payload.since || 0) };
+    return { accepted, ...this.sync.changesSince(payload.since || 0, ctx) };
   }
 
-  getChangesSince(since = 0) {
-    return this.sync.changesSince(since);
+  getChangesSince(since = 0, ctx) {
+    return this.sync.changesSince(since, ctx);
   }
 
   getMasterData() {

@@ -73,13 +73,28 @@ export function mergeRecord(current, incoming) {
   return out;
 }
 
+/** JSON con claves ordenadas: dos registros iguales comparan igual aunque el orden de sus campos difiera. */
+function stableStringify(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : stableStringify(x))).join(',')}]`;
+  const keys = Object.keys(v).filter((k) => v[k] !== undefined).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(v[k])}`).join(',')}}`;
+}
+
 function sameContent(a, b) {
   try {
     const strip = (x) => { const c = { ...x }; delete c._seq; delete c._lmod; return c; };
-    return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+    return stableStringify(strip(a)) === stableStringify(strip(b));
   } catch {
     return false;
   }
+}
+
+const PROTECTED_USER_FIELDS = ['role', 'isSuperAdmin', 'isActive', 'isDeleted', 'permissions'];
+
+function isAdminCtx(ctx) {
+  const u = ctx && ctx.user;
+  return Boolean(u && (u.isSuperAdmin || u.id === 'usr-admin-colon' || String(u.role || '').toUpperCase() === 'ADMINISTRADOR'));
 }
 
 function keyOf(record) {
@@ -184,8 +199,30 @@ export class SyncStore {
     return removed || !existing;
   }
 
-  prepareIncoming(table, incoming, existing) {
+  /**
+   * @param ctx  quién envía: { kind: 'relay' } (PC del hospital, confianza total),
+   *             { kind: 'user', user } (médico con sesión) o undefined (uso interno).
+   * Devuelve null si el registro no se debe aceptar.
+   */
+  prepareIncoming(table, incoming, existing, ctx) {
     const rec = { ...incoming };
+    if (table === 'users' && ctx && ctx.kind !== 'relay') {
+      // Nadie puede fijar la huella del PIN por sincronización (sólo la PC del hospital)
+      delete rec.pinHash;
+      const admin = isAdminCtx(ctx);
+      const self = ctx.user && ctx.user.id === rec.id;
+      if (!admin && !self) return null; // un médico no modifica cuentas ajenas
+      if (!admin) {
+        for (const f of PROTECTED_USER_FIELDS) {
+          if (existing && Object.prototype.hasOwnProperty.call(existing, f)) rec[f] = existing[f];
+          else delete rec[f];
+        }
+        if (rec._fclk) {
+          rec._fclk = { ...rec._fclk };
+          for (const f of PROTECTED_USER_FIELDS) delete rec._fclk[f];
+        }
+      }
+    }
     delete rec._seq;
     delete rec._lmod;
     if (!rec._mtime) rec._mtime = recordClock(incoming) || Date.now();
@@ -214,7 +251,7 @@ export class SyncStore {
    * Fusiona registros entrantes de una tabla (gana el más reciente).
    * @returns {number} registros aceptados
    */
-  mergeRecords(table, list) {
+  mergeRecords(table, list, ctx) {
     if (!SYNC_TABLES.includes(table) || !Array.isArray(list)) return 0;
     const arr = this.data[table];
     const index = new Map(arr.map((r, i) => [keyOf(r), i]));
@@ -230,7 +267,8 @@ export class SyncStore {
 
       const pos = index.get(id);
       if (pos === undefined) {
-        const rec = this.prepareIncoming(table, incoming, null);
+        const rec = this.prepareIncoming(table, incoming, null, ctx);
+        if (!rec) continue;
         rec._seq = this.nextSeq();
         this.stamped.add(rec);
         arr.push(rec);
@@ -241,7 +279,8 @@ export class SyncStore {
       }
 
       const current = arr[pos];
-      const prepared = this.prepareIncoming(table, incoming, current);
+      const prepared = this.prepareIncoming(table, incoming, current, ctx);
+      if (!prepared) continue;
       let merged = mergeRecord(current, prepared);
       if (merged === current || sameContent(merged, current)) continue; // nada nuevo
       if (table === 'users' && !merged.pinHash && current.pinHash) merged = { ...merged, pinHash: current.pinHash };
@@ -253,19 +292,21 @@ export class SyncStore {
     return accepted;
   }
 
-  applyTombstones(list) {
+  applyTombstones(list, ctx) {
     if (!Array.isArray(list)) return 0;
     let n = 0;
     for (const tb of list) {
       if (!tb || !SYNC_TABLES.includes(tb.table) || tb.id === undefined) continue;
+      if (tb.table === 'users' && ctx && ctx.kind !== 'relay' && !isAdminCtx(ctx)) continue;
       const deletedAt = Number(tb.deletedAt) || Date.now();
       if (this.tombstone(tb.table, tb.id, deletedAt, tb.deletedBy || '')) n++;
     }
     return n;
   }
 
-  sanitize(table, r) {
+  sanitize(table, r, ctx) {
     if (table !== 'users') return r;
+    if (ctx && ctx.kind === 'relay') return r; // la PC guarda la copia completa
     const safe = { ...r };
     delete safe.pinHash;
     delete safe.pin;
@@ -274,11 +315,11 @@ export class SyncStore {
   }
 
   /** Cambios con _seq mayor que `since`. */
-  changesSince(since = 0) {
+  changesSince(since = 0, ctx) {
     const s = Number(since) || 0;
     const tables = {};
     for (const t of SYNC_TABLES) {
-      const rows = this.data[t].filter((r) => (r._seq || 0) > s).map((r) => this.sanitize(t, r));
+      const rows = this.data[t].filter((r) => (r._seq || 0) > s).map((r) => this.sanitize(t, r, ctx));
       if (rows.length) tables[t] = rows;
     }
     const tombstones = this.data.tombstones

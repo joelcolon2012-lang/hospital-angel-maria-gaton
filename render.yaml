@@ -8,6 +8,9 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false
+      # Base de datos permanente (MongoDB Atlas). Se pega en Render > Environment.
+      - key: MONGODB_URI
+        sync: false
       - key: PORT
         value: 10000
       - key: ALLOWED_ORIGIN

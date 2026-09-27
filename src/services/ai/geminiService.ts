@@ -8,6 +8,7 @@
  * La API Key NUNCA reside en el cliente ni se expone al navegador.
  * Las peticiones utilizan VITE_API_BASE_URL para alcanzar el backend en Render.
  */
+import { authToken } from '../authToken';
 
 export interface GeminiGenerateRequest {
   prompt?: string;
@@ -146,7 +147,7 @@ export class GeminiService {
 
     const baseUrl = this.getBaseUrl();
     try {
-      const res = await fetch(`${baseUrl}/api/gemini/models`);
+      const res = await fetch(`${baseUrl}/api/gemini/models`, { headers: authToken.headers() });
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.models)) {
@@ -247,7 +248,7 @@ export class GeminiService {
 
       const res = await fetch(`${baseUrl}/api/gemini/test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authToken.headers() },
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -320,7 +321,7 @@ export class GeminiService {
 
       const res = await fetch(`${baseUrl}/api/gemini/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authToken.headers() },
         body: JSON.stringify(payload)
       });
 

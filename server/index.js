@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GeminiAIService } from './geminiAiService.js';
 import { centralDb } from './centralDb.js';
+import { authContext, issueToken, ensureAuthSecret, isAdminUser, relayEnabled } from './auth.js';
+import { MongoStore } from './mongoStore.js';
+import { startCloudRelay, cloudRelayStatus } from './cloudRelay.js';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -66,7 +69,44 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({
+  limit: '50mb',
+  // Se guarda el cuerpo original para verificar la firma del enlace de la PC
+  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); }
+}));
+
+// -------------------------------------------------------------------------
+// SEGURIDAD: los datos clínicos sólo se entregan con sesión iniciada
+// -------------------------------------------------------------------------
+const PUBLIC_API = [
+  ['GET', /^\/api\/(health|status|events)\/?$/],
+  ['GET', /^\/api\/users\/?$/],
+  ['POST', /^\/api\/users\/login\/?$/]
+];
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/') || req.method === 'OPTIONS') return next();
+  if (PUBLIC_API.some(([m, re]) => m === req.method && re.test(req.path))) return next();
+  const ctx = authContext(req, centralDb.memoryData);
+  if (!ctx) {
+    return res.status(401).json({
+      success: false,
+      code: 'AUTH_REQUIRED',
+      error: 'Sesión requerida: inicie sesión con su PIN para sincronizar.'
+    });
+  }
+  req.auth = ctx;
+  next();
+});
+
+/** Sólo el administrador (o el propio usuario, si se permite) puede tocar cuentas. */
+function requireAdminOrSelf(req, res, allowSelf = true) {
+  const a = req.auth;
+  if (!a) return false;
+  if (a.kind === 'relay' || isAdminUser(a.user)) return true;
+  if (allowSelf && a.user && a.user.id === req.params.id) return true;
+  res.status(403).json({ success: false, error: 'Sólo el administrador puede modificar otras cuentas.' });
+  return false;
+}
 
 // Cualquier escritura exitosa en la API avisa a TODOS los dispositivos conectados
 // para que descarguen los cambios de inmediato (tiempo real).
@@ -214,6 +254,11 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     service: 'Hospital Angel Maria Gaton Central Database & AI API',
     database: 'active',
+    storage: centralDb.storageInfo(),
+    dbId: centralDb.memoryData.dbId,
+    authRequired: true,
+    relayKey: relayEnabled(),
+    cloudRelay: cloudRelayStatus(),
     connectedDevices: sseClients.size,
     timestamp: new Date().toISOString()
   });
@@ -225,13 +270,13 @@ app.get('/api/health', (req, res) => {
 // ---- Sincronización delta v2 (registro por registro, con lápidas) ----
 app.get('/api/sync/v2', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ success: true, ...centralDb.getChangesSince(Number(req.query.since) || 0) });
+  res.json({ success: true, ...centralDb.getChangesSince(Number(req.query.since) || 0, req.auth) });
 });
 
 app.post('/api/sync/v2', async (req, res) => {
   try {
     const deviceId = req.headers['x-device-id'] || req.body?.deviceId || null;
-    const result = await centralDb.syncV2(req.body || {});
+    const result = await centralDb.syncV2(req.body || {}, req.auth);
     if (result.accepted > 0) {
       broadcastRealtimeEvent('sync.changed', { seq: result.seq, deviceId });
     }
@@ -259,7 +304,7 @@ app.post('/api/sync', async (req, res) => {
     const originDevice = req.headers['x-device-origin'] || req.body.deviceOrigin || 'Dispositivo Remoto';
     const payload = req.body.data || req.body.payload || req.body;
     
-    const updatedMaster = await centralDb.syncMasterData(payload, originDevice);
+    const updatedMaster = await centralDb.syncMasterData(payload, originDevice, req.auth);
 
     // Emitir evento a todos los demás dispositivos conectados
     broadcastRealtimeEvent('sync.completed', {
@@ -354,7 +399,14 @@ app.delete('/api/patients/:id', async (req, res) => {
 // =========================================================================
 app.get('/api/users', (req, res) => {
   const includeDeleted = req.query.includeDeleted === 'true';
-  const users = centralDb.getAllUsers(includeDeleted);
+  const ctx = authContext(req, centralDb.memoryData);
+  let users = centralDb.getAllUsers(ctx ? includeDeleted : false);
+  // Sin sesión sólo se muestra lo necesario para la pantalla de acceso
+  if (!ctx) {
+    users = users.map(({ id, name, role, specialty, exequatur, avatarUrl, isActive, isSuperAdmin }) => ({
+      id, name, role, specialty, exequatur, avatarUrl, isActive, isSuperAdmin
+    }));
+  }
   res.json({ success: true, count: users.length, users });
 });
 
@@ -369,14 +421,28 @@ app.post('/api/users/login', async (req, res) => {
   if (!identifier || (!pin && !password)) {
     return res.status(400).json({ success: false, error: 'Se requiere identificación y PIN/contraseña.' });
   }
+  const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+  // Sólo los intentos FALLIDOS cuentan (máx. 10 cada 5 min por dispositivo y usuario)
+  const failKey = `loginfail:${ip}:${String(identifier).toLowerCase()}`;
+  const fails = (rateLimitMap.get(failKey) || []).filter((ts) => Date.now() - ts < 5 * 60 * 1000);
+  if (fails.length >= 10) {
+    return res.status(429).json({ success: false, error: 'Demasiados intentos fallidos. Espere unos minutos e intente de nuevo.' });
+  }
   const result = await centralDb.authenticateUser(identifier, pin || password);
   if (!result.success) {
+    fails.push(Date.now());
+    rateLimitMap.set(failKey, fails);
     return res.status(401).json({ success: false, error: result.error });
   }
-  res.json(result);
+  const full = centralDb.memoryData.users.find((u) => u.id === result.user.id);
+  const hadSecret = Boolean(centralDb.memoryData.authSecret);
+  ensureAuthSecret(centralDb.memoryData);
+  if (!hadSecret) centralDb.persistToDisk().catch(() => {});
+  res.json({ ...result, token: full ? issueToken(centralDb.memoryData, full) : null });
 });
 
 app.post('/api/users', async (req, res) => {
+  if (!requireAdminOrSelf(req, res, false)) return;
   try {
     const creator = req.headers['x-user-name'] || 'Dr. Joel Colón';
     const newUser = await centralDb.createUser(req.body, creator);
@@ -394,6 +460,10 @@ app.post('/api/users', async (req, res) => {
 });
 
 app.put('/api/users/:id', async (req, res) => {
+  if (!requireAdminOrSelf(req, res)) return;
+  if (req.auth.kind !== 'relay' && !isAdminUser(req.auth.user)) {
+    for (const f of ['role', 'isSuperAdmin', 'isActive', 'isDeleted', 'permissions']) delete req.body[f];
+  }
   try {
     const editor = req.headers['x-user-name'] || 'Dr. Joel Colón';
     const updated = await centralDb.updateUser(req.params.id, req.body, editor);
@@ -411,6 +481,7 @@ app.put('/api/users/:id', async (req, res) => {
 });
 
 app.post('/api/users/:id/password', async (req, res) => {
+  if (!requireAdminOrSelf(req, res)) return;
   try {
     const editor = req.headers['x-user-name'] || 'Dr. Joel Colón';
     const { newPassword, confirmPassword } = req.body;
@@ -434,6 +505,7 @@ app.post('/api/users/:id/password', async (req, res) => {
 });
 
 app.post('/api/users/:id/photo', async (req, res) => {
+  if (!requireAdminOrSelf(req, res)) return;
   try {
     const editor = req.headers['x-user-name'] || 'Dr. Joel Colón';
     const { avatarUrl } = req.body;
@@ -454,6 +526,7 @@ app.post('/api/users/:id/photo', async (req, res) => {
 });
 
 app.post('/api/users/:id/status', async (req, res) => {
+  if (!requireAdminOrSelf(req, res, false)) return;
   try {
     const editor = req.headers['x-user-name'] || 'Dr. Joel Colón';
     const { active } = req.body;
@@ -939,7 +1012,33 @@ if (fs.existsSync(DIST_DIR)) {
   app.get('/', (req, res) => res.redirect('/api/status'));
 }
 
-// Inicio del servidor
+// Inicio del servidor: primero se conecta la base permanente en la nube (si existe)
+async function connectCloudDatabase() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    console.log('[CentralDB] MONGODB_URI no configurada: se usa el archivo local.');
+    return;
+  }
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const store = await MongoStore.connect(uri);
+      await centralDb.attachMongo(store);
+      return;
+    } catch (err) {
+      console.error(`[CentralDB] Intento ${attempt} de conectar a MongoDB falló:`, err?.message);
+      await new Promise((r) => setTimeout(r, attempt * 3000));
+    }
+  }
+  // Sin nube no se debe aceptar datos que se perderían al reiniciar Render
+  console.error('[CentralDB] No se pudo conectar a MongoDB. El servidor se cerrará para que Render lo reintente.');
+  process.exit(1);
+}
+
+await connectCloudDatabase();
+ensureAuthSecret(centralDb.memoryData);
+await centralDb.persistToDisk().catch(() => {});
+startCloudRelay(centralDb, broadcastRealtimeEvent);
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`========================================================================`);
   console.log(`[HOSPITAL DR. ÁNGEL MARÍA GATÓN - BACKEND CENTRALIZADO & REALTIME]`);

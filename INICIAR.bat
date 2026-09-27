@@ -45,8 +45,11 @@ echo.
 echo   [CELULAR] Enlace para iPhone / Android (en la misma red Wi-Fi):
 echo        http://%LOCAL_IP%:3000
 echo.
-echo   Todos los dispositivos comparten la MISMA base de datos central
-echo   y se actualizan en tiempo real.
+echo   [CUALQUIER LUGAR] Enlace recomendado (celular, casa u hospital):
+echo        https://joelcolon2012-lang.github.io/hospital-angel-maria-gaton/
+echo.
+echo   Todos los enlaces guardan en la MISMA base central en la nube.
+echo   Esta PC guarda ademas una copia de respaldo automatica.
 echo ====================================================================
 echo.
 echo Abriendo aplicacion en el navegador de tu PC...

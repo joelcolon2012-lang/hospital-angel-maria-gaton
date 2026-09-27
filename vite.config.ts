@@ -23,6 +23,8 @@ function versionFilePlugin() {
             buildTime: BUILD_TIME,
             buildDate: new Date(BUILD_TIME).toISOString(),
             features: [
+              'Una sola base de datos central para todos los dispositivos',
+              'Los datos de pacientes sólo se entregan con sesión iniciada (PIN)',
               'Sincronización registro por registro entre PC, iPhone y Android',
               'Cambios sin señal se envían solos al reconectar',
               'Dos médicos pueden editar el mismo paciente sin perder datos',

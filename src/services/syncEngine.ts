@@ -18,6 +18,7 @@
 
 import Dexie from 'dexie';
 import { db, type SyncTombstone } from '../db/dexieDb';
+import { authToken, AUTH_REQUIRED_EVENT } from './authToken';
 
 export const SYNC_TABLES = [
   'patients',
@@ -59,6 +60,7 @@ export interface RemoteChanges {
 const DEFAULT_RENDER_BACKEND = 'https://hospital-angel-maria-gaton-backend.onrender.com';
 const LS_DEVICE_ID = 'hr_colon_device_id';
 const LS_BACKEND = 'hr_colon_custom_backend_url';
+const LS_BACKEND_MIGRATED = 'hr_colon_backend_single_v1';
 const LS_MIGRATED = 'hr_colon_sync_v2_full_push_done';
 const MAX_BATCH_BYTES = 4 * 1024 * 1024; // lotes de ~4 MB para imágenes grandes
 const TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -279,22 +281,43 @@ class SyncEngine {
   }
 
   // ---------------- Configuración ----------------
+  /**
+   * Base ÚNICA: todos los dispositivos (PC, celulares, en el hospital o en casa)
+   * usan el mismo servidor central en la nube. Así lo que se guarda en uno
+   * aparece en todos.
+   * Excepciones: una dirección fijada a mano en "Configuración & Nube",
+   * VITE_API_BASE_URL al compilar, o el modo desarrollo (puerto 5173).
+   */
   private detectBackendUrl(): string {
     try {
+      // Una sola vez: olvidar direcciones de la red local guardadas antes (PC del hospital),
+      // que hacían que cada dispositivo guardara en un lugar distinto.
+      if (!safeLS(LS_BACKEND_MIGRATED)) {
+        const old = safeLS(LS_BACKEND) || '';
+        if (/^https?:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/i.test(old.trim())) safeLS(LS_BACKEND, null);
+        safeLS(LS_BACKEND_MIGRATED, '1');
+      }
       const custom = safeLS(LS_BACKEND);
       if (custom && custom.trim()) return custom.trim().replace(/\/+$/, '');
     } catch {}
     const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
     if (envUrl && String(envUrl).trim()) return String(envUrl).trim().replace(/\/+$/, '');
     if (typeof window !== 'undefined') {
-      const { hostname, origin, protocol } = window.location;
-      const isStaticHost = /github\.io$|vercel\.app$|netlify\.app$/i.test(hostname) || protocol === 'file:';
-      if (!isStaticHost && origin && origin !== 'null') {
-        // Servida por el servidor del hospital (PC, iPhone o Android en la misma red o túnel)
-        return origin;
-      }
+      const { origin, port } = window.location;
+      // Modo desarrollo (npm run dev): Vite reenvía /api al servidor local
+      if (port === '5173' && origin && origin !== 'null') return origin;
     }
     return DEFAULT_RENDER_BACKEND;
+  }
+
+  private lastLoginRequest = 0;
+  private requestLogin() {
+    const now = Date.now();
+    if (now - this.lastLoginRequest < 30000) return;
+    this.lastLoginRequest = now;
+    try {
+      window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT));
+    } catch {}
   }
 
   getBackendUrl() {
@@ -603,11 +626,16 @@ class SyncEngine {
     try {
       const res = await fetch(`${this.backendUrl}/api/sync/v2`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-device-id': this.deviceId },
+        headers: { 'Content-Type': 'application/json', 'x-device-id': this.deviceId, ...authToken.headers() },
         body: JSON.stringify(body),
         signal: controller.signal,
         cache: 'no-store'
       });
+      if (res.status === 401) {
+        const e: any = new Error('Inicie sesión con su PIN para sincronizar');
+        e.authRequired = true;
+        throw e;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const ct = res.headers.get('content-type') || '';
       if (!ct.includes('json')) throw new Error('El servidor central no respondió (¿versión antigua?)');
@@ -698,6 +726,12 @@ class SyncEngine {
       return true;
     } catch (err: any) {
       await this.refreshPendingCount();
+      if (err?.authRequired) {
+        // Los cambios siguen guardados en este dispositivo; se envían al iniciar sesión.
+        this.setState('error', 'Inicie sesión con su PIN para sincronizar (sus cambios están guardados en este dispositivo)');
+        this.requestLogin();
+        return false;
+      }
       const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
       this.setState(offline ? 'offline' : 'error', err?.message || 'Sin conexión con el servidor central');
       // Reintento con espera exponencial (máx. 60 s)
