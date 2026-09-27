@@ -43,6 +43,7 @@ import {
 } from '../../services/pdfHospitalDocumentService';
 import { generateClinicalHistoryDocx } from '../../services/clinicalHistoryDocxExporter';
 import { printOfficialHospitalDocument } from '../../services/directPrintService';
+import { buildOfficialParts, serializeParts } from '../../services/officialDocuments';
 
 export type UnifiedDocType = 'emergencia' | 'sala' | 'orden' | 'combinada' | 'historia' | 'evolucion';
 
@@ -106,15 +107,9 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
       case 'orden':
         return ClinicalDocumentBuilder.buildMedicalOrder(patient, orders);
 
-      case 'combinada': {
-        const note = ClinicalDocumentBuilder.buildAdmissionNote(patient, orders, labs, studies, 'EMERGENCIA');
-        const order = ClinicalDocumentBuilder.buildMedicalOrder(patient, orders);
-        return `${note}\n\n` +
-          `======================================================================\n` +
-          `           [HOJA OFICIAL DE ÓRDENES MÉDICAS HOSPITALARIAS]\n` +
-          `======================================================================\n\n` +
-          `${order}`;
-      }
+      case 'combinada':
+        // Nota (emergencia o sala según el paciente) + salto de página + orden médica
+        return serializeParts(buildOfficialParts('combinada', patient, orders, labs, studies));
 
       case 'historia': {
         const h = patient.clinicalHistory;
@@ -168,7 +163,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         txt += `                     NOTA DE EVOLUCIÓN MÉDICA\n\n`;
         txt += `NOMBRE: ${patient.fullName.toUpperCase()}   EDAD: ${patient.age || '--'} AÑOS   CUBÍCULO: ${patient.cubicle || '--'}\n`;
         txt += `FECHA: ${new Date().toLocaleDateString('es-ES')}   HORA: ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}\n`;
-        txt += `MÉDICO TRATANTE: DR. ${activeDoc.name.toUpperCase()} (EXEQ. ${activeDoc.exequatur})\n\n`;
+        txt += `MÉDICO TRATANTE: DR. ${String(activeDoc.name || '').replace(/^\s*(DR|DRA)\.?\s+/i, '').toUpperCase()} (EXEQ. ${String(activeDoc.exequatur || '').replace(/^\s*EXEQ\.?:?\s*/i, '')})\n\n`;
 
         txt += `S (SUBJETIVO):\n`;
         txt += `${latestEvol?.clinicalChanges || 'PACIENTE SE ENCUENTRA EN SU CUBÍCULO/CAMA, REFIERE MEJORÍA CLÍNICA SINTOMÁTICA RESPECTO AL INGRESO. TOLERA VÍA ORAL Y NIEGA DISNEA O DOLOR PRECORDIAL EN EL MOMENTO.'}\n\n`;
@@ -255,13 +250,13 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
       setIsDownloadingDocx(true);
 
       if (docType === 'emergencia') {
-        await generateEmergencyNoteDocx(patient, orders, labs);
+        await generateEmergencyNoteDocx(patient, orders, labs, { text: currentDisplayText }, studies);
       } else if (docType === 'sala') {
-        await generateWardTransferNoteDocx(patient, orders, labs, { hospitalWard: patient.cubicle });
+        await generateWardTransferNoteDocx(patient, orders, labs, { text: currentDisplayText }, studies);
       } else if (docType === 'orden') {
-        await generateMedicalOrderDocx(patient, orders);
+        await generateMedicalOrderDocx(patient, orders, { text: currentDisplayText });
       } else if (docType === 'combinada') {
-        await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies);
+        await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies, { text: currentDisplayText });
       } else if (docType === 'evolucion') {
         await generateEvolutionDocx(patient, evolutions, orders);
       } else if (docType === 'historia') {
@@ -548,10 +543,10 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
             <div className="mt-12 pt-4 border-t border-slate-200 flex flex-col items-center text-center">
               <div className="w-64 border-b border-slate-600 mb-1"></div>
               <div className="font-bold text-xs uppercase text-slate-900">
-                DR. {activeDoc.name}
+                DR. {String(activeDoc.name || '').replace(/^\s*(DR|DRA)\.?\s+/i, '')}
               </div>
               <div className="text-[11px] text-slate-600 font-medium">
-                EXEQ: {activeDoc.exequatur} &bull; {activeDoc.specialty || 'MÉDICO INTERNISTA'}
+                EXEQ: {String(activeDoc.exequatur || '').replace(/^\s*EXEQ\.?:?\s*/i, '')} &bull; {activeDoc.specialty || 'MÉDICO INTERNISTA'}
               </div>
               <div className="text-[10px] text-slate-400 mt-1">
                 Hospital Regional Dr. Ángel María Gatón &bull; Generado electrónicamente

@@ -7,6 +7,7 @@
  */
 
 import { Patient, MedicalOrder, LabResult, MedicalStudy } from '../types';
+import { downloadOfficialDocx, officialPartsFor } from './officialDocuments';
 import { generateIndividualMedicalOrder, generateEmergencyAdmissionNote, generateInternalMedicineWardAdmissionNote, cleanAndDeduplicateNarrative } from './hospitalNoteGenerator';
 import { FALLBACK_LOGO_BASE64 } from './templatesFallback';
 
@@ -166,94 +167,9 @@ export function downloadWordDocument(filename: string, htmlBody: string, docTitl
 /**
  * Exporta la ORDEN MEDICA en formato .DOC Word
  */
-export function exportMedicalOrderToWord(patient: Patient, orders: MedicalOrder[] = []) {
-  const d = patient.arrivalDateTime ? new Date(patient.arrivalDateTime) : new Date();
-  const dateStr = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-
-  const rawOrderText = generateIndividualMedicalOrder(patient, orders);
-
-  // Extraer secciones
-  const extractSection = (header: string, nextHeader?: string): string => {
-    const start = rawOrderText.indexOf(header);
-    if (start === -1) return '';
-    const fromStart = rawOrderText.substring(start + header.length);
-    if (!nextHeader) return fromStart.trim();
-    const end = fromStart.indexOf(nextHeader);
-    if (end === -1) return fromStart.trim();
-    return fromStart.substring(0, end).trim();
-  };
-
-  const medidas = extractSection('MEDIDAS GENERALES:', 'DIAGNOSTICO:');
-  const diagRaw = extractSection('DIAGNOSTICO:', 'SIGNOS VITALES:');
-  const vitals = extractSection('SIGNOS VITALES:', 'MEDICACIÓN:');
-  const medsRaw = extractSection('MEDICACIÓN:', 'PARACLÍNICOS:');
-  const paraclinicos = extractSection('PARACLÍNICOS:', 'IMÁGENES:');
-  const imagenes = extractSection('IMÁGENES:', 'NOTA:');
-  const nota = extractSection('NOTA:');
-
-  const diagItems = diagRaw
-    .split('\n')
-    .map((s) => s.replace(/^[•\-\*]\s*/, '').trim())
-    .filter(Boolean);
-
-  const medItems = medsRaw
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  let body = `
-    <div class="hospital-header" style="text-align: center; margin-bottom: 20px;">
-      <img src="data:image/jpeg;base64,${FALLBACK_LOGO_BASE64}" width="280" style="width: 280px; max-width: 100%; height: auto; display: block; margin: 0 auto;" alt="Hospital Regional Dr. Ángel María Gatón" />
-    </div>
-
-    <div class="doc-title">ORDEN MEDICA</div>
-
-    <div class="patient-meta-box">
-      NOMBRE: ${patient.fullName.toUpperCase()} &nbsp;&nbsp;&nbsp;&nbsp;
-      EDAD: ${patient.age || '--'} AÑOS &nbsp;&nbsp;&nbsp;&nbsp;
-      EMERGENCIA: CUB ${patient.cubicle} &nbsp;&nbsp;&nbsp;&nbsp;
-      FECHA: ${dateStr} &nbsp;&nbsp;&nbsp;&nbsp;
-      HORA: ${timeStr}
-    </div>
-
-    <p><span class="section-heading">MEDIDAS GENERALES:</span> ${medidas}</p>
-
-    <p class="section-heading">DIAGNOSTICO:</p>
-    ${diagItems.map((d) => `<div class="bullet-item">• &nbsp;${d}</div>`).join('')}
-    <br/>
-
-    <p><span class="section-heading">SIGNOS VITALES:</span> ${vitals}</p>
-
-    <p class="section-heading">MEDICACIÓN:</p>
-    ${medItems.map((m) => `<div class="numbered-item">${m}</div>`).join('')}
-    <br/>
-
-    <p><span class="section-heading">PARACLÍNICOS:</span> ${paraclinicos}</p>
-    <p><span class="section-heading">IMÁGENES:</span> ${imagenes}</p>
-
-    ${nota ? `<div class="note-box"><strong>NOTA:</strong> ${nota}</div>` : ''}
-
-    <br/><br/>
-    <table style="width: 100%; margin-top: 30px; border: none;">
-      <tr>
-        <td style="width: 50%; text-align: center;">
-          <div style="border-top: 1pt solid #000; width: 220px; margin: 0 auto; padding-top: 4px; font-size: 9pt; font-weight: bold;">
-            Firma y Sello Médico Tratante<br/>
-            Dr. Colón — Medicina Interna / Emergencias
-          </div>
-        </td>
-        <td style="width: 50%; text-align: center;">
-          <div style="border-top: 1pt solid #000; width: 220px; margin: 0 auto; padding-top: 4px; font-size: 9pt; font-weight: bold;">
-            Recibido Enfermería
-          </div>
-        </td>
-      </tr>
-    </table>
-  `;
-
-  const filename = `Orden_Medica_${patient.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.doc`;
-  downloadWordDocument(filename, body, `Orden Médica - ${patient.fullName}`);
+export function exportMedicalOrderToWord(patient: Patient, orders: MedicalOrder[] = [], text?: string) {
+  // Word oficial (.docx) con la plantilla ORDEN MEDICA del hospital
+  return downloadOfficialDocx(officialPartsFor('orden', patient, orders, [], [], text), patient);
 }
 
 /**
@@ -264,84 +180,10 @@ export function exportAdmissionNoteToWord(
   orders: MedicalOrder[] = [],
   labs: LabResult[] = [],
   studies: MedicalStudy[] = [],
-  noteType: 'emergencia' | 'sala' = 'emergencia'
+  noteType: 'emergencia' | 'sala' = 'emergencia',
+  text?: string
 ) {
-  const d = patient.arrivalDateTime ? new Date(patient.arrivalDateTime) : new Date();
-  const dateStr = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-
-  const rawNoteText =
-    noteType === 'emergencia'
-      ? generateEmergencyAdmissionNote(patient, orders, labs, studies)
-      : generateInternalMedicineWardAdmissionNote(patient, orders, labs, studies);
-
-  const title = noteType === 'emergencia' ? 'NOTA DE INGRESO EMERGENCIA' : 'NOTA DE RECIBIMIENTO';
-  const ubica = noteType === 'emergencia' ? `EMERG: ${patient.cubicle}` : `SALA: ${patient.cubicle}`;
-
-  // Extraer el texto narrativo eliminando cabeceras
-  const narrativeStart = rawNoteText.indexOf('SE TRATA DE PACIENTE');
-  const rawNarrative = narrativeStart !== -1 ? rawNoteText.substring(narrativeStart) : rawNoteText;
-  const cleanNarrative = cleanAndDeduplicateNarrative(rawNarrative);
-
-  // Dividir entre narrativa previa a diagnósticos, diagnósticos y manejo
-  const diagMarker = 'POR LO QUE SE DEJA BAJO DIAGNÓSTICOS DE:';
-  const manejoMarker = 'EN CUANTO AL MANEJO:';
-
-  let part1 = cleanNarrative;
-  let partDiag = '';
-  let partManejo = '';
-
-  const diagIdx = cleanNarrative.indexOf(diagMarker);
-  const manejoIdx = cleanNarrative.indexOf(manejoMarker);
-
-  if (diagIdx !== -1 && manejoIdx !== -1) {
-    part1 = cleanNarrative.substring(0, diagIdx + diagMarker.length);
-    partDiag = cleanNarrative.substring(diagIdx + diagMarker.length, manejoIdx).trim();
-    partManejo = cleanNarrative.substring(manejoIdx).trim();
-  }
-
-  const diagItems = partDiag
-    .split('\n')
-    .map((s) => s.replace(/^[•\-\*]\s*/, '').trim())
-    .filter(Boolean);
-
-  let body = `
-    <div class="hospital-header" style="text-align: center; margin-bottom: 20px;">
-      <img src="data:image/jpeg;base64,${FALLBACK_LOGO_BASE64}" width="280" style="width: 280px; max-width: 100%; height: auto; display: block; margin: 0 auto;" alt="Hospital Regional Dr. Ángel María Gatón" />
-    </div>
-
-    <div class="doc-title">${title}</div>
-
-    <div class="patient-meta-box">
-      NOMBRE: ${patient.fullName.toUpperCase()}, &nbsp;&nbsp;&nbsp;&nbsp;
-      EDAD: ${patient.age || '--'} AÑOS, &nbsp;&nbsp;&nbsp;&nbsp;
-      ${ubica}, &nbsp;&nbsp;&nbsp;&nbsp;
-      FECHA INGRESO: ${dateStr}. &nbsp;&nbsp;&nbsp;&nbsp;
-      HORA: ${timeStr}
-    </div>
-
-    <div class="narrative-body">${part1}</div>
-
-    ${diagItems.length > 0 ? diagItems.map((d) => `<div class="bullet-item">• &nbsp;${d}</div>`).join('') + '<br/>' : ''}
-
-    ${partManejo ? `<div class="narrative-body">${partManejo}</div>` : ''}
-
-    <br/><br/>
-    <table style="width: 100%; margin-top: 35px; border: none;">
-      <tr>
-        <td style="text-align: right;">
-          <div style="border-top: 1pt solid #000; width: 250px; margin-left: auto; text-align: center; padding-top: 4px; font-size: 9pt; font-weight: bold;">
-            Firma y Sello Médico Tratante<br/>
-            Dr. Colón — Medicina Interna / Emergencias
-          </div>
-        </td>
-      </tr>
-    </table>
-  `;
-
-  const filePrefix = noteType === 'emergencia' ? 'Nota_Ingreso_Emergencia' : 'Nota_Recibimiento_Sala';
-  const filename = `${filePrefix}_${patient.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.doc`;
-  downloadWordDocument(filename, body, `${title} - ${patient.fullName}`);
+  return downloadOfficialDocx(officialPartsFor(noteType, patient, orders, labs, studies, text), patient);
 }
 
 /**

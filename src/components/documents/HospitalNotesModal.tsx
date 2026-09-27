@@ -40,6 +40,7 @@ import {
 } from '../../services/docxTemplateService';
 import { MandatoryNotePreviewModal, NoteType } from './MandatoryNotePreviewModal';
 import { printOfficialHospitalDocument } from '../../services/directPrintService';
+import { buildOfficialParts, serializeParts } from '../../services/officialDocuments';
 
 export type HospitalDocType = 'emergencia' | 'sala' | 'orden' | 'historia' | 'combinada';
 
@@ -106,16 +107,7 @@ export const HospitalNotesModal: React.FC<Props> = ({
       case 'orden':
         return generateIndividualMedicalOrder(patient, orders);
       case 'combinada': {
-        const isSala = patient.status === 'ingresados' || (Boolean(patient.cubicle) && !patient.cubicle.toLowerCase().includes('emerg') && !patient.cubicle.toLowerCase().includes('cub'));
-        const note = isSala
-          ? generateInternalMedicineWardAdmissionNote(patient, orders, labs, studies)
-          : generateEmergencyAdmissionNote(patient, orders, labs, studies);
-        const order = generateIndividualMedicalOrder(patient, orders);
-        return `${note}\n\n` +
-          `======================================================================\n` +
-          `           [SALTO DE PÁGINA: HOJA DE ÓRDENES MÉDICAS OFICIAL]\n` +
-          `======================================================================\n\n` +
-          `${order}`;
+        return serializeParts(buildOfficialParts('combinada', patient, orders, labs, studies));
       }
       case 'historia':
         return `HISTORIA CLÍNICA Y EXAMEN FÍSICO COMPLETO\nHOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN\n\n` +
@@ -173,11 +165,11 @@ export const HospitalNotesModal: React.FC<Props> = ({
   // Descargar PDF Oficial con formato del hospital
   const handleDownloadPdf = () => {
     if (docType === 'combinada') {
-      exportOfficialCombinedNoteAndOrderPdf(patient, orders, labs, studies);
+      exportOfficialCombinedNoteAndOrderPdf(patient, orders, labs, studies, currentContent);
     } else if (docType === 'emergencia' || docType === 'sala') {
-      exportOfficialAdmissionNotePdf(patient, orders, labs, studies, docType);
+      exportOfficialAdmissionNotePdf(patient, orders, labs, studies, docType, currentContent);
     } else if (docType === 'orden') {
-      exportOfficialMedicalOrderPdf(patient, orders);
+      exportOfficialMedicalOrderPdf(patient, orders, currentContent);
     } else {
       exportAdmissionNoteToWord(patient, orders, labs, studies, 'emergencia');
     }
@@ -186,9 +178,9 @@ export const HospitalNotesModal: React.FC<Props> = ({
   // Descargar Word (.DOCX Oficial con Previsualización Obligatoria - Sección 37)
   const handleDownloadDocx = async () => {
     if (docType === 'combinada') {
-      await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies);
+      await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies, { text: currentContent });
     } else if (docType === 'orden') {
-      await generateMedicalOrderDocx(patient, orders);
+      await generateMedicalOrderDocx(patient, orders, { text: currentContent });
     } else {
       setIsPreviewModalOpen(true);
     }
@@ -196,17 +188,19 @@ export const HospitalNotesModal: React.FC<Props> = ({
 
   // Descarga directa combinada Nota + Orden
   const handleDownloadCombinedDocx = async () => {
-    await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies);
+    await generateCombinedNoteAndOrderDocx(patient, orders, labs, studies, docType === 'combinada' ? { text: currentContent } : {});
   };
 
   // Descargar Word (.DOC alternativo)
   const handleDownloadDoc = () => {
     if (docType === 'orden') {
-      exportMedicalOrderToWord(patient, orders);
+      exportMedicalOrderToWord(patient, orders, currentContent);
     } else if (docType === 'historia') {
       exportClinicalHistoryToWord(patient);
     } else {
-      exportAdmissionNoteToWord(patient, orders, labs, studies, docType === 'combinada' ? 'emergencia' : docType);
+      docType === 'combinada'
+        ? generateCombinedNoteAndOrderDocx(patient, orders, labs, studies, { text: currentContent })
+        : exportAdmissionNoteToWord(patient, orders, labs, studies, docType as 'emergencia' | 'sala', currentContent);
     }
   };
 
@@ -342,7 +336,7 @@ export const HospitalNotesModal: React.FC<Props> = ({
 
             {/* Descargar NOTA + ORDEN PDF Combinado */}
             <button
-              onClick={() => exportOfficialCombinedNoteAndOrderPdf(patient, orders, labs, studies)}
+              onClick={() => exportOfficialCombinedNoteAndOrderPdf(patient, orders, labs, studies, docType === 'combinada' ? currentContent : undefined)}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-extrabold rounded-xl bg-slate-800 hover:bg-slate-900 text-white transition-all shadow-xs active:scale-95 cursor-pointer"
               title="Descargar Nota + Hoja de Orden Médica en un solo archivo PDF multipágina con membrete oficial"
             >

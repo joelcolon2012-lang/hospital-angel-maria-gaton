@@ -1,3 +1,4 @@
+import { buildOfficialParts, serializeParts } from './officialDocuments';
 /**
  * Generador de Notas Clínicas y Órdenes Médicas Oficiales
  * Hospital Regional Ángel María Gatón — Dr. Colón
@@ -40,80 +41,8 @@ function getFormattedDateTime(dateTimeStr?: string): { dateStr: string; timeStr:
  * Genera la ORDEN MEDICA con el formato exacto del hospital
  */
 export function generateIndividualMedicalOrder(patient: Patient, orders: MedicalOrder[] = []): string {
-  const v = patient.vitals || {};
-  const { dateStr, timeStr } = getFormattedDateTime(patient.arrivalDateTime);
-
-  // Clasificar órdenes
-  const solutionOrders = orders.filter((o) => o.type === 'Solución');
-  const medicationOrders = orders.filter((o) => o.type === 'Medicamento');
-  const otherOrders = orders.filter((o) => o.type !== 'Solución' && o.type !== 'Medicamento');
-
-  // Dieta
-  const dietaOrder = orders.find((o) => o.name.toLowerCase().includes('dieta'));
-  const dietaStr = dietaOrder ? dietaOrder.name.toUpperCase() : 'CORRIENTE';
-
-  // Diagnósticos
-  const rawDiag = (patient.diagnosesList && patient.diagnosesList.length > 0)
-    ? patient.diagnosesList.map((d) => d.name).join('\n')
-    : (patient.clinicalHistory?.clinicalImpression || patient.chiefComplaint || 'EN ESTUDIO CLÍNICO');
-  const { diagnoses } = extractScalesAndDiagnoses(rawDiag);
-  const diagList = diagnoses.length > 0 ? diagnoses : [rawDiag];
-
-  let out = `             :HOSPITAL\n`;
-  out += `          H  DR. ÁNGEL MARÍA GATÓN\n\n`;
-  out += `                     ORDEN MEDICA\n\n`;
-  out += `NOMBRE: ${patient.fullName.toUpperCase()} EDAD: ${patient.age ? `${patient.age} AÑOS.` : '--'} SALA: ${patient.cubicle ? patient.cubicle.toUpperCase() : 'CUBÍCULO 1'} FECHA: ${dateStr} HORA: ${timeStr}\n\n`;
-
-  // MEDIDAS GENERALES
-  if (patient.generalMeasures && patient.generalMeasures.trim()) {
-    const gm = patient.generalMeasures.trim().toUpperCase();
-    out += gm.startsWith('MEDIDAS GENERALES:') ? `${gm}\n\n` : `MEDIDAS GENERALES: ${gm}\n\n`;
-  } else {
-    out += `MEDIDAS GENERALES: DIETA ${dietaStr.replace(/^DIETA\s+/i, '')}, POSICION SEMI FOWLER, MONITORIZACIÓN DE SIGNOS VITALES CADA 6 HORAS, BARANDAS EN ALTO.\n\n`;
-  }
-
-  // DIAGNÓSTICOS
-  out += `DIAGNÓSTICOS:\n`;
-  diagList.forEach((d) => {
-    out += `${d.trim().toUpperCase()}\n`;
-  });
-  out += `\n`;
-
-  // SIGNOS VITALES
-  const vitalsRes = formatClinicalVitals(v);
-  out += `${vitalsRes.summaryLine}\n\n`;
-
-  // MEDICACIÓN Y SOLUCIONES
-  out += `MEDICACIÓN Y SOLUCIONES:\n`;
-  const allMeds = [...solutionOrders, ...medicationOrders, ...otherOrders];
-  if (allMeds.length > 0) {
-    allMeds.forEach((m) => {
-      const name = m.name.toUpperCase();
-      const dose = m.dose ? m.dose.toUpperCase() : '';
-      const freq = m.frequency ? m.frequency.toUpperCase() : '';
-      const route = m.route ? m.route.toUpperCase() : '';
-      const obs = m.notes ? ` ${m.notes.toUpperCase()}` : '';
-      const line = `• ${name} ${dose} ${freq} ${route}${obs}`.trim().replace(/\s+/g, ' ');
-      out += `${line}\n`;
-    });
-  } else {
-    out += `• PENDIENTE DE ESQUEMA FARMACOLÓGICO / SIN ÓRDENES ACTIVAS REGISTRADAS\n`;
-  }
-  out += `\n`;
-
-  // PARACLINICOS
-  if (patient.requestedParaclinics && patient.requestedParaclinics.length > 0) {
-    out += `PARACLINICOS: ${patient.requestedParaclinics.join(', ').toUpperCase()}\n`;
-  } else {
-    out += `PARACLINICOS: HEMOGRAMA, TIPIFICACION, UREA, CREATININA, BUN, ELECTROLITOS, PROTEINA TOTALES, PERFIL LIPIDICO, AMILASA, LIPASA, HIV, HEP B, HEP C , VDRL, AMILASA, LIPASA, ALBUMINA, EXAMEN DE ORINA, RADIOGRAFIA DE TORAX TP, TPT, INR\n`;
-  }
-
-  // IMÁGENES (si fueron seleccionadas)
-  if (patient.requestedImaging && patient.requestedImaging.length > 0) {
-    out += `\nIMAGENES: ${patient.requestedImaging.join(', ').toUpperCase()}\n`;
-  }
-
-  return normalizeMedicalText(out);
+  // Formato oficial único (mismo texto para vista previa, Word e impresión)
+  return serializeParts(buildOfficialParts('orden', patient, orders));
 }
 
 /**
@@ -125,7 +54,8 @@ export function generateEmergencyAdmissionNote(
   labs: LabResult[] = [],
   studies: MedicalStudy[] = []
 ): string {
-  return generateNarrativeAdmissionNote(patient, orders, labs, studies, 'EMERGENCIA');
+  // Formato oficial único (mismo texto para vista previa, Word e impresión)
+  return serializeParts(buildOfficialParts('emergencia', patient, orders, labs, studies));
 }
 
 /**
@@ -137,7 +67,8 @@ export function generateInternalMedicineWardAdmissionNote(
   labs: LabResult[] = [],
   studies: MedicalStudy[] = []
 ): string {
-  return generateNarrativeAdmissionNote(patient, orders, labs, studies, 'SALA');
+  // Formato oficial único (mismo texto para vista previa, Word e impresión)
+  return serializeParts(buildOfficialParts('sala', patient, orders, labs, studies));
 }
 
 /**

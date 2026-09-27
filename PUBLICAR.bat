@@ -6,12 +6,12 @@ set "NODE_OPTIONS=--use-system-ca"
 set "LOG=%~dp0publicar_log.txt"
 echo ==== PUBLICACION %date% %time% ==== > "%LOG%"
 
-echo [1/5] Dejando de publicar la base de datos (los archivos se quedan en la PC)... >> "%LOG%"
-git rm -r --cached --ignore-unmatch database database_backup_pre_upgrade backup_pre_upgrade/database >> "%LOG%" 2>&1
+echo [1/5] Dejando de publicar la base de datos y las plantillas con datos de pacientes (los archivos se quedan en la PC)... >> "%LOG%"
+git rm -r --cached --ignore-unmatch database database_backup_pre_upgrade backup_pre_upgrade/database templates >> "%LOG%" 2>&1
 
 echo [2/5] Guardando cambios en Git... >> "%LOG%"
 git add -A >> "%LOG%" 2>&1
-git commit -m "v2.6: sincronizacion multidispositivo registro por registro, PIN seguro, carga por partes, modo sin senal; la base de datos deja de publicarse" >> "%LOG%" 2>&1
+git commit -m "v2.6.1: exportacion de nota y orden medica con el formato oficial del hospital; plantillas sin datos de pacientes" >> "%LOG%" 2>&1
 echo COMMIT_EXIT=%errorlevel% >> "%LOG%"
 
 echo [3/5] Subiendo a GitHub (Render se actualiza desde aqui)... >> "%LOG%"

@@ -169,11 +169,11 @@ export const MandatoryNotePreviewModal: React.FC<Props> = ({
     setIsGeneratingDocx(true);
     try {
       if (docType === 'emergencia') {
-        await generateEmergencyNoteDocx(patient, orders, labs);
+        await generateEmergencyNoteDocx(patient, orders, labs, { text: editableNote }, studies);
       } else if (docType === 'sala') {
-        await generateWardTransferNoteDocx(patient, orders, labs);
+        await generateWardTransferNoteDocx(patient, orders, labs, { text: editableNote }, studies);
       } else if (docType === 'orden') {
-        await generateMedicalOrderDocx(patient, orders);
+        await generateMedicalOrderDocx(patient, orders, { text: editableNote });
       } else if (docType === 'evolucion') {
         await generateEvolutionDocx(patient, evolutions, orders);
       }
@@ -191,9 +191,9 @@ export const MandatoryNotePreviewModal: React.FC<Props> = ({
         alert('ADVERTENCIA DE INTEGRIDAD CLÍNICA:\n\n' + val.errors.join('\n'));
         return;
       }
-      exportOfficialAdmissionNotePdf(patient, orders, labs, studies, docType);
+      exportOfficialAdmissionNotePdf(patient, orders, labs, studies, docType, editableNote);
     } else if (docType === 'orden') {
-      exportOfficialMedicalOrderPdf(patient, orders);
+      exportOfficialMedicalOrderPdf(patient, orders, editableNote);
     } else {
       exportOfficialAdmissionNotePdf(patient, orders, labs, studies, 'emergencia');
     }

@@ -1,4 +1,5 @@
 import { FALLBACK_LOGO_BASE64 } from './templatesFallback';
+import { buildOfficialParts, parseOfficialText, printOfficialParts } from './officialDocuments';
 import { Patient, MedicalOrder, LabResult, MedicalStudy } from '../types';
 import {
   generateEmergencyAdmissionNote,
@@ -28,6 +29,16 @@ export function printOfficialHospitalDocument(options: PrintDocumentOptions): vo
     labs = [],
     studies = [],
   } = options;
+
+  // Notas de ingreso/sala y órdenes: formato oficial exacto del hospital (mismas
+  // medidas que el Word). Se imprime EXACTAMENTE el texto mostrado en la vista previa.
+  if (patient && (docType === 'emergencia' || docType === 'sala' || docType === 'orden' || docType === 'combinada')) {
+    const parts = content && content.trim()
+      ? parseOfficialText(content, docType, patient)
+      : buildOfficialParts(docType, patient, orders, labs, studies);
+    printOfficialParts(parts);
+    return;
+  }
 
   let logoSrc = './hospital_logo.jpg';
   try {
