@@ -1,7 +1,7 @@
 {
-  "version": "2.6.0",
-  "buildTime": 1790525690314,
-  "buildDate": "2026-09-27T16:14:50.314Z",
+  "version": "2.6.1",
+  "buildTime": 1790529398302,
+  "buildDate": "2026-09-27T17:16:38.302Z",
   "features": [
     "Sincronización registro por registro entre PC, iPhone y Android",
     "Cambios sin señal se envían solos al reconectar",
