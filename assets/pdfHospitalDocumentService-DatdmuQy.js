@@ -1,0 +1,1 @@
+import{j as a,o as d}from"./hospitalNoteGenerator-DaKbIq4Z.js";function s(o,r=[],f){return a(d("orden",o,r,[],[],f),o)}function t(o,r=[],f=[],i=[],e="emergencia",n){return a(d(e,o,r,f,i,n),o)}function l(o,r=[],f=[],i=[],e){return a(d("combinada",o,r,f,i,e),o)}export{s as a,l as b,t as e};
