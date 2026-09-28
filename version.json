@@ -1,8 +1,10 @@
 {
-  "version": "2.12.1",
-  "buildTime": 1790592449366,
-  "buildDate": "2026-09-28T10:47:29.366Z",
+  "version": "2.13.0",
+  "buildTime": 1790631788749,
+  "buildDate": "2026-09-28T21:43:08.749Z",
   "features": [
+    "Diagnósticos con lista desplegable CIE-10 (búsqueda por código, abreviatura o palabras) en historia, guardia, egreso, evoluciones y planta",
+    "Detector de errores lógico-clínicos: alerta si el examen físico, los signos vitales, los paraclínicos o el sexo/edad no concuerdan con el diagnóstico",
     "El administrador puede eliminar cuentas de usuario (se cierran sus sesiones)",
     "Lectura de electrocardiogramas desde foto o PDF: doble análisis, alertas críticas e informe que confirma el médico",
     "Notas de ingreso y de sala con paraclínicos e imágenes; firma con el nombre del médico (sin exequátur)",
