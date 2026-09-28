@@ -1,8 +1,10 @@
 {
-  "version": "2.9.0",
-  "buildTime": 1790566562013,
-  "buildDate": "2026-09-28T03:36:02.013Z",
+  "version": "2.10.0",
+  "buildTime": 1790569150565,
+  "buildDate": "2026-09-28T04:19:10.565Z",
   "features": [
+    "Paraclínicos desde foto o PDF sin inventar valores: doble lectura y confirmación del médico",
+    "Tomar fotos con la cámara del celular (varias páginas por reporte)",
     "Subir nota o historia clínica (Word, PDF, foto o texto) y distribuirla por acápites",
     "Una sola base de datos central para todos los dispositivos",
     "Los datos de pacientes sólo se entregan con sesión iniciada (PIN)",
