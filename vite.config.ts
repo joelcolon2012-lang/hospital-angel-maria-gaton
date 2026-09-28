@@ -23,6 +23,7 @@ function versionFilePlugin() {
             buildTime: BUILD_TIME,
             buildDate: new Date(BUILD_TIME).toISOString(),
             features: [
+              'Subir nota o historia clínica (Word, PDF, foto o texto) y distribuirla por acápites',
               'Una sola base de datos central para todos los dispositivos',
               'Los datos de pacientes sólo se entregan con sesión iniciada (PIN)',
               'Sincronización registro por registro entre PC, iPhone y Android',

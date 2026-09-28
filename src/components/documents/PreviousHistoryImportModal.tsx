@@ -1,28 +1,25 @@
-import React, { useState, useRef } from 'react';
-import { 
-  Patient, 
-  ClinicalHistory 
-} from '../../types';
-import { 
-  extractTextFromFile, 
-  parseClinicalText, 
-  applyParsedHistoryToPatient, 
-  ParsedHistoryData 
+import React, { useMemo, useRef, useState } from 'react';
+import { Patient, StructuredDiagnosis } from '../../types';
+import {
+  extractTextWithDetails,
+  parseClinicalText,
+  applyParsedHistoryToPatient,
+  nameMatchesPatient,
+  ParsedHistoryData
 } from '../../services/historyImportService';
-import { 
-  X, 
-  Upload, 
-  FileText, 
-  CheckSquare, 
-  Square, 
-  AlertCircle, 
-  CheckCircle2, 
-  ArrowRight, 
-  FileCheck,
-  ShieldCheck,
+import { CLINICAL_FILE_ACCEPT } from '../../services/clinicalImport/fileText';
+import {
+  X,
+  Upload,
+  FileText,
+  AlertTriangle,
+  CheckCircle2,
+  ClipboardPaste,
+  Loader2,
   ChevronDown,
   ChevronRight,
-  Info
+  ShieldAlert,
+  RotateCcw
 } from 'lucide-react';
 
 interface PreviousHistoryImportModalProps {
@@ -32,966 +29,614 @@ interface PreviousHistoryImportModalProps {
   onApplyHistory: (updatedPatient: Patient) => void;
 }
 
-export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProps> = ({
-  patient,
-  isOpen,
-  onClose,
-  onApplyHistory
-}) => {
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [parsedData, setParsedData] = useState<ParsedHistoryData | null>(null);
-  const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({});
-  const [editableData, setEditableData] = useState<ParsedHistoryData | null>(null);
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    patientInfo: true,
-    hda: true,
-    antecedents: true,
-    vitals: true,
-    physicalExam: true,
-    diagnoses: true,
-    plan: true,
-  });
+type Kind = 'text' | 'long' | 'number' | 'sex' | 'bp';
+interface FieldDef {
+  key: string; // clave de selección (la que entiende applyParsedHistoryToPatient)
+  label: string;
+  kind: Kind;
+  path: string; // ruta dentro de ParsedHistoryData
+  current?: (p: Patient) => string | number | undefined;
+}
+interface GroupDef {
+  id: string;
+  title: string;
+  fields: FieldDef[];
+}
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+const ch = (p: Patient) => (p.clinicalHistory || {}) as any;
+const pe = (p: Patient) => (ch(p).physicalExam || {}) as any;
+
+const GROUPS: GroupDef[] = [
+  {
+    id: 'id',
+    title: 'Identificación',
+    fields: [
+      { key: 'patientInfo.fullName', label: 'Nombre', kind: 'text', path: 'patientInfo.fullName', current: (p) => p.fullName },
+      { key: 'patientInfo.age', label: 'Edad (años)', kind: 'number', path: 'patientInfo.age', current: (p) => p.age },
+      { key: 'patientInfo.sex', label: 'Sexo', kind: 'sex', path: 'patientInfo.sex', current: (p) => p.sex },
+      { key: 'patientInfo.idDocument', label: 'Cédula', kind: 'text', path: 'patientInfo.idDocument', current: (p) => p.idDocument },
+      { key: 'patientInfo.medicalRecordNumber', label: 'Expediente', kind: 'text', path: 'patientInfo.medicalRecordNumber', current: (p) => p.medicalRecordNumber },
+      { key: 'patientInfo.cubicle', label: 'Sala / Cama / Cubículo', kind: 'text', path: 'patientInfo.cubicle', current: (p) => p.cubicle }
+    ]
+  },
+  {
+    id: 'mc',
+    title: 'Motivo de consulta e HEA',
+    fields: [
+      { key: 'reasonForConsultation', label: 'Motivo de consulta', kind: 'long', path: 'reasonForConsultation', current: (p) => ch(p).reasonForConsultation || p.chiefComplaint },
+      { key: 'currentIllnessHistory', label: 'Historia de la enfermedad actual', kind: 'long', path: 'currentIllnessHistory', current: (p) => ch(p).currentIllnessHistory }
+    ]
+  },
+  {
+    id: 'ant',
+    title: 'Antecedentes',
+    fields: [
+      { key: 'pathologicalHistory', label: 'Personales patológicos', kind: 'long', path: 'pathologicalHistory', current: (p) => ch(p).pathologicalHistory },
+      { key: 'surgicalHistory', label: 'Quirúrgicos', kind: 'long', path: 'surgicalHistory', current: (p) => ch(p).surgicalHistory },
+      { key: 'allergicHistory', label: 'Alérgicos', kind: 'long', path: 'allergicHistory', current: (p) => ch(p).allergicHistory },
+      { key: 'habitualMedications', label: 'Medicamentos habituales', kind: 'long', path: 'habitualMedications', current: (p) => ch(p).habitualMedications },
+      { key: 'toxicHabits', label: 'Tóxicos / hábitos', kind: 'long', path: 'toxicHabits', current: (p) => ch(p).toxicHabits },
+      { key: 'familyHistory', label: 'Familiares', kind: 'long', path: 'familyHistory', current: (p) => ch(p).familyHistory },
+      { key: 'obGynHistory', label: 'Gineco-obstétricos', kind: 'long', path: 'obGynHistory', current: (p) => ch(p).obGynHistory },
+      { key: 'transfusionalHistory', label: 'Transfusionales', kind: 'long', path: 'transfusionalHistory', current: (p) => ch(p).transfusionalHistory },
+      { key: 'systemsReview', label: 'Revisión por sistemas', kind: 'long', path: 'systemsReview', current: (p) => ch(p).systemsReview }
+    ]
+  },
+  {
+    id: 'sv',
+    title: 'Signos vitales',
+    fields: [
+      { key: 'vitals.systolicBP', label: 'Presión arterial (mmHg)', kind: 'bp', path: 'vitals.systolicBP' },
+      { key: 'vitals.heartRate', label: 'Frecuencia cardíaca (lpm)', kind: 'number', path: 'vitals.heartRate', current: (p) => p.vitals?.heartRate },
+      { key: 'vitals.respiratoryRate', label: 'Frecuencia respiratoria (rpm)', kind: 'number', path: 'vitals.respiratoryRate', current: (p) => p.vitals?.respiratoryRate },
+      { key: 'vitals.temperature', label: 'Temperatura (°C)', kind: 'number', path: 'vitals.temperature', current: (p) => p.vitals?.temperature },
+      { key: 'vitals.oxygenSaturation', label: 'SatO₂ (%)', kind: 'number', path: 'vitals.oxygenSaturation', current: (p) => p.vitals?.oxygenSaturation },
+      { key: 'vitals.bloodGlucose', label: 'Glucemia (mg/dL)', kind: 'number', path: 'vitals.bloodGlucose', current: (p) => p.vitals?.bloodGlucose },
+      { key: 'vitals.glasgowTotal', label: 'Glasgow', kind: 'number', path: 'vitals.glasgowTotal', current: (p) => p.vitals?.glasgowTotal },
+      { key: 'vitals.weight', label: 'Peso (kg)', kind: 'number', path: 'vitals.weight', current: (p) => p.vitals?.weight },
+      { key: 'vitals.height', label: 'Talla (cm)', kind: 'number', path: 'vitals.height', current: (p) => p.vitals?.height }
+    ]
+  },
+  {
+    id: 'ef',
+    title: 'Examen físico',
+    fields: (
+      [
+        ['general', 'Estado general'],
+        ['head', 'Cabeza'],
+        ['eyes', 'Ojos'],
+        ['ears', 'Oídos'],
+        ['nose', 'Nariz'],
+        ['mouth', 'Boca'],
+        ['neck', 'Cuello'],
+        ['thorax', 'Tórax'],
+        ['lungs', 'Pulmones'],
+        ['heart', 'Corazón'],
+        ['abdominal', 'Abdomen'],
+        ['genitals', 'Genitales'],
+        ['rectalExam', 'Tacto rectal'],
+        ['skin', 'Piel y anexos'],
+        ['upperExtremities', 'Extremidades superiores'],
+        ['lowerExtremities', 'Extremidades inferiores'],
+        ['extremities', 'Extremidades (general)'],
+        ['neurological', 'Neurológico']
+      ] as Array<[string, string]>
+    ).map(([k, label]) => ({
+      key: `physicalExam.${k}`,
+      label,
+      kind: 'long' as Kind,
+      path: `physicalExam.${k}`,
+      current: (p: Patient) => pe(p)[k]
+    }))
+  },
+  {
+    id: 'plan',
+    title: 'Plan',
+    fields: [{ key: 'diagnosticAndTherapeuticPlan', label: 'Plan diagnóstico y terapéutico', kind: 'long', path: 'diagnosticAndTherapeuticPlan', current: (p) => ch(p).diagnosticAndTherapeuticPlan }]
+  }
+];
+
+function getPath(obj: any, path: string): any {
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+function setPath(obj: any, path: string, value: any): any {
+  const keys = path.split('.');
+  const copy = { ...obj };
+  let cur = copy;
+  for (let i = 0; i < keys.length - 1; i++) {
+    cur[keys[i]] = { ...(cur[keys[i]] || {}) };
+    cur = cur[keys[i]];
+  }
+  cur[keys[keys.length - 1]] = value;
+  return copy;
+}
+const filled = (v: any) => (typeof v === 'number' ? Number.isFinite(v) : typeof v === 'string' ? v.trim().length > 0 : false);
+const isEmpty = (v: any) => !filled(v);
+
+export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProps> = ({ patient, isOpen, onClose, onApplyHistory }) => {
+  const [tab, setTab] = useState<'file' | 'paste'>('file');
+  const [pasteText, setPasteText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [loadMsg, setLoadMsg] = useState('');
+  const [data, setData] = useState<ParsedHistoryData | null>(null);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [diagText, setDiagText] = useState('');
+  const [nameOk, setNameOk] = useState(false);
+  const [error, setError] = useState('');
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [showRaw, setShowRaw] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const mismatch = useMemo(() => (data ? !nameMatchesPatient(data.patientInfo?.fullName, patient.fullName) : false), [data, patient.fullName]);
 
   if (!isOpen) return null;
 
-  const toggleSection = (sec: string) => {
-    setExpandedSections(prev => ({ ...prev, [sec]: !prev[sec] }));
+  const reset = () => {
+    setData(null);
+    setSelected({});
+    setDiagText('');
+    setNameOk(false);
+    setError('');
+    setShowRaw(false);
+    if (fileRef.current) fileRef.current.value = '';
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFile = e.target.files?.[0];
-    if (!uploadedFile) return;
-    processFile(uploadedFile);
+  const close = () => {
+    reset();
+    setPasteText('');
+    setTab('file');
+    onClose();
   };
 
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
+  const load = (parsed: ParsedHistoryData) => {
+    const sel: Record<string, boolean> = {};
+    for (const g of GROUPS) {
+      for (const f of g.fields) {
+        const v = getPath(parsed, f.path);
+        if (!filled(v)) continue;
+        if (g.id === 'id') {
+          // Identificación: solo se propone si el expediente no la tiene (no se cambia el nombre sin querer)
+          const cur = f.current?.(patient);
+          sel[f.key] = f.key === 'patientInfo.sex' ? !cur || cur === 'Otro' : isEmpty(cur);
+        } else sel[f.key] = true;
+      }
+    }
+    const diags = (parsed.diagnosesList || []).map((d) => d.name);
+    if (diags.length) sel['diagnosesList'] = true;
+    setDiagText(diags.join('\n'));
+    setSelected(sel);
+    setNameOk(false);
+    setData(parsed);
+    if (!Object.values(sel).some(Boolean) && !diags.length) {
+      setError('No se encontraron acápites reconocibles en el documento. Revise el texto original abajo o pegue la nota manualmente.');
     }
   };
 
-  const processFile = async (selectedFile: File) => {
+  const processFile = async (file: File) => {
+    setError('');
     setLoading(true);
-    setFile(selectedFile);
+    setLoadMsg(/\.(pdf|jpe?g|png|webp|heic|heif)$/i.test(file.name) || file.type.startsWith('image/') ? 'Leyendo el documento (si es escaneado o foto, la IA lo transcribe)…' : 'Leyendo el documento…');
     try {
-      const rawText = await extractTextFromFile(selectedFile);
-      const parsed = parseClinicalText(rawText, selectedFile.name);
-      setParsedData(parsed);
-      setEditableData(JSON.parse(JSON.stringify(parsed)));
-
-      // Initialize selected fields with truthy values for whatever was found
-      const defaults: Record<string, boolean> = {};
-      if (parsed.patientInfo?.fullName) defaults['patientInfo.fullName'] = true;
-      if (parsed.patientInfo?.age) defaults['patientInfo.age'] = true;
-      if (parsed.patientInfo?.sex) defaults['patientInfo.sex'] = true;
-      if (parsed.patientInfo?.idDocument) defaults['patientInfo.idDocument'] = true;
-      if (parsed.patientInfo?.medicalRecordNumber) defaults['patientInfo.medicalRecordNumber'] = true;
-
-      if (parsed.reasonForConsultation) defaults['reasonForConsultation'] = true;
-      if (parsed.currentIllnessHistory) defaults['currentIllnessHistory'] = true;
-      if (parsed.pathologicalHistory) defaults['pathologicalHistory'] = true;
-      if (parsed.surgicalHistory) defaults['surgicalHistory'] = true;
-      if (parsed.allergicHistory) defaults['allergicHistory'] = true;
-      if (parsed.habitualMedications) defaults['habitualMedications'] = true;
-      if (parsed.toxicHabits) defaults['toxicHabits'] = true;
-      if (parsed.familyHistory) defaults['familyHistory'] = true;
-      if (parsed.obGynHistory) defaults['obGynHistory'] = true;
-
-      if (parsed.vitals?.systolicBP) defaults['vitals.systolicBP'] = true;
-      if (parsed.vitals?.diastolicBP) defaults['vitals.diastolicBP'] = true;
-      if (parsed.vitals?.heartRate) defaults['vitals.heartRate'] = true;
-      if (parsed.vitals?.respiratoryRate) defaults['vitals.respiratoryRate'] = true;
-      if (parsed.vitals?.temperature) defaults['vitals.temperature'] = true;
-      if (parsed.vitals?.oxygenSaturation) defaults['vitals.oxygenSaturation'] = true;
-      if (parsed.vitals?.bloodGlucose) defaults['vitals.bloodGlucose'] = true;
-      if (parsed.vitals?.glasgowTotal) defaults['vitals.glasgowTotal'] = true;
-
-      if (parsed.physicalExam) {
-        Object.entries(parsed.physicalExam).forEach(([k, v]) => {
-          if (v) defaults[`physicalExam.${k}`] = true;
-        });
+      const r = await extractTextWithDetails(file);
+      if (!r.text || r.text.trim().length < 10) {
+        setError(r.warnings.join(' ') || 'El archivo no contiene texto legible.');
+        return;
       }
-
-      if (parsed.diagnosesList && parsed.diagnosesList.length > 0) defaults['diagnosesList'] = true;
-      if (parsed.diagnosticAndTherapeuticPlan) defaults['diagnosticAndTherapeuticPlan'] = true;
-
-      setSelectedFields(defaults);
-    } catch (err: any) {
-      alert('Error procesando el documento: ' + (err?.message || 'Formato no soportado'));
+      load(parseClinicalText(r.text, file.name, r.method, r.warnings));
+    } catch (e: any) {
+      setError(`No se pudo procesar el archivo: ${e?.message || 'error desconocido'}. Puede copiar y pegar el texto de la nota.`);
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleField = (key: string) => {
-    setSelectedFields(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const selectAll = () => {
-    if (!editableData) return;
-    const all: Record<string, boolean> = {};
-    if (editableData.patientInfo?.fullName) all['patientInfo.fullName'] = true;
-    if (editableData.patientInfo?.age) all['patientInfo.age'] = true;
-    if (editableData.patientInfo?.sex) all['patientInfo.sex'] = true;
-    if (editableData.patientInfo?.idDocument) all['patientInfo.idDocument'] = true;
-    if (editableData.patientInfo?.medicalRecordNumber) all['patientInfo.medicalRecordNumber'] = true;
-
-    if (editableData.reasonForConsultation) all['reasonForConsultation'] = true;
-    if (editableData.currentIllnessHistory) all['currentIllnessHistory'] = true;
-    if (editableData.pathologicalHistory) all['pathologicalHistory'] = true;
-    if (editableData.surgicalHistory) all['surgicalHistory'] = true;
-    if (editableData.allergicHistory) all['allergicHistory'] = true;
-    if (editableData.habitualMedications) all['habitualMedications'] = true;
-    if (editableData.toxicHabits) all['toxicHabits'] = true;
-    if (editableData.familyHistory) all['familyHistory'] = true;
-    if (editableData.obGynHistory) all['obGynHistory'] = true;
-
-    if (editableData.vitals?.systolicBP) all['vitals.systolicBP'] = true;
-    if (editableData.vitals?.diastolicBP) all['vitals.diastolicBP'] = true;
-    if (editableData.vitals?.heartRate) all['vitals.heartRate'] = true;
-    if (editableData.vitals?.respiratoryRate) all['vitals.respiratoryRate'] = true;
-    if (editableData.vitals?.temperature) all['vitals.temperature'] = true;
-    if (editableData.vitals?.oxygenSaturation) all['vitals.oxygenSaturation'] = true;
-    if (editableData.vitals?.bloodGlucose) all['vitals.bloodGlucose'] = true;
-    if (editableData.vitals?.glasgowTotal) all['vitals.glasgowTotal'] = true;
-
-    if (editableData.physicalExam) {
-      Object.keys(editableData.physicalExam).forEach(k => {
-        all[`physicalExam.${k}`] = true;
-      });
+  const processPaste = () => {
+    setError('');
+    if (pasteText.trim().length < 10) {
+      setError('Pegue el texto completo de la nota o historia clínica.');
+      return;
     }
-
-    if (editableData.diagnosesList) all['diagnosesList'] = true;
-    if (editableData.diagnosticAndTherapeuticPlan) all['diagnosticAndTherapeuticPlan'] = true;
-
-    setSelectedFields(all);
+    load(parseClinicalText(pasteText, 'nota-pegada.txt', 'Texto pegado'));
   };
 
-  const deselectAll = () => {
-    setSelectedFields({});
+  const edit = (path: string, value: any, key: string) => {
+    if (!data) return;
+    setData(setPath(data, path, value));
+    setSelected((s) => ({ ...s, [key]: filled(value) }));
   };
 
-  const handleApply = () => {
-    if (!editableData) return;
-    const updated = applyParsedHistoryToPatient(patient, editableData, selectedFields);
-    onApplyHistory(updated);
-    onClose();
+  const toggle = (key: string) => setSelected((s) => ({ ...s, [key]: !s[key] }));
+
+  const selectAllIn = (g: GroupDef, value: boolean) =>
+    setSelected((s) => {
+      const n = { ...s };
+      for (const f of g.fields) if (filled(getPath(data, f.path))) n[f.key] = value;
+      return n;
+    });
+
+  const diagLines = diagText
+    .split('\n')
+    .map((l) => l.replace(/^\s*(\d+[.)-]|[-•*])\s*/, '').trim())
+    .filter(Boolean);
+
+  const selectedCount = Object.entries(selected).filter(([k, v]) => v && (k !== 'diagnosesList' || diagLines.length)).length;
+  const canApply = !!data && selectedCount > 0 && (!mismatch || nameOk);
+
+  const apply = () => {
+    if (!data || !canApply) return;
+    const now = Date.now();
+    const diagnosesList: StructuredDiagnosis[] = diagLines.map((name, i) => ({
+      id: `diag-import-${now}-${i}`,
+      name,
+      status: 'Probable',
+      type: i === 0 ? 'Primario' : 'Secundario',
+      orderIndex: i
+    } as StructuredDiagnosis));
+    const finalData: ParsedHistoryData = { ...data, diagnosesList };
+    try {
+      const updated = applyParsedHistoryToPatient(patient, finalData, selected);
+      onApplyHistory(updated);
+      close();
+    } catch (e: any) {
+      setError(`No se pudo aplicar: ${e?.message || 'error desconocido'}`);
+    }
+  };
+
+  const badge = (key: string) => {
+    const c = data?.confidence?.[key];
+    if (!c) return null;
+    return c === 'ALTA' ? (
+      <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title="Tomado de un acápite con su título">ACÁPITE</span>
+    ) : (
+      <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-700" title="Deducido de la redacción: verifique">DEDUCIDO</span>
+    );
+  };
+
+  const renderInput = (f: FieldDef) => {
+    const v = getPath(data, f.path);
+    const base = 'w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F4C5C]/30 bg-white';
+    if (f.kind === 'long') {
+      return (
+        <textarea
+          className={`${base} min-h-[52px] resize-y`}
+          rows={Math.min(6, Math.max(2, Math.ceil(String(v || '').length / 90)))}
+          value={v || ''}
+          onChange={(e) => edit(f.path, e.target.value, f.key)}
+          placeholder="(no encontrado en el documento)"
+        />
+      );
+    }
+    if (f.kind === 'sex') {
+      return (
+        <select className={base} value={v || ''} onChange={(e) => edit(f.path, e.target.value || undefined, f.key)}>
+          <option value="">(no encontrado)</option>
+          <option value="M">Masculino</option>
+          <option value="F">Femenino</option>
+        </select>
+      );
+    }
+    if (f.kind === 'number') {
+      return (
+        <input
+          type="number"
+          step="any"
+          className={base}
+          value={typeof v === 'number' ? v : ''}
+          onChange={(e) => edit(f.path, e.target.value === '' ? undefined : Number(e.target.value), f.key)}
+          placeholder="—"
+        />
+      );
+    }
+    if (f.kind === 'bp') {
+      const d = data?.vitals?.diastolicBP;
+      return (
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            className={base}
+            value={typeof v === 'number' ? v : ''}
+            onChange={(e) => edit('vitals.systolicBP', e.target.value === '' ? undefined : Number(e.target.value), f.key)}
+            placeholder="Sistólica"
+          />
+          <span className="text-slate-400 font-bold">/</span>
+          <input
+            type="number"
+            className={base}
+            value={typeof d === 'number' ? d : ''}
+            onChange={(e) => data && setData(setPath(data, 'vitals.diastolicBP', e.target.value === '' ? undefined : Number(e.target.value)))}
+            placeholder="Diastólica"
+          />
+        </div>
+      );
+    }
+    return <input type="text" className={base} value={v || ''} onChange={(e) => edit(f.path, e.target.value, f.key)} placeholder="(no encontrado en el documento)" />;
+  };
+
+  const currentText = (f: FieldDef): string => {
+    if (f.kind === 'bp') {
+      const s = patient.vitals?.systolicBP;
+      const d = patient.vitals?.diastolicBP;
+      return s ? `${s}/${d ?? '?'}` : '';
+    }
+    const c = f.current?.(patient);
+    if (c == null) return '';
+    if (f.kind === 'sex') return c === 'M' ? 'Masculino' : c === 'F' ? 'Femenino' : '';
+    return String(c);
+  };
+
+  const renderGroup = (g: GroupDef) => {
+    const present = g.fields.filter((f) => filled(getPath(data, f.path)));
+    const hidden = g.fields.length - present.length;
+    const isCol = collapsed[g.id];
+    const [showEmpty, setShowEmptyKey] = [collapsed[`${g.id}:empty`], `${g.id}:empty`];
+    const list = showEmpty ? g.fields : present;
+    return (
+      <div key={g.id} className="border border-slate-200 rounded-xl overflow-hidden" data-testid={`import-group-${g.id}`}>
+        <div className="flex items-center justify-between bg-slate-50 px-3 py-2">
+          <button type="button" className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wide text-[#0F4C5C]" onClick={() => setCollapsed((c) => ({ ...c, [g.id]: !c[g.id] }))}>
+            {isCol ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            {g.title}
+            <span className="ml-1 text-[10px] font-bold text-slate-500 normal-case">
+              {present.length} encontrado{present.length === 1 ? '' : 's'}
+            </span>
+          </button>
+          {present.length > 0 && (
+            <div className="flex gap-2 text-[10px] font-bold">
+              <button type="button" className="text-[#0F4C5C] hover:underline" onClick={() => selectAllIn(g, true)}>
+                Todos
+              </button>
+              <button type="button" className="text-slate-500 hover:underline" onClick={() => selectAllIn(g, false)}>
+                Ninguno
+              </button>
+            </div>
+          )}
+        </div>
+        {!isCol && (
+          <div className="divide-y divide-slate-100">
+            {list.length === 0 && <p className="px-3 py-2 text-[11px] text-slate-400 italic">Este acápite no aparece en el documento.</p>}
+            {list.map((f) => {
+              const v = getPath(data, f.path);
+              const cur = currentText(f);
+              const has = filled(v);
+              return (
+                <div key={f.key} className={`grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-1.5 sm:gap-3 px-3 py-2 ${selected[f.key] ? 'bg-emerald-50/40' : ''}`} data-testid={`import-field-${f.key}`}>
+                  <label className="flex items-start gap-2 cursor-pointer select-none pt-1">
+                    <input type="checkbox" className="mt-0.5 accent-[#0F4C5C]" checked={!!selected[f.key]} disabled={!has} onChange={() => toggle(f.key)} />
+                    <span className="text-[11px] font-bold text-slate-700 leading-tight">
+                      {f.label}
+                      <span className="block mt-0.5">{badge(f.key)}</span>
+                    </span>
+                  </label>
+                  <div className="min-w-0">
+                    {renderInput(f)}
+                    {cur && has && selected[f.key] && cur.trim() !== String(v).trim() && (
+                      <p className="mt-1 text-[10px] text-amber-700">
+                        Reemplazará lo actual: <span className="font-semibold">{cur.length > 120 ? `${cur.slice(0, 120)}…` : cur}</span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {hidden > 0 && (
+              <button type="button" className="w-full text-left px-3 py-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-50" onClick={() => setCollapsed((c) => ({ ...c, [setShowEmptyKey]: !c[setShowEmptyKey] }))}>
+                {showEmpty ? 'Ocultar campos vacíos' : `+ ${hidden} campo${hidden === 1 ? '' : 's'} no encontrado${hidden === 1 ? '' : 's'} (llenar a mano)`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-fade-in">
-        {/* Modal Header */}
-        <div className="bg-[#0F4C5C] text-white p-4 sm:p-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-teal-300">
-              <FileCheck className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold tracking-tight">
-                Cargar Historia Clínica Previa
-              </h2>
-              <p className="text-xs text-teal-100">
-                Hospital Regional Dr. Ángel María Gatón • Paciente: <span className="font-semibold text-white">{patient.fullName}</span> ({patient.internalCode})
+    <div className="fixed inset-0 z-[80] bg-slate-900/60 flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true" data-testid="history-import-modal">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden">
+        {/* Encabezado */}
+        <div className="flex items-center justify-between px-4 py-3 bg-[#0F4C5C] text-white">
+          <div className="min-w-0">
+            <h2 className="text-sm font-black uppercase tracking-wide">Importar nota / historia clínica</h2>
+            <p className="text-[11px] text-white/80 truncate">
+              Paciente: <span className="font-bold">{patient.fullName}</span>
+              {patient.cubicle ? ` · ${patient.cubicle}` : ''}
+            </p>
+          </div>
+          <button type="button" onClick={close} className="p-1.5 rounded-lg hover:bg-white/15" aria-label="Cerrar">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {!data && (
+            <>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setTab('file')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-black ${tab === 'file' ? 'bg-[#0F4C5C] text-white' : 'bg-slate-100 text-slate-600'}`}>
+                  <Upload size={14} /> Subir archivo
+                </button>
+                <button type="button" onClick={() => setTab('paste')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-black ${tab === 'paste' ? 'bg-[#0F4C5C] text-white' : 'bg-slate-100 text-slate-600'}`} data-testid="import-tab-paste">
+                  <ClipboardPaste size={14} /> Pegar texto
+                </button>
+              </div>
+
+              {tab === 'file' ? (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f && !loading) processFile(f);
+                  }}
+                  onClick={() => !loading && fileRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors ${dragOver ? 'border-[#0F4C5C] bg-[#0F4C5C]/5' : 'border-slate-300 hover:border-[#0F4C5C]/60'}`}
+                >
+                  {loading ? (
+                    <div className="flex flex-col items-center gap-2 text-[#0F4C5C]">
+                      <Loader2 className="animate-spin" size={28} />
+                      <p className="text-xs font-bold">{loadMsg}</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 text-slate-600">
+                      <FileText size={30} className="text-[#0F4C5C]" />
+                      <p className="text-sm font-black">Toque para elegir o arrastre el archivo aquí</p>
+                      <p className="text-[11px] text-slate-500">Word (.docx / .doc), PDF (con texto o escaneado), foto de la nota (JPG, PNG, HEIC), RTF o texto.</p>
+                    </div>
+                  )}
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept={CLINICAL_FILE_ACCEPT}
+                    className="hidden"
+                    data-testid="import-file-input"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) processFile(f);
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    className="w-full min-h-[260px] border border-slate-200 rounded-xl p-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#0F4C5C]/30"
+                    placeholder={'Pegue aquí la nota completa. Ejemplo:\nNOMBRE: …  EDAD: …  SALA: …\nMOTIVO DE CONSULTA: …\nHISTORIA DE LA ENFERMEDAD ACTUAL: …\nANTECEDENTES: …\nSIGNOS VITALES: TA 120/80 FC 80 …\nEXAMEN FÍSICO: …\nDIAGNÓSTICOS: 1. …'}
+                    data-testid="import-paste-text"
+                  />
+                  <button type="button" onClick={processPaste} className="w-full py-2.5 rounded-xl bg-[#0F4C5C] text-white text-xs font-black" data-testid="import-paste-analyze">
+                    Analizar y distribuir por acápites
+                  </button>
+                </div>
+              )}
+              <p className="text-[11px] text-slate-500 leading-snug">
+                El programa separa la nota por acápites (nombre, edad, sala, motivo, HEA, antecedentes, signos vitales, examen físico y diagnósticos). Usted revisa y elige qué se guarda: nada se inventa y nada se borra.
               </p>
+            </>
+          )}
+
+          {error && (
+            <div className="flex gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs" data-testid="import-error">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {data && (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="px-2 py-1 rounded-lg bg-slate-100 font-bold text-slate-700">{data.sourceFileName}</span>
+                {data.extractionMethod && <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600">{data.extractionMethod}</span>}
+                <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold">{(data.sectionsFound || []).length} acápites reconocidos</span>
+                <button type="button" onClick={reset} className="ml-auto flex items-center gap-1 px-2 py-1 rounded-lg text-slate-600 hover:bg-slate-100 font-bold">
+                  <RotateCcw size={12} /> Otro documento
+                </button>
+              </div>
+
+              {mismatch && (
+                <div className="p-3 rounded-xl bg-red-50 border-2 border-red-300 text-red-800 text-xs space-y-2" data-testid="import-name-mismatch">
+                  <div className="flex gap-2 font-bold">
+                    <ShieldAlert size={16} className="shrink-0" />
+                    <span>
+                      El nombre del documento ({data.patientInfo?.fullName}) no coincide con el paciente abierto ({patient.fullName}).
+                    </span>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" className="accent-red-700" checked={nameOk} onChange={(e) => setNameOk(e.target.checked)} data-testid="import-name-confirm" />
+                    Confirmo que esta nota pertenece a este paciente.
+                  </label>
+                </div>
+              )}
+
+              {(data.warnings || []).length > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] space-y-1" data-testid="import-warnings">
+                  {(data.warnings || []).map((w, i) => (
+                    <div key={i} className="flex gap-1.5">
+                      <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                      <span>{w}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {GROUPS.slice(0, 4).map(renderGroup)}
+              {renderGroup(GROUPS[4])}
+
+              {/* Diagnósticos */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden" data-testid="import-group-dx">
+                <div className="flex items-center justify-between bg-slate-50 px-3 py-2">
+                  <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wide text-[#0F4C5C] cursor-pointer">
+                    <input type="checkbox" className="accent-[#0F4C5C]" checked={!!selected['diagnosesList']} disabled={!diagLines.length} onChange={() => toggle('diagnosesList')} />
+                    Diagnósticos
+                    <span className="text-[10px] font-bold text-slate-500 normal-case">{diagLines.length} (uno por línea)</span>
+                  </label>
+                  {badge('diagnosesList')}
+                </div>
+                <div className="p-3">
+                  <textarea
+                    className="w-full min-h-[80px] border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C5C]/30"
+                    value={diagText}
+                    onChange={(e) => {
+                      setDiagText(e.target.value);
+                      if (e.target.value.trim()) setSelected((s) => ({ ...s, diagnosesList: true }));
+                    }}
+                    placeholder="(no se encontraron diagnósticos; escríbalos uno por línea)"
+                    data-testid="import-diagnoses"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500">Se agregan a la lista del paciente sin duplicar los que ya tiene.</p>
+                </div>
+              </div>
+
+              {renderGroup(GROUPS[5])}
+
+              {(data.labsText || data.imagingText) && (
+                <div className="border border-slate-200 rounded-xl p-3 space-y-1" data-testid="import-labs">
+                  <p className="text-[11px] font-black uppercase text-[#0F4C5C]">Paraclínicos en el documento</p>
+                  {data.labsText && <p className="text-[11px] text-slate-700 whitespace-pre-wrap">{data.labsText}</p>}
+                  {data.imagingText && <p className="text-[11px] text-slate-700 whitespace-pre-wrap">{data.imagingText}</p>}
+                  <p className="text-[10px] text-slate-500">Quedan guardados junto al documento fuente del paciente.</p>
+                </div>
+              )}
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button type="button" onClick={() => setShowRaw((v) => !v)} className="w-full flex items-center gap-1.5 px-3 py-2 bg-slate-50 text-[11px] font-black uppercase text-slate-600">
+                  {showRaw ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Texto original del documento
+                </button>
+                {showRaw && <pre className="p-3 text-[10px] text-slate-700 whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{data.rawText}</pre>}
+              </div>
+            </>
+          )}
+        </div>
+
+        {data && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
+            <p className="text-[11px] text-slate-600">
+              <CheckCircle2 size={12} className="inline mr-1 text-emerald-600" />
+              {selectedCount} campo{selectedCount === 1 ? '' : 's'} marcado{selectedCount === 1 ? '' : 's'} para guardar
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={close} className="px-4 py-2 rounded-xl text-xs font-black text-slate-600 bg-white border border-slate-200">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={apply}
+                disabled={!canApply}
+                className="px-4 py-2 rounded-xl text-xs font-black text-white bg-[#0F4C5C] disabled:opacity-40 disabled:cursor-not-allowed"
+                data-testid="import-apply"
+              >
+                Guardar en el expediente
+              </button>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-teal-100 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-          {/* File Upload Area */}
-          {!editableData && (
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-teal-300 hover:border-teal-500 rounded-2xl p-8 text-center cursor-pointer bg-teal-50/50 hover:bg-teal-50 transition-all flex flex-col items-center justify-center space-y-3"
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept=".docx,.pdf,.txt"
-                className="hidden"
-              />
-              <div className="w-14 h-14 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center">
-                <Upload className="w-7 h-7" />
-              </div>
-              <div className="text-center">
-                <p className="font-bold text-slate-800 text-sm sm:text-base">
-                  Arrastra y suelta tu archivo Word (.docx), PDF (.pdf) o Texto (.txt)
-                </p>
-                <p className="text-xs text-slate-500 mt-1">
-                  O haz clic aquí para explorar en tu computadora
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-teal-700 bg-white px-3 py-1.5 rounded-full border border-teal-200">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Extracción inteligente • NUNCA inventa datos clínicos</span>
-              </div>
-            </div>
-          )}
-
-          {/* Loading Indicator */}
-          {loading && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-3">
-              <div className="w-8 h-8 border-3 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-sm font-semibold text-slate-700">Analizando documento clínico...</p>
-              <p className="text-xs text-slate-500">Extrayendo filiación, HDA, antecedentes, vitales, examen físico y diagnósticos</p>
-            </div>
-          )}
-
-          {/* Parsed Preview and Selection */}
-          {editableData && (
-            <div className="space-y-5">
-              {/* Document Banner & Actions */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-teal-600 text-white flex items-center justify-center font-bold text-xs uppercase">
-                    {editableData.sourceFileType}
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5 text-teal-600" />
-                      {editableData.sourceFileName}
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Selecciona y edita los campos que deseas incorporar al expediente actual
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={selectAll}
-                    className="text-xs px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium"
-                  >
-                    Seleccionar Todos
-                  </button>
-                  <button
-                    onClick={deselectAll}
-                    className="text-xs px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium"
-                  >
-                    Deseleccionar
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditableData(null);
-                      setParsedData(null);
-                      setFile(null);
-                    }}
-                    className="text-xs px-2.5 py-1.5 bg-red-50 border border-red-200 rounded-lg text-red-600 hover:bg-red-100 font-medium"
-                  >
-                    Cambiar archivo
-                  </button>
-                </div>
-              </div>
-
-              {/* Notice */}
-              <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                <Info className="w-4 h-4 flex-shrink-0 text-amber-600" />
-                <span>
-                  <strong>Regla de oro:</strong> Puedes modificar cualquier texto directamente en las cajas antes de aplicar. Solo los campos con casilla marcada se guardarán en el expediente.
-                </span>
-              </div>
-
-              {/* SECTION: Identificación */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => toggleSection('patientInfo')}
-                  className="w-full bg-slate-50 hover:bg-slate-100 px-4 py-2.5 text-left flex items-center justify-between font-bold text-xs text-slate-700 border-b border-slate-200"
-                >
-                  <span className="flex items-center gap-2">
-                    {expandedSections.patientInfo ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    1. DATOS DE FILIACIÓN E IDENTIFICACIÓN
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-normal">Nombre, Cédula, Expediente</span>
-                </button>
-
-                {expandedSections.patientInfo && (
-                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Nombre */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-fn"
-                        checked={!!selectedFields['patientInfo.fullName']}
-                        onChange={() => toggleField('patientInfo.fullName')}
-                        className="mt-1.5 rounded text-teal-600 focus:ring-teal-500"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-fn" className="block text-[11px] font-bold text-slate-700">Nombre Completo</label>
-                        <input
-                          type="text"
-                          value={editableData.patientInfo?.fullName || ''}
-                          onChange={(e) => setEditableData(prev => ({
-                            ...prev!,
-                            patientInfo: { ...prev!.patientInfo, fullName: e.target.value }
-                          }))}
-                          placeholder="No especificado"
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:border-teal-500"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Edad y Sexo */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          id="check-age"
-                          checked={!!selectedFields['patientInfo.age']}
-                          onChange={() => toggleField('patientInfo.age')}
-                          className="mt-1.5 rounded text-teal-600"
-                        />
-                        <div className="flex-1">
-                          <label htmlFor="check-age" className="block text-[11px] font-bold text-slate-700">Edad</label>
-                          <input
-                            type="number"
-                            value={editableData.patientInfo?.age ?? ''}
-                            onChange={(e) => setEditableData(prev => ({
-                              ...prev!,
-                              patientInfo: { ...prev!.patientInfo, age: parseInt(e.target.value, 10) || undefined }
-                            }))}
-                            className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:border-teal-500"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          id="check-sex"
-                          checked={!!selectedFields['patientInfo.sex']}
-                          onChange={() => toggleField('patientInfo.sex')}
-                          className="mt-1.5 rounded text-teal-600"
-                        />
-                        <div className="flex-1">
-                          <label htmlFor="check-sex" className="block text-[11px] font-bold text-slate-700">Sexo</label>
-                          <select
-                            value={editableData.patientInfo?.sex || 'M'}
-                            onChange={(e) => setEditableData(prev => ({
-                              ...prev!,
-                              patientInfo: { ...prev!.patientInfo, sex: e.target.value as any }
-                            }))}
-                            className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:border-teal-500"
-                          >
-                            <option value="M">Masculino</option>
-                            <option value="F">Femenino</option>
-                            <option value="Otro">Otro</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Cédula */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-doc"
-                        checked={!!selectedFields['patientInfo.idDocument']}
-                        onChange={() => toggleField('patientInfo.idDocument')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-doc" className="block text-[11px] font-bold text-slate-700">Cédula / Documento</label>
-                        <input
-                          type="text"
-                          value={editableData.patientInfo?.idDocument || ''}
-                          onChange={(e) => setEditableData(prev => ({
-                            ...prev!,
-                            patientInfo: { ...prev!.patientInfo, idDocument: e.target.value }
-                          }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:border-teal-500"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Expediente */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-rec"
-                        checked={!!selectedFields['patientInfo.medicalRecordNumber']}
-                        onChange={() => toggleField('patientInfo.medicalRecordNumber')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-rec" className="block text-[11px] font-bold text-slate-700">No. Expediente</label>
-                        <input
-                          type="text"
-                          value={editableData.patientInfo?.medicalRecordNumber || ''}
-                          onChange={(e) => setEditableData(prev => ({
-                            ...prev!,
-                            patientInfo: { ...prev!.patientInfo, medicalRecordNumber: e.target.value }
-                          }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:border-teal-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION: Motivo e Historia de la Enfermedad Actual */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => toggleSection('hda')}
-                  className="w-full bg-slate-50 hover:bg-slate-100 px-4 py-2.5 text-left flex items-center justify-between font-bold text-xs text-slate-700 border-b border-slate-200"
-                >
-                  <span className="flex items-center gap-2">
-                    {expandedSections.hda ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    2. MOTIVO DE CONSULTA E HISTORIA DE LA ENFERMEDAD ACTUAL (HDA)
-                  </span>
-                </button>
-
-                {expandedSections.hda && (
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-mc"
-                        checked={!!selectedFields['reasonForConsultation']}
-                        onChange={() => toggleField('reasonForConsultation')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-mc" className="block text-[11px] font-bold text-slate-700">Motivo de Consulta / Ingreso</label>
-                        <input
-                          type="text"
-                          value={editableData.reasonForConsultation || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, reasonForConsultation: e.target.value }))}
-                          placeholder="No detectado"
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:border-teal-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-hda"
-                        checked={!!selectedFields['currentIllnessHistory']}
-                        onChange={() => toggleField('currentIllnessHistory')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-hda" className="block text-[11px] font-bold text-slate-700">Historia de la Enfermedad Actual (HDA)</label>
-                        <textarea
-                          rows={3}
-                          value={editableData.currentIllnessHistory || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, currentIllnessHistory: e.target.value }))}
-                          placeholder="No detectado"
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:border-teal-500 font-sans leading-relaxed"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION: Antecedentes */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => toggleSection('antecedents')}
-                  className="w-full bg-slate-50 hover:bg-slate-100 px-4 py-2.5 text-left flex items-center justify-between font-bold text-xs text-slate-700 border-b border-slate-200"
-                >
-                  <span className="flex items-center gap-2">
-                    {expandedSections.antecedents ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    3. ANTECEDENTES PERSONALES Y FAMILIARES
-                  </span>
-                </button>
-
-                {expandedSections.antecedents && (
-                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Patológicos */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-pat"
-                        checked={!!selectedFields['pathologicalHistory']}
-                        onChange={() => toggleField('pathologicalHistory')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-pat" className="block text-[11px] font-bold text-slate-700">Patológicos Mórbidos</label>
-                        <textarea
-                          rows={2}
-                          value={editableData.pathologicalHistory || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, pathologicalHistory: e.target.value }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Quirúrgicos */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-surg"
-                        checked={!!selectedFields['surgicalHistory']}
-                        onChange={() => toggleField('surgicalHistory')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-surg" className="block text-[11px] font-bold text-slate-700">Quirúrgicos</label>
-                        <textarea
-                          rows={2}
-                          value={editableData.surgicalHistory || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, surgicalHistory: e.target.value }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Alérgicos (En Rojo) */}
-                    <div className="flex items-start gap-2 bg-red-50/70 p-2.5 rounded-xl border border-red-200 sm:col-span-2">
-                      <input
-                        type="checkbox"
-                        id="check-all"
-                        checked={!!selectedFields['allergicHistory']}
-                        onChange={() => toggleField('allergicHistory')}
-                        className="mt-1.5 rounded text-red-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-all" className="block text-[11px] font-bold text-red-700 flex items-center gap-1.5">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          Antecedentes Alérgicos (¡Alerta de Seguridad!)
-                        </label>
-                        <input
-                          type="text"
-                          value={editableData.allergicHistory || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, allergicHistory: e.target.value }))}
-                          placeholder="Ej: Penicilina, AINEs, Niega"
-                          className="w-full text-xs p-2 rounded-lg border border-red-300 font-bold text-red-900 bg-white"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Medicamentos Habituales */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-meds"
-                        checked={!!selectedFields['habitualMedications']}
-                        onChange={() => toggleField('habitualMedications')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-meds" className="block text-[11px] font-bold text-slate-700">Medicamentos Habituales</label>
-                        <textarea
-                          rows={2}
-                          value={editableData.habitualMedications || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, habitualMedications: e.target.value }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Tóxicos */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-tox"
-                        checked={!!selectedFields['toxicHabits']}
-                        onChange={() => toggleField('toxicHabits')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-tox" className="block text-[11px] font-bold text-slate-700">Hábitos Tóxicos</label>
-                        <input
-                          type="text"
-                          value={editableData.toxicHabits || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, toxicHabits: e.target.value }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Familiares */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-fam"
-                        checked={!!selectedFields['familyHistory']}
-                        onChange={() => toggleField('familyHistory')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-fam" className="block text-[11px] font-bold text-slate-700">Familiares</label>
-                        <input
-                          type="text"
-                          value={editableData.familyHistory || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, familyHistory: e.target.value }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Gineco-Obstétricos */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-gyn"
-                        checked={!!selectedFields['obGynHistory']}
-                        onChange={() => toggleField('obGynHistory')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-gyn" className="block text-[11px] font-bold text-slate-700">Gineco-Obstétricos</label>
-                        <input
-                          type="text"
-                          value={editableData.obGynHistory || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, obGynHistory: e.target.value }))}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION: Signos Vitales */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => toggleSection('vitals')}
-                  className="w-full bg-slate-50 hover:bg-slate-100 px-4 py-2.5 text-left flex items-center justify-between font-bold text-xs text-slate-700 border-b border-slate-200"
-                >
-                  <span className="flex items-center gap-2">
-                    {expandedSections.vitals ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    4. CONSTANTES VITALES AL INGRESO
-                  </span>
-                </button>
-
-                {expandedSections.vitals && (
-                  <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {/* TA */}
-                    <div className="border border-slate-200 p-2 rounded-lg">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={!!selectedFields['vitals.systolicBP']}
-                          onChange={() => toggleField('vitals.systolicBP')}
-                          className="rounded text-teal-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-700">T/A (mmHg)</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          value={editableData.vitals?.systolicBP ?? ''}
-                          onChange={(e) => setEditableData(prev => ({
-                            ...prev!,
-                            vitals: { ...prev!.vitals, systolicBP: parseInt(e.target.value, 10) || undefined }
-                          }))}
-                          placeholder="TAS"
-                          className="w-14 text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                        />
-                        <span>/</span>
-                        <input
-                          type="number"
-                          value={editableData.vitals?.diastolicBP ?? ''}
-                          onChange={(e) => setEditableData(prev => ({
-                            ...prev!,
-                            vitals: { ...prev!.vitals, diastolicBP: parseInt(e.target.value, 10) || undefined }
-                          }))}
-                          placeholder="TAD"
-                          className="w-14 text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                        />
-                      </div>
-                    </div>
-
-                    {/* FC */}
-                    <div className="border border-slate-200 p-2 rounded-lg">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={!!selectedFields['vitals.heartRate']}
-                          onChange={() => toggleField('vitals.heartRate')}
-                          className="rounded text-teal-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-700">FC (lpm)</span>
-                      </div>
-                      <input
-                        type="number"
-                        value={editableData.vitals?.heartRate ?? ''}
-                        onChange={(e) => setEditableData(prev => ({
-                          ...prev!,
-                          vitals: { ...prev!.vitals, heartRate: parseInt(e.target.value, 10) || undefined }
-                        }))}
-                        placeholder="lpm"
-                        className="w-full text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                      />
-                    </div>
-
-                    {/* FR */}
-                    <div className="border border-slate-200 p-2 rounded-lg">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={!!selectedFields['vitals.respiratoryRate']}
-                          onChange={() => toggleField('vitals.respiratoryRate')}
-                          className="rounded text-teal-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-700">FR (rpm)</span>
-                      </div>
-                      <input
-                        type="number"
-                        value={editableData.vitals?.respiratoryRate ?? ''}
-                        onChange={(e) => setEditableData(prev => ({
-                          ...prev!,
-                          vitals: { ...prev!.vitals, respiratoryRate: parseInt(e.target.value, 10) || undefined }
-                        }))}
-                        placeholder="rpm"
-                        className="w-full text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                      />
-                    </div>
-
-                    {/* Temp */}
-                    <div className="border border-slate-200 p-2 rounded-lg">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={!!selectedFields['vitals.temperature']}
-                          onChange={() => toggleField('vitals.temperature')}
-                          className="rounded text-teal-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-700">Temp (°C)</span>
-                      </div>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={editableData.vitals?.temperature ?? ''}
-                        onChange={(e) => setEditableData(prev => ({
-                          ...prev!,
-                          vitals: { ...prev!.vitals, temperature: parseFloat(e.target.value) || undefined }
-                        }))}
-                        placeholder="°C"
-                        className="w-full text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                      />
-                    </div>
-
-                    {/* SatO2 */}
-                    <div className="border border-slate-200 p-2 rounded-lg">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={!!selectedFields['vitals.oxygenSaturation']}
-                          onChange={() => toggleField('vitals.oxygenSaturation')}
-                          className="rounded text-teal-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-700">SatO2 (%)</span>
-                      </div>
-                      <input
-                        type="number"
-                        value={editableData.vitals?.oxygenSaturation ?? ''}
-                        onChange={(e) => setEditableData(prev => ({
-                          ...prev!,
-                          vitals: { ...prev!.vitals, oxygenSaturation: parseInt(e.target.value, 10) || undefined }
-                        }))}
-                        placeholder="%"
-                        className="w-full text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                      />
-                    </div>
-
-                    {/* Glucemia */}
-                    <div className="border border-slate-200 p-2 rounded-lg">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={!!selectedFields['vitals.bloodGlucose']}
-                          onChange={() => toggleField('vitals.bloodGlucose')}
-                          className="rounded text-teal-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-700">Glucemia</span>
-                      </div>
-                      <input
-                        type="number"
-                        value={editableData.vitals?.bloodGlucose ?? ''}
-                        onChange={(e) => setEditableData(prev => ({
-                          ...prev!,
-                          vitals: { ...prev!.vitals, bloodGlucose: parseInt(e.target.value, 10) || undefined }
-                        }))}
-                        placeholder="mg/dL"
-                        className="w-full text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                      />
-                    </div>
-
-                    {/* Glasgow */}
-                    <div className="border border-slate-200 p-2 rounded-lg col-span-2">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={!!selectedFields['vitals.glasgowTotal']}
-                          onChange={() => toggleField('vitals.glasgowTotal')}
-                          className="rounded text-teal-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-700">Escala de Glasgow (/15)</span>
-                      </div>
-                      <input
-                        type="number"
-                        min="3"
-                        max="15"
-                        value={editableData.vitals?.glasgowTotal ?? ''}
-                        onChange={(e) => setEditableData(prev => ({
-                          ...prev!,
-                          vitals: { ...prev!.vitals, glasgowTotal: parseInt(e.target.value, 10) || undefined }
-                        }))}
-                        placeholder="3-15"
-                        className="w-full text-xs p-1 rounded border border-slate-200 text-center font-bold"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION: Examen Físico */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => toggleSection('physicalExam')}
-                  className="w-full bg-slate-50 hover:bg-slate-100 px-4 py-2.5 text-left flex items-center justify-between font-bold text-xs text-slate-700 border-b border-slate-200"
-                >
-                  <span className="flex items-center gap-2">
-                    {expandedSections.physicalExam ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    5. EXAMEN FÍSICO POR SISTEMAS
-                  </span>
-                </button>
-
-                {expandedSections.physicalExam && (
-                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[
-                      { key: 'general', label: 'Aspecto General' },
-                      { key: 'cardiovascular', label: 'Cardiovascular' },
-                      { key: 'respiratory', label: 'Respiratorio / Tórax' },
-                      { key: 'abdominal', label: 'Abdomen' },
-                      { key: 'neurological', label: 'Neurológico' },
-                      { key: 'extremities', label: 'Extremidades' },
-                      { key: 'skin', label: 'Piel y Faneras' },
-                      { key: 'head', label: 'Cabeza y Cuello' }
-                    ].map(sys => (
-                      <div key={sys.key} className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          id={`check-pe-${sys.key}`}
-                          checked={!!selectedFields[`physicalExam.${sys.key}`]}
-                          onChange={() => toggleField(`physicalExam.${sys.key}`)}
-                          className="mt-1.5 rounded text-teal-600"
-                        />
-                        <div className="flex-1">
-                          <label htmlFor={`check-pe-${sys.key}`} className="block text-[11px] font-bold text-slate-700">{sys.label}</label>
-                          <textarea
-                            rows={2}
-                            value={(editableData.physicalExam as any)?.[sys.key] || ''}
-                            onChange={(e) => setEditableData(prev => ({
-                              ...prev!,
-                              physicalExam: { ...prev!.physicalExam, [sys.key]: e.target.value }
-                            }))}
-                            className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION: Diagnósticos y Plan */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => toggleSection('diagnoses')}
-                  className="w-full bg-slate-50 hover:bg-slate-100 px-4 py-2.5 text-left flex items-center justify-between font-bold text-xs text-slate-700 border-b border-slate-200"
-                >
-                  <span className="flex items-center gap-2">
-                    {expandedSections.diagnoses ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    6. DIAGNÓSTICOS Y CONDUCTA TERAPÉUTICA
-                  </span>
-                </button>
-
-                {expandedSections.diagnoses && (
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-diag"
-                        checked={!!selectedFields['diagnosesList']}
-                        onChange={() => toggleField('diagnosesList')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-diag" className="block text-[11px] font-bold text-slate-700">Diagnósticos / Impresión Clínica</label>
-                        <textarea
-                          rows={2}
-                          value={editableData.clinicalImpression || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, clinicalImpression: e.target.value }))}
-                          placeholder="Diagnósticos extraídos..."
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        id="check-plan"
-                        checked={!!selectedFields['diagnosticAndTherapeuticPlan']}
-                        onChange={() => toggleField('diagnosticAndTherapeuticPlan')}
-                        className="mt-1.5 rounded text-teal-600"
-                      />
-                      <div className="flex-1">
-                        <label htmlFor="check-plan" className="block text-[11px] font-bold text-slate-700">Plan Diagnóstico y Terapéutico</label>
-                        <textarea
-                          rows={3}
-                          value={editableData.diagnosticAndTherapeuticPlan || ''}
-                          onChange={(e) => setEditableData(prev => ({ ...prev!, diagnosticAndTherapeuticPlan: e.target.value }))}
-                          placeholder="Medidas, soluciones, fármacos..."
-                          className="w-full text-xs p-2 rounded-lg border border-slate-200 font-sans"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="bg-slate-50 border-t border-slate-200 p-4 sm:p-5 flex items-center justify-between">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
-          >
-            Cancelar
-          </button>
-
-          {editableData && (
-            <button
-              onClick={handleApply}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>APLICAR A LA HISTORIA CLÍNICA</span>
-            </button>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
 };
+
+export default PreviousHistoryImportModal;

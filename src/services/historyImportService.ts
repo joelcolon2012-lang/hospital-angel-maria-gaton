@@ -1,18 +1,18 @@
-import mammoth from 'mammoth';
-import { 
-  ClinicalHistory, 
-  Vitals, 
-  Patient, 
-  StructuredDiagnosis, 
-  MorbidItem 
-} from '../types';
+import { Patient, StructuredDiagnosis, MorbidItem, Vitals } from '../types';
+import { parseClinicalNote, fold, type ParsedNote, type Confidence } from './clinicalImport/noteParser';
+import { extractTextFromClinicalFile } from './clinicalImport/fileText';
 
+/**
+ * Importación de notas / historias clínicas externas al expediente del paciente.
+ * El texto se distribuye por acápites con el lector inteligente (noteParser) y el
+ * médico revisa, edita y elige qué aplicar. Nada se inventa.
+ */
 export interface ParsedHistoryData {
   sourceFileName: string;
   sourceFileType: string;
   rawText: string;
-  
-  // Demographics
+  extractionMethod?: string;
+
   patientInfo?: {
     fullName?: string;
     idDocument?: string;
@@ -23,327 +23,217 @@ export interface ParsedHistoryData {
     cubicle?: string;
   };
 
-  // Clinical History
   reasonForConsultation?: string;
   currentIllnessHistory?: string;
   pathologicalHistory?: string;
   morbidList?: MorbidItem[];
   surgicalHistory?: string;
   allergicHistory?: string;
+  allergiesNegated?: boolean;
+  allergyList?: string[];
   habitualMedications?: string;
   toxicHabits?: string;
   familyHistory?: string;
   obGynHistory?: string;
+  transfusionalHistory?: string;
   systemsReview?: string;
 
-  // Vitals
   vitals?: Partial<Vitals>;
 
-  // Physical Exam
   physicalExam?: {
     general?: string;
     head?: string;
+    eyes?: string;
+    ears?: string;
+    nose?: string;
+    mouth?: string;
     neck?: string;
-    cardiovascular?: string;
-    respiratory?: string;
+    thorax?: string;
+    lungs?: string;
+    heart?: string;
     abdominal?: string;
-    genitourinary?: string;
+    genitals?: string;
+    skin?: string;
+    upperExtremities?: string;
+    lowerExtremities?: string;
     neurological?: string;
     extremities?: string;
-    skin?: string;
+    rectalExam?: string;
     otherFindings?: string;
+    // compatibilidad
+    cardiovascular?: string;
+    respiratory?: string;
+    genitourinary?: string;
   };
 
-  // Diagnoses
+  labsText?: string;
+  imagingText?: string;
   diagnosesList?: StructuredDiagnosis[];
   clinicalImpression?: string;
-
-  // Plan
   diagnosticAndTherapeuticPlan?: string;
+
+  /** Origen de cada dato ('ALTA' = acápite con título, 'MEDIA' = deducido del texto) */
+  confidence?: Record<string, Confidence>;
+  warnings?: string[];
+  sectionsFound?: string[];
 }
 
-/**
- * Extract raw text from File (.docx, .txt, .pdf)
- */
+/** Lee el texto de cualquier archivo soportado (Word, PDF, texto, RTF, fotos…). */
 export async function extractTextFromFile(file: File): Promise<string> {
-  const extension = file.name.split('.').pop()?.toLowerCase();
-
-  if (extension === 'docx') {
-    const arrayBuffer = await file.arrayBuffer();
-    const result = await mammoth.extractRawText({ arrayBuffer });
-    return result.value || '';
-  }
-
-  if (extension === 'txt') {
-    return await file.text();
-  }
-
-  if (extension === 'pdf') {
-    // Basic text extraction for plain/uncompressed streams in browser or fallback text
-    try {
-      const text = await file.text();
-      // Look for PDF stream text tokens
-      const matches = text.match(/\((.*?)\)\s*Tj/g);
-      if (matches && matches.length > 5) {
-        return matches.map(m => m.replace(/^\(|\)\s*Tj$/g, '')).join(' ');
-      }
-    } catch {
-      // ignore
-    }
-    return `[Archivo PDF adjuntado: ${file.name} — Se recomienda revisar el documento original o copiar texto si el PDF es escaneado/imagen.]`;
-  }
-
-  return await file.text();
+  const r = await extractTextFromClinicalFile(file);
+  return r.text;
 }
 
-/**
- * Parses raw clinical text into structured history fields
- * STRICT RULE: NEVER hallucinate. If not found in text, leave undefined.
- */
-export function parseClinicalText(text: string, fileName: string = 'documento.docx'): ParsedHistoryData {
-  const clean = text.replace(/\r\n/g, '\n');
-  const lines = clean.split('\n').map(l => l.trim()).filter(Boolean);
+export async function extractTextWithDetails(file: File) {
+  return extractTextFromClinicalFile(file);
+}
 
-  const parsed: ParsedHistoryData = {
+const CONF_MAP: Record<string, string> = {
+  'identification.fullName': 'patientInfo.fullName',
+  'identification.age': 'patientInfo.age',
+  'identification.sex': 'patientInfo.sex',
+  'identification.idDocument': 'patientInfo.idDocument',
+  'identification.medicalRecordNumber': 'patientInfo.medicalRecordNumber',
+  'identification.location': 'patientInfo.cubicle',
+  reasonForConsultation: 'reasonForConsultation',
+  currentIllness: 'currentIllnessHistory',
+  'antecedents.pathological': 'pathologicalHistory',
+  'antecedents.surgical': 'surgicalHistory',
+  'antecedents.allergic': 'allergicHistory',
+  'antecedents.medications': 'habitualMedications',
+  'antecedents.toxic': 'toxicHabits',
+  'antecedents.family': 'familyHistory',
+  'antecedents.obGyn': 'obGynHistory',
+  'antecedents.transfusional': 'transfusionalHistory',
+  systemsReview: 'systemsReview',
+  diagnoses: 'diagnosesList',
+  plan: 'diagnosticAndTherapeuticPlan',
+  labs: 'labsText'
+};
+
+export function noteToHistoryData(note: ParsedNote, rawText: string, fileName: string, method?: string, extraWarnings: string[] = []): ParsedHistoryData {
+  const A = note.antecedents;
+  const ex = note.physicalExam;
+  const confidence: Record<string, Confidence> = {};
+  for (const [k, v] of Object.entries(note.confidence)) {
+    if (CONF_MAP[k]) confidence[CONF_MAP[k]] = v;
+    else if (k.startsWith('vitals.') || k.startsWith('physicalExam.')) confidence[k] = v;
+  }
+  if (confidence['vitals.systolicBP']) confidence['vitals.diastolicBP'] = confidence['vitals.systolicBP'];
+
+  // "Antecedentes:" genérico (sin sub-apartados) -> patológicos
+  const pathological = A.pathological || A.general;
+  if (!A.pathological && A.general) confidence['pathologicalHistory'] = note.confidence['antecedents.general'] || 'MEDIA';
+
+  const now = Date.now();
+  return {
     sourceFileName: fileName,
-    sourceFileType: fileName.split('.').pop()?.toLowerCase() || 'docx',
-    rawText: clean,
-    patientInfo: {},
-    physicalExam: {},
-    vitals: {},
-    morbidList: [],
-    diagnosesList: []
-  };
-
-  // Helper regex searcher
-  const findRegex = (pattern: RegExp, textToSearch = clean): string | undefined => {
-    const match = textToSearch.match(pattern);
-    return match ? match[1]?.trim() : undefined;
-  };
-
-  // 1. Demographics & Identification
-  const nameMatch = findRegex(/(?:NOMBRE|PACIENTE|NOMBRE DEL PACIENTE|DATOS DEL PACIENTE)\s*[:\-]?\s*([A-Za-zÁÉÍÓÚáéíóúñÑ\s]+?)(?=(?:\s+EDAD|\s+CÉDULA|\s+CEDULA|\s+EXP|\s+SEXO|\n|$))/i);
-  if (nameMatch && nameMatch.length > 2 && !nameMatch.toLowerCase().includes('completo')) {
-    parsed.patientInfo!.fullName = nameMatch.trim();
-  }
-
-  const ageMatch = findRegex(/(?:EDAD|AÑOS)\s*[:\-]?\s*(\d{1,3})\s*(?:AÑOS|A)?/i);
-  if (ageMatch) {
-    const ageNum = parseInt(ageMatch, 10);
-    if (!isNaN(ageNum) && ageNum >= 0 && ageNum <= 125) {
-      parsed.patientInfo!.age = ageNum;
-    }
-  }
-
-  const sexMatch = findRegex(/(?:SEXO|GÉNERO)\s*[:\-]?\s*(MASCULINO|FEMENINO|M|F|HOMBRE|MUJER)/i);
-  if (sexMatch) {
-    const s = sexMatch.toUpperCase();
-    if (s.startsWith('M') || s.startsWith('H')) parsed.patientInfo!.sex = 'M';
-    else if (s.startsWith('F')) parsed.patientInfo!.sex = 'F';
-  }
-
-  const idDocMatch = findRegex(/(?:CÉDULA|CEDULA|DNI|IDENTIFICACIÓN)\s*[:\-]?\s*([\d\-]{9,15})/i);
-  if (idDocMatch) parsed.patientInfo!.idDocument = idDocMatch.trim();
-
-  const recordNumMatch = findRegex(/(?:EXPEDIENTE|NO\.\s*EXP|RECORD|HISTORIA)\s*[:\-]?\s*([A-Z0-9\-]+)/i);
-  if (recordNumMatch) parsed.patientInfo!.medicalRecordNumber = recordNumMatch.trim();
-
-  // 2. Vital Signs
-  const bpMatch = findRegex(/(?:T\/A|TA|PA|PRESIÓN ARTERIAL|PRESION)\s*[:\-]?\s*(\d{2,3})\s*[\/|\-]\s*(\d{2,3})/i);
-  if (bpMatch) {
-    const matchAll = clean.match(/(?:T\/A|TA|PA|PRESIÓN ARTERIAL|PRESION)\s*[:\-]?\s*(\d{2,3})\s*[\/|\-]\s*(\d{2,3})/i);
-    if (matchAll) {
-      const sbp = parseInt(matchAll[1], 10);
-      const dbp = parseInt(matchAll[2], 10);
-      if (sbp > 30 && sbp < 300) parsed.vitals!.systolicBP = sbp;
-      if (dbp > 20 && dbp < 200) parsed.vitals!.diastolicBP = dbp;
-    }
-  }
-
-  const hrMatch = findRegex(/(?:FC|FRECUENCIA CARD(?:Í|I)ACA|PULSO)\s*[:\-]?\s*(\d{2,3})\s*(?:LPM|X'|XMIN|\/MIN)?/i);
-  if (hrMatch) {
-    const hr = parseInt(hrMatch, 10);
-    if (hr >= 30 && hr <= 250) parsed.vitals!.heartRate = hr;
-  }
-
-  const rrMatch = findRegex(/(?:FR|FRECUENCIA RESPIRATORIA)\s*[:\-]?\s*(\d{1,2})\s*(?:RPM|X'|XMIN|\/MIN)?/i);
-  if (rrMatch) {
-    const rr = parseInt(rrMatch, 10);
-    if (rr >= 5 && rr <= 70) parsed.vitals!.respiratoryRate = rr;
-  }
-
-  const tempMatch = findRegex(/(?:TEMP|TEMPERATURA|T°)\s*[:\-]?\s*(\d{2}(?:[.,]\d)?)\s*(?:°C|C)?/i);
-  if (tempMatch) {
-    const temp = parseFloat(tempMatch.replace(',', '.'));
-    if (temp >= 30 && temp <= 43) parsed.vitals!.temperature = temp;
-  }
-
-  const satMatch = findRegex(/(?:SATO2|SAT\s*O2|SATURACI(?:Ó|O)N|SPO2)\s*[:\-]?\s*(\d{2,3})\s*%/i);
-  if (satMatch) {
-    const sat = parseInt(satMatch, 10);
-    if (sat >= 40 && sat <= 100) parsed.vitals!.oxygenSaturation = sat;
-  }
-
-  const glucMatch = findRegex(/(?:GLUCEMIA|GLICEMIA|HGT|DEXTROSTIX)\s*[:\-]?\s*(\d{2,3})\s*(?:MG\/DL)?/i);
-  if (glucMatch) {
-    const gluc = parseInt(glucMatch, 10);
-    if (gluc >= 20 && gluc <= 800) parsed.vitals!.bloodGlucose = gluc;
-  }
-
-  const glasgowMatch = findRegex(/(?:GLASGOW|ECG)\s*[:\-]?\s*(\d{1,2})\s*(?:\/\s*15)?/i);
-  if (glasgowMatch) {
-    const g = parseInt(glasgowMatch, 10);
-    if (g >= 3 && g <= 15) parsed.vitals!.glasgowTotal = g;
-  }
-
-  // 3. Section Slicing for Clinical History
-  const sectionExtract = (startWords: string[], endWords: string[]): string | undefined => {
-    const startPattern = `(?:^|\\n)\\s*(?:${startWords.join('|')})\\s*[:\\-]?\\s*([\\s\\S]*?)`;
-    const endPattern = `(?=\\n\\s*(?:${endWords.join('|')})\\s*[:\\-]|$)`;
-    const fullRegex = new RegExp(startPattern + endPattern, 'i');
-    const match = clean.match(fullRegex);
-    if (match && match[1]?.trim()) {
-      return match[1].trim();
-    }
-    return undefined;
-  };
-
-  // Sections
-  parsed.reasonForConsultation = sectionExtract(
-    ['MOTIVO DE CONSULTA', 'MOTIVO DE INGRESO', 'MOTIVO CONSULTA', 'SÍNTOMA PRINCIPAL'],
-    ['HISTORIA DE LA ENFERMEDAD ACTUAL', 'ENFERMEDAD ACTUAL', 'HDA', 'ANTECEDENTES']
-  );
-
-  parsed.currentIllnessHistory = sectionExtract(
-    ['HISTORIA DE LA ENFERMEDAD ACTUAL', 'ENFERMEDAD ACTUAL', 'HDA', 'PADECIMIENTO ACTUAL'],
-    ['ANTECEDENTES PATOLÓGICOS', 'ANTECEDENTES PERSONALES', 'ANTECEDENTES', 'REVISIÓN POR SISTEMAS', 'EXAMEN FÍSICO']
-  );
-
-  parsed.pathologicalHistory = sectionExtract(
-    ['ANTECEDENTES PATOLÓGICOS PERSONALES', 'ANTECEDENTES PERSONALES PATOLÓGICOS', 'ANTECEDENTES PATOLÓGICOS', 'PATOLÓGICOS'],
-    ['ANTECEDENTES QUIRÚRGICOS', 'QUIRÚRGICOS', 'ALERGIAS', 'ANTECEDENTES ALÉRGICOS', 'TÓXICOS', 'HÁBITOS TÓXICOS', 'MEDICAMENTOS']
-  );
-
-  parsed.surgicalHistory = sectionExtract(
-    ['ANTECEDENTES QUIRÚRGICOS', 'QUIRÚRGICOS'],
-    ['ANTECEDENTES ALÉRGICOS', 'ALERGIAS', 'ALÉRGICOS', 'TÓXICOS', 'HÁBITOS TÓXICOS', 'MEDICAMENTOS', 'FAMILIARES']
-  );
-
-  parsed.allergicHistory = sectionExtract(
-    ['ANTECEDENTES ALÉRGICOS', 'ALERGIAS', 'ALÉRGICOS'],
-    ['TÓXICOS', 'HÁBITOS TÓXICOS', 'MEDICAMENTOS', 'HÁBITOS', 'FAMILIARES', 'GINECO']
-  );
-
-  parsed.toxicHabits = sectionExtract(
-    ['HÁBITOS TÓXICOS', 'TÓXICOS', 'HÁBITOS'],
-    ['MEDICAMENTOS HABITUALES', 'MEDICAMENTOS', 'TRATAMIENTO HABITUAL', 'FAMILIARES']
-  );
-
-  parsed.habitualMedications = sectionExtract(
-    ['MEDICAMENTOS HABITUALES', 'MEDICAMENTOS DE USO HABITUAL', 'TRATAMIENTO HABITUAL', 'MEDICAMENTOS'],
-    ['ANTECEDENTES FAMILIARES', 'FAMILIARES', 'GINECO-OBSTÉTRICOS', 'EXAMEN FÍSICO']
-  );
-
-  parsed.familyHistory = sectionExtract(
-    ['ANTECEDENTES FAMILIARES', 'FAMILIARES', 'HEREDOFAMILIARES'],
-    ['GINECO-OBSTÉTRICOS', 'GINECOLÓGICOS', 'REVISIÓN POR SISTEMAS', 'EXAMEN FÍSICO']
-  );
-
-  parsed.obGynHistory = sectionExtract(
-    ['ANTECEDENTES GINECO-OBSTÉTRICOS', 'GINECO-OBSTÉTRICOS', 'GINECOLÓGICOS'],
-    ['REVISIÓN POR SISTEMAS', 'EXAMEN FÍSICO', 'CONSTANTES VITALES']
-  );
-
-  // 4. Physical Exam Extraction
-  const peFull = sectionExtract(
-    ['EXAMEN FÍSICO', 'EXAMEN FISICO', 'EXPLORACIÓN FÍSICA'],
-    ['IMPRESIÓN DIAGNÓSTICA', 'DIAGNÓSTICOS', 'DIAGNÓSTICO', 'PLAN', 'MANEJO', 'ORDEN MÉDICA']
-  );
-
-  if (peFull) {
-    const subPe = (keys: string[]): string | undefined => {
-      const p = new RegExp(`(?:^|\\n)\\s*(?:${keys.join('|')})\\s*[:\\-]\\s*([^\\n]+(?:\\n(?!\\s*(?:CABEZA|CUELLO|TÓRAX|TORAX|CARDIO|RESPIRA|ABDOMEN|NEURO|EXTREMI|PIEL|GENITO|TACTO))[^\\n]+)*)`, 'i');
-      const m = peFull.match(p);
-      return m ? m[1].trim() : undefined;
-    };
-
-    parsed.physicalExam = {
-      general: subPe(['GENERAL', 'ASPECTO GENERAL', 'ESTADO GENERAL']),
-      head: subPe(['CABEZA', 'CABEZA Y CUELLO', 'CRÁNEO']),
-      neck: subPe(['CUELLO']),
-      cardiovascular: subPe(['CARDIOVASCULAR', 'CORAZÓN', 'APARATO CIRCULATORIO', 'RUIDOS CARDIACOS']),
-      respiratory: subPe(['RESPIRATORIO', 'PULMONES', 'TÓRAX PLEUROPULMONAR', 'CAMPOS PULMONARES']),
-      abdominal: subPe(['ABDOMINAL', 'ABDOMEN']),
-      neurological: subPe(['NEUROLÓGICO', 'NEUROLÓGICO Y ESTADO MENTAL', 'SNC']),
-      extremities: subPe(['EXTREMIDADES', 'MIEMBROS INFERIORES']),
-      skin: subPe(['PIEL', 'PIEL Y FANERAS', 'TEGUMENTOS']),
-      genitourinary: subPe(['GENITOURINARIO', 'GENITALES']),
-    };
-
-    // If general is not found, take first lines of peFull
-    if (!parsed.physicalExam.general && !parsed.physicalExam.cardiovascular) {
-      parsed.physicalExam.general = peFull.slice(0, 300);
-    }
-  }
-
-  // 5. Diagnoses
-  const diagSection = sectionExtract(
-    ['IMPRESIÓN DIAGNÓSTICA', 'DIAGNÓSTICO PRESUNTIVO', 'DIAGNÓSTICOS', 'DIAGNÓSTICO', 'IMPRESIONES DIAGNÓSTICAS'],
-    ['PLAN', 'PLAN TERAPÉUTICO', 'CONDUCTA', 'TRATAMIENTO', 'ORDEN MÉDICA', 'MANEJO']
-  );
-
-  if (diagSection) {
-    parsed.clinicalImpression = diagSection;
-    const diagLines = diagSection.split('\n')
-      .map(l => l.replace(/^[\d\-•*.)\s]+/, '').trim())
-      .filter(l => l.length > 2);
-
-    parsed.diagnosesList = diagLines.map((diag, index) => ({
-      id: `diag-import-${Date.now()}-${index}`,
-      name: diag,
+    sourceFileType: fileName.split('.').pop()?.toLowerCase() || 'txt',
+    rawText,
+    extractionMethod: method,
+    patientInfo: {
+      fullName: note.identification.fullName,
+      age: note.identification.age,
+      sex: note.identification.sex,
+      idDocument: note.identification.idDocument,
+      medicalRecordNumber: note.identification.medicalRecordNumber,
+      cubicle: note.identification.location
+    },
+    reasonForConsultation: note.reasonForConsultation,
+    currentIllnessHistory: note.currentIllness,
+    pathologicalHistory: pathological,
+    surgicalHistory: A.surgical,
+    allergicHistory: A.allergic,
+    allergiesNegated: A.allergiesNegated,
+    allergyList: A.allergyList,
+    habitualMedications: A.medications,
+    toxicHabits: A.toxic,
+    familyHistory: A.family,
+    obGynHistory: A.obGyn,
+    transfusionalHistory: A.transfusional,
+    systemsReview: note.systemsReview,
+    vitals: { ...note.vitals },
+    physicalExam: {
+      general: ex.general,
+      head: ex.head,
+      eyes: ex.eyes,
+      ears: ex.ears,
+      nose: ex.nose,
+      mouth: ex.mouth,
+      neck: ex.neck,
+      thorax: ex.thorax,
+      lungs: ex.lungs,
+      heart: ex.heart,
+      abdominal: ex.abdominal,
+      genitals: ex.genitals,
+      skin: ex.skin,
+      upperExtremities: ex.upperExtremities,
+      lowerExtremities: ex.lowerExtremities,
+      extremities: ex.extremities,
+      neurological: ex.neurological,
+      rectalExam: ex.rectal
+    },
+    labsText: note.labs,
+    imagingText: note.imaging,
+    diagnosesList: note.diagnoses.map((name, index) => ({
+      id: `diag-import-${now}-${index}`,
+      name,
       status: 'Probable',
       type: index === 0 ? 'Primario' : 'Secundario',
       orderIndex: index
-    }));
-  }
-
-  // 6. Plan / Manejo
-  parsed.diagnosticAndTherapeuticPlan = sectionExtract(
-    ['PLAN DIAGNÓSTICO Y TERAPÉUTICO', 'PLAN TERAPÉUTICO', 'PLAN', 'CONDUCTA Y PLAN', 'MANEJO', 'ÓRDENES MÉDICAS'],
-    ['FIRMA', 'MÉDICO TRATANTE', 'DR.', 'DRA.']
-  );
-
-  return parsed;
+    })),
+    clinicalImpression: note.diagnoses.length ? note.diagnoses.map((d, i) => `${i + 1}. ${d}`).join('\n') : undefined,
+    diagnosticAndTherapeuticPlan: note.plan,
+    confidence,
+    warnings: [...extraWarnings, ...note.warnings],
+    sectionsFound: note.sectionsFound
+  };
 }
 
 /**
- * Merges selected fields from parsed draft into target Patient object
+ * Distribuye el texto de una nota por acápites.
+ * REGLA: nunca inventa; lo que no está en el texto queda vacío.
  */
-export function applyParsedHistoryToPatient(
-  patient: Patient, 
-  parsed: ParsedHistoryData, 
-  selectedFields: Record<string, boolean>
-): Patient {
+export function parseClinicalText(text: string, fileName: string = 'documento.txt', method?: string, extraWarnings: string[] = []): ParsedHistoryData {
+  return noteToHistoryData(parseClinicalNote(text), text, fileName, method, extraWarnings);
+}
+
+/** ¿El nombre del documento corresponde al paciente abierto? (evita importar la nota de otro paciente) */
+export function nameMatchesPatient(docName?: string, patientName?: string): boolean {
+  if (!docName || !patientName) return true;
+  const tokens = (s: string) =>
+    fold(s)
+      .replace(/[^A-Z\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !['DEL', 'LAS', 'LOS'].includes(w));
+  const a = new Set(tokens(docName));
+  const b = tokens(patientName);
+  if (!a.size || !b.length) return true;
+  const common = b.filter((w) => a.has(w)).length;
+  return common >= Math.min(2, Math.min(a.size, b.length));
+}
+
+const hasText = (s?: string) => typeof s === 'string' && s.trim().length > 0;
+
+/**
+ * Aplica al paciente SOLO los campos marcados por el médico.
+ * - No borra datos: un campo vacío del documento no reemplaza uno existente.
+ * - Diagnósticos: se agregan los nuevos sin duplicar los que ya existen.
+ * - Alergias: "NEGADAS" no se registra como alergia.
+ */
+export function applyParsedHistoryToPatient(patient: Patient, parsed: ParsedHistoryData, selectedFields: Record<string, boolean>): Patient {
   const updated: Patient = JSON.parse(JSON.stringify(patient));
+  const on = (k: string) => Boolean(selectedFields[k]);
+  const P = parsed.patientInfo || {};
 
-  // Demographics
-  if (selectedFields['patientInfo.fullName'] && parsed.patientInfo?.fullName) {
-    updated.fullName = parsed.patientInfo.fullName;
-  }
-  if (selectedFields['patientInfo.age'] && parsed.patientInfo?.age) {
-    updated.age = parsed.patientInfo.age;
-  }
-  if (selectedFields['patientInfo.sex'] && parsed.patientInfo?.sex) {
-    updated.sex = parsed.patientInfo.sex;
-  }
-  if (selectedFields['patientInfo.idDocument'] && parsed.patientInfo?.idDocument) {
-    updated.idDocument = parsed.patientInfo.idDocument;
-  }
-  if (selectedFields['patientInfo.medicalRecordNumber'] && parsed.patientInfo?.medicalRecordNumber) {
-    updated.medicalRecordNumber = parsed.patientInfo.medicalRecordNumber;
-  }
+  if (on('patientInfo.fullName') && hasText(P.fullName)) updated.fullName = P.fullName!.trim();
+  if (on('patientInfo.age') && typeof P.age === 'number' && P.age >= 0 && P.age <= 120) updated.age = P.age;
+  if (on('patientInfo.sex') && P.sex) updated.sex = P.sex as any;
+  if (on('patientInfo.idDocument') && hasText(P.idDocument)) (updated as any).idDocument = P.idDocument!.trim();
+  if (on('patientInfo.medicalRecordNumber') && hasText(P.medicalRecordNumber)) (updated as any).medicalRecordNumber = P.medicalRecordNumber!.trim();
+  if (on('patientInfo.cubicle') && hasText(P.cubicle)) updated.cubicle = P.cubicle!.trim();
 
-  // Clinical History
+  const blankExam = { general: '', abdominal: '', skin: '', neurological: '' };
   if (!updated.clinicalHistory) {
     updated.clinicalHistory = {
       reasonForConsultation: '',
@@ -356,118 +246,123 @@ export function applyParsedHistoryToPatient(
       familyHistory: '',
       obGynHistory: '',
       systemsReview: '',
-      physicalExam: {
-        general: '',
-        cardiovascular: '',
-        respiratory: '',
-        abdominal: '',
-        neurological: '',
-        extremities: '',
-        skin: '',
-        otherFindings: ''
-      },
+      physicalExam: { ...blankExam },
       clinicalImpression: '',
       diagnosticAndTherapeuticPlan: ''
-    };
+    } as any;
+  }
+  const ch: any = updated.clinicalHistory;
+  if (!ch.physicalExam) ch.physicalExam = { ...blankExam };
+
+  const textFields: Array<[string, string]> = [
+    ['reasonForConsultation', 'reasonForConsultation'],
+    ['currentIllnessHistory', 'currentIllnessHistory'],
+    ['pathologicalHistory', 'pathologicalHistory'],
+    ['surgicalHistory', 'surgicalHistory'],
+    ['allergicHistory', 'allergicHistory'],
+    ['habitualMedications', 'habitualMedications'],
+    ['toxicHabits', 'toxicHabits'],
+    ['familyHistory', 'familyHistory'],
+    ['obGynHistory', 'obGynHistory'],
+    ['transfusionalHistory', 'transfusionalHistory'],
+    ['systemsReview', 'systemsReview'],
+    ['diagnosticAndTherapeuticPlan', 'diagnosticAndTherapeuticPlan']
+  ];
+  for (const [src, dst] of textFields) {
+    const v = (parsed as any)[src];
+    if (on(src) && hasText(v)) ch[dst] = v.trim();
+  }
+  if (on('reasonForConsultation') && hasText(parsed.reasonForConsultation) && !hasText(updated.chiefComplaint)) {
+    updated.chiefComplaint = parsed.reasonForConsultation!.trim();
   }
 
-  if (selectedFields['reasonForConsultation'] && parsed.reasonForConsultation) {
-    updated.clinicalHistory.reasonForConsultation = parsed.reasonForConsultation;
-    if (!updated.chiefComplaint) updated.chiefComplaint = parsed.reasonForConsultation;
-  }
-
-  if (selectedFields['currentIllnessHistory'] && parsed.currentIllnessHistory) {
-    updated.clinicalHistory.currentIllnessHistory = parsed.currentIllnessHistory;
-  }
-
-  if (selectedFields['pathologicalHistory'] && parsed.pathologicalHistory) {
-    updated.clinicalHistory.pathologicalHistory = parsed.pathologicalHistory;
-  }
-
-  if (selectedFields['surgicalHistory'] && parsed.surgicalHistory) {
-    updated.clinicalHistory.surgicalHistory = parsed.surgicalHistory;
-  }
-
-  if (selectedFields['allergicHistory'] && parsed.allergicHistory) {
-    updated.clinicalHistory.allergicHistory = parsed.allergicHistory;
-    // Add to allergies array if not already present
+  // Alergias: sólo sustancias reales
+  if (on('allergicHistory') && hasText(parsed.allergicHistory)) {
     if (!updated.vitals) updated.vitals = {};
-    if (!updated.vitals.allergies) updated.vitals.allergies = [];
-    const allergies = parsed.allergicHistory.split(/[,;\n]+/).map(a => a.trim()).filter(Boolean);
-    allergies.forEach(a => {
-      if (!updated.vitals?.allergies?.includes(a)) {
-        updated.vitals?.allergies?.push(a);
-      }
-    });
+    const current = (updated.vitals.allergies || []).filter((a) => !/^(NEGAD|NINGUN|NO\b|NIEGA)/.test(fold(String(a))));
+    const list = (parsed.allergyList && parsed.allergyList.length
+      ? parsed.allergyList
+      : parsed.allergiesNegated
+        ? []
+        : parsed.allergicHistory!.split(/[,;\n]+/)
+    )
+      .map((a) => a.trim())
+      .filter((a) => a.length > 1 && !/^(NEGAD|NINGUN|NO\b|NIEGA)/.test(fold(a)));
+    for (const a of list) if (!current.some((c) => fold(String(c)) === fold(a))) current.push(a);
+    updated.vitals.allergies = current;
   }
 
-  if (selectedFields['habitualMedications'] && parsed.habitualMedications) {
-    updated.clinicalHistory.habitualMedications = parsed.habitualMedications;
-  }
-
-  if (selectedFields['toxicHabits'] && parsed.toxicHabits) {
-    updated.clinicalHistory.toxicHabits = parsed.toxicHabits;
-  }
-
-  if (selectedFields['familyHistory'] && parsed.familyHistory) {
-    updated.clinicalHistory.familyHistory = parsed.familyHistory;
-  }
-
-  if (selectedFields['obGynHistory'] && parsed.obGynHistory) {
-    updated.clinicalHistory.obGynHistory = parsed.obGynHistory;
-  }
-
-  // Vitals
+  // Signos vitales
   if (!updated.vitals) updated.vitals = {};
-  if (selectedFields['vitals.systolicBP'] && parsed.vitals?.systolicBP) {
-    updated.vitals.systolicBP = parsed.vitals.systolicBP;
+  const vitalKeys: Array<keyof Vitals> = ['systolicBP', 'diastolicBP', 'heartRate', 'respiratoryRate', 'temperature', 'oxygenSaturation', 'bloodGlucose', 'glasgowTotal', 'weight', 'height'];
+  let vitalsApplied = false;
+  for (const k of vitalKeys) {
+    const v = (parsed.vitals as any)?.[k];
+    const key = k === 'diastolicBP' ? 'vitals.systolicBP' : `vitals.${k}`;
+    if (on(key) && typeof v === 'number' && Number.isFinite(v)) {
+      (updated.vitals as any)[k] = v;
+      vitalsApplied = true;
+    }
   }
-  if (selectedFields['vitals.diastolicBP'] && parsed.vitals?.diastolicBP) {
-    updated.vitals.diastolicBP = parsed.vitals.diastolicBP;
-  }
-  if (selectedFields['vitals.heartRate'] && parsed.vitals?.heartRate) {
-    updated.vitals.heartRate = parsed.vitals.heartRate;
-  }
-  if (selectedFields['vitals.respiratoryRate'] && parsed.vitals?.respiratoryRate) {
-    updated.vitals.respiratoryRate = parsed.vitals.respiratoryRate;
-  }
-  if (selectedFields['vitals.temperature'] && parsed.vitals?.temperature) {
-    updated.vitals.temperature = parsed.vitals.temperature;
-  }
-  if (selectedFields['vitals.oxygenSaturation'] && parsed.vitals?.oxygenSaturation) {
-    updated.vitals.oxygenSaturation = parsed.vitals.oxygenSaturation;
-  }
-  if (selectedFields['vitals.bloodGlucose'] && parsed.vitals?.bloodGlucose) {
-    updated.vitals.bloodGlucose = parsed.vitals.bloodGlucose;
-  }
-  if (selectedFields['vitals.glasgowTotal'] && parsed.vitals?.glasgowTotal) {
-    updated.vitals.glasgowTotal = parsed.vitals.glasgowTotal;
-  }
-
-  // Physical Exam
-  if (parsed.physicalExam) {
-    Object.entries(parsed.physicalExam).forEach(([k, v]) => {
-      if (selectedFields[`physicalExam.${k}`] && v) {
-        (updated.clinicalHistory!.physicalExam as any)[k] = v;
-      }
-    });
-  }
-
-  // Diagnoses
-  if (selectedFields['diagnosesList'] && parsed.diagnosesList && parsed.diagnosesList.length > 0) {
-    updated.diagnosesList = parsed.diagnosesList;
-    if (parsed.clinicalImpression) {
-      updated.clinicalHistory.clinicalImpression = parsed.clinicalImpression;
+  if (vitalsApplied) {
+    const V = updated.vitals;
+    V.timestamp = new Date().toISOString();
+    V.recordedBy = 'Importado de documento';
+    if (V.systolicBP && V.diastolicBP) V.map = Math.round((V.systolicBP + 2 * V.diastolicBP) / 3);
+    if (V.weight && V.height) {
+      const m = V.height > 3 ? V.height / 100 : V.height;
+      if (m > 0.3) V.bmi = Math.round((V.weight / (m * m)) * 10) / 10;
     }
   }
 
-  // Plan
-  if (selectedFields['diagnosticAndTherapeuticPlan'] && parsed.diagnosticAndTherapeuticPlan) {
-    updated.clinicalHistory.diagnosticAndTherapeuticPlan = parsed.diagnosticAndTherapeuticPlan;
+  // Examen físico (16 acápites + campos de compatibilidad)
+  const ex = parsed.physicalExam || {};
+  const examMap: Array<[keyof NonNullable<ParsedHistoryData['physicalExam']>, string[]]> = [
+    ['general', ['general']],
+    ['head', ['head']],
+    ['eyes', ['eyes']],
+    ['ears', ['ears']],
+    ['nose', ['nose']],
+    ['mouth', ['mouth']],
+    ['neck', ['neck']],
+    ['thorax', ['thorax']],
+    ['lungs', ['lungs', 'respiratory']],
+    ['heart', ['heart', 'cardiovascular']],
+    ['abdominal', ['abdominal']],
+    ['genitals', ['genitals', 'genitourinary']],
+    ['skin', ['skin']],
+    ['upperExtremities', ['upperExtremities']],
+    ['lowerExtremities', ['lowerExtremities']],
+    ['extremities', ['extremities']],
+    ['neurological', ['neurological']],
+    ['rectalExam', ['rectalExam', 'genitourinaryRectal']]
+  ];
+  for (const [src, dsts] of examMap) {
+    const v = (ex as any)[src];
+    if (on(`physicalExam.${src}`) && hasText(v)) for (const d of dsts) ch.physicalExam[d] = v.trim();
+  }
+  // "Extremidades:" sin separar superiores/inferiores -> se refleja en ambos acápites
+  if (on('physicalExam.extremities') && hasText(ex.extremities)) {
+    if (!hasText(ex.upperExtremities) && !hasText(ch.physicalExam.upperExtremities)) ch.physicalExam.upperExtremities = ex.extremities!.trim();
+    if (!hasText(ex.lowerExtremities) && !hasText(ch.physicalExam.lowerExtremities)) ch.physicalExam.lowerExtremities = ex.extremities!.trim();
   }
 
-  // Record Source Document
+  // Diagnósticos: agregar sin duplicar
+  if (on('diagnosesList') && parsed.diagnosesList && parsed.diagnosesList.length) {
+    const existing: StructuredDiagnosis[] = Array.isArray(updated.diagnosesList) ? updated.diagnosesList : [];
+    const names = new Set(existing.map((d) => fold(d.name).trim()));
+    const toAdd = parsed.diagnosesList
+      .filter((d) => hasText(d.name) && !names.has(fold(d.name).trim()))
+      .map((d, i) => ({ ...d, type: existing.length || i > 0 ? 'Secundario' : 'Primario', orderIndex: existing.length + i } as StructuredDiagnosis));
+    updated.diagnosesList = [...existing, ...toAdd];
+    if (!hasText(ch.clinicalImpression) || !existing.length) {
+      ch.clinicalImpression = updated.diagnosesList.map((d, i) => `${i + 1}. ${d.name}`).join('\n');
+    }
+  }
+
+  // Documento fuente (trazabilidad)
   if (!updated.sourceDocuments) updated.sourceDocuments = [];
+  const applied = Object.keys(selectedFields).filter((k) => selectedFields[k]);
   updated.sourceDocuments.push({
     id: `src-doc-${Date.now()}`,
     patientId: updated.id,
@@ -477,8 +372,8 @@ export function applyParsedHistoryToPatient(
     uploadedAt: new Date().toISOString(),
     uploadedBy: 'Médico Tratante',
     rawText: parsed.rawText,
-    parsedSummary: `Campos importados: ${Object.keys(selectedFields).filter(k => selectedFields[k]).join(', ')}`
-  });
+    parsedSummary: `Campos importados (${applied.length}): ${applied.join(', ')}${parsed.labsText ? ` | Paraclínicos en el documento: ${parsed.labsText}` : ''}`
+  } as any);
 
   updated.updatedAt = new Date().toISOString();
   return updated;

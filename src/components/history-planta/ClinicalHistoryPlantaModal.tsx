@@ -1676,6 +1676,7 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
           onClose={() => setShowIntelligentImport(false)}
           patient={patient}
           admissionId={admissionId}
+          existingHistory={history}
           onApplyImportedHistory={(imported) => {
             setHistory(imported);
             triggerAutosave(imported);

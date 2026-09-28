@@ -21,6 +21,7 @@ import {
   ParsedPlantaImportResult, 
   ConfidenceLevel 
 } from '../../services/historyPlantaImportEngine';
+import { CLINICAL_FILE_ACCEPT } from '../../services/clinicalImport/fileText';
 
 interface IntelligentPlantaImportModalProps {
   isOpen: boolean;
@@ -29,6 +30,8 @@ interface IntelligentPlantaImportModalProps {
   admissionId?: string;
   onApplyImportedHistory: (history: ClinicalHistoryPlanta) => void;
   onCreateBlankHistory: () => void;
+  /** Historia de planta actual: la importación se superpone sobre ella sin borrarla */
+  existingHistory?: ClinicalHistoryPlanta | null;
 }
 
 type Step = 'SELECT_MODE' | 'UPLOAD' | 'EXTRACTING' | 'PREVIEW';
@@ -102,6 +105,7 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
   admissionId,
   onApplyImportedHistory,
   onCreateBlankHistory,
+  existingHistory,
 }) => {
   const [step, setStep] = useState<Step>('SELECT_MODE');
   const [sourceType, setSourceType] = useState<'EMERGENCIA' | 'HISTORIA_ANTERIOR' | 'DOCUMENTO_EXTERNO'>('HISTORIA_ANTERIOR');
@@ -137,7 +141,8 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
           `Nota de Emergencia - ${patient.fullName}`,
           'txt',
           'EMERGENCIA',
-          admissionId
+          admissionId,
+          existingHistory
         );
         setImportResult(result);
         setEditableHistory(JSON.parse(JSON.stringify(result.extractedHistory)));
@@ -174,10 +179,10 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
 
       if (selectedFile) {
         setProgressStatus(`Extrayendo texto y datos desde ${selectedFile.name}...`);
-        result = await historyPlantaImportEngine.processFile(selectedFile, patient, sourceType, admissionId);
+        result = await historyPlantaImportEngine.processFile(selectedFile, patient, sourceType, admissionId, existingHistory);
       } else if (pastedText.trim().length > 10) {
         setProgressStatus('Normalizando acápites y aplicando reglas anti-alucinación...');
-        result = historyPlantaImportEngine.processRawText(pastedText, patient, 'Texto Clínico Pegado', 'txt', sourceType, admissionId);
+        result = historyPlantaImportEngine.processRawText(pastedText, patient, 'Texto Clínico Pegado', 'txt', sourceType, admissionId, existingHistory);
       } else {
         alert('Por favor seleccione un archivo válido o pegue el texto clínico.');
         setStep('UPLOAD');
@@ -185,8 +190,6 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
         return;
       }
 
-      setProgressStatus('Verificando niveles de confianza y asignando campos no documentados...');
-      await new Promise(r => setTimeout(r, 600));
 
       setImportResult(result);
       setEditableHistory(JSON.parse(JSON.stringify(result.extractedHistory)));
@@ -358,7 +361,7 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png"
+                  accept={CLINICAL_FILE_ACCEPT}
                   className="hidden"
                 />
                 <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-sm">
@@ -448,6 +451,14 @@ export const IntelligentPlantaImportModal: React.FC<IntelligentPlantaImportModal
                   </span>
                 </div>
               </div>
+
+              {importResult.warnings && importResult.warnings.length > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs space-y-1">
+                  {importResult.warnings.map((w, i) => (
+                    <p key={i}>⚠️ {w}</p>
+                  ))}
+                </div>
+              )}
 
               {/* Lista editable de acápites */}
               <div className="space-y-4">

@@ -893,6 +893,48 @@ app.get('/api/gemini/models', async (req, res) => {
   }
 });
 
+// Generación general con Gemini (texto e imágenes: transcripción de notas, fotos, PDF escaneados…)
+// Requiere sesión. La clave de Gemini sólo vive en el servidor.
+app.post('/api/gemini/generate', async (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(503).json({ success: false, error: 'La inteligencia artificial no está configurada en el servidor.' });
+  const who = req.auth?.user?.id || 'relay';
+  if (!checkRateLimit(`gemini:${who}`, 30, 60 * 1000)) {
+    return res.status(429).json({ success: false, error: 'Demasiadas solicitudes a la IA. Espere un minuto.' });
+  }
+  const { prompt, contents, systemInstruction, generationConfig, model } = req.body || {};
+  const normContents = Array.isArray(contents) && contents.length
+    ? contents.map((c) => ({ role: c.role || 'user', parts: Array.isArray(c.parts) ? c.parts : [{ text: String(c.text || '') }] }))
+    : [{ role: 'user', parts: [{ text: String(prompt || '') }] }];
+  if (!normContents[0].parts.length || (normContents[0].parts.length === 1 && !normContents[0].parts[0].text && !normContents[0].parts[0].inlineData)) {
+    return res.status(400).json({ success: false, error: 'La solicitud está vacía.' });
+  }
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    let candidates = [];
+    try {
+      candidates = await fetchCompatibleModels(apiKey);
+    } catch {}
+    const first = model && (!candidates.length || candidates.includes(model)) ? model : selectBestModel(candidates);
+    const order = [first, ...candidates.filter((m) => m !== first && /flash/i.test(m)).slice(0, 2)].filter(Boolean);
+    let lastErr = null;
+    for (const name of order) {
+      try {
+        const m = genAI.getGenerativeModel({ model: name, ...(systemInstruction ? { systemInstruction } : {}) });
+        const result = await m.generateContent({ contents: normContents, ...(generationConfig ? { generationConfig } : {}) });
+        const response = await result.response;
+        return res.json({ success: true, text: response.text() || '', modelUsed: name });
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error('Sin modelos disponibles');
+  } catch (err) {
+    const translated = translateGeminiError(err);
+    return res.status(translated.status).json({ success: false, error: translated.message });
+  }
+});
+
 app.post('/api/gemini/test', async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(401).json({ success: false, message: 'API Key inválida o sin autorización.' });

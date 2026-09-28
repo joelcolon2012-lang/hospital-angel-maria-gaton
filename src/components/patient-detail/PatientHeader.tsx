@@ -248,8 +248,8 @@ export const PatientHeader: React.FC<Props> = ({
                         <History className="w-4 h-4 text-amber-700" />
                       </div>
                       <div>
-                        <div className="text-amber-950 font-bold">Cargar Historia Previa</div>
-                        <div className="text-[10px] text-amber-700 font-normal">Restaurar antecedentes e ingresos previos</div>
+                        <div className="text-amber-950 font-bold">Subir nota / historia clínica</div>
+                        <div className="text-[10px] text-amber-700 font-normal">Word, PDF, foto o texto: se distribuye por acápites</div>
                       </div>
                     </button>
                   )}
