@@ -465,7 +465,7 @@ export async function generateClinicalHistoryDocx(history: ClinicalHistoryPlanta
           <w:sz w:val="20"/>
           <w:szCs w:val="20"/>
         </w:rPr>
-        <w:t xml:space="preserve">${escapeXml(activeDoc.exequatur)} &bull; ${escapeXml(activeDoc.specialty || 'MEDICINA INTERNA')}</w:t>
+        <w:t xml:space="preserve">${escapeXml(activeDoc.specialty || 'MEDICINA INTERNA')}</w:t>
       </w:r>
     </w:p>
   `;

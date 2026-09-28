@@ -16,6 +16,7 @@ import { Patient, MedicalOrder, LabResult, MedicalStudy } from '../types';
 import { ClinicalDeduplicationEngine } from './clinicalDeduplicationEngine';
 import { extractScalesAndDiagnoses } from './hospitalNoteGenerator';
 import { FALLBACK_TEMPLATES, base64ToArrayBuffer } from './templatesFallback';
+import { authService } from './authService';
 
 export type OfficialDocKind = 'emergencia' | 'sala' | 'orden' | 'combinada';
 
@@ -27,6 +28,8 @@ export interface NoteModel {
   intro: string;
   diagnoses: string[];
   bodyAfter: string[];
+  /** Nombre del médico (usuario en sesión) que se imprime al final. Sin exequátur. */
+  signature?: string;
 }
 
 export interface OrderModel {
@@ -239,21 +242,72 @@ function narrativeAntecedents(p: Patient): string {
   return bits.join(', ');
 }
 
+const PANEL_RANK = ['Hemograma', 'Química', 'Función Renal', 'Función Hepática', 'Electrolitos', 'Gases Arteriales', 'Marcadores Cardiacos', 'Coagulación', 'Orina', 'Cultivos', 'Otros'];
+
+function labTime(l: LabResult): number {
+  const d = parseLocalDateTime(l.timestamp);
+  return d ? d.getTime() : 0;
+}
+
+/**
+ * Paraclínicos para la nota: todos los registrados, agrupados por panel. Si un parámetro
+ * tiene varios resultados se muestran en orden cronológico ("0.02 → 0.15").
+ */
 function labsSentence(labs: LabResult[], intro: string): string {
-  if (!labs.length) return '';
-  const valid = labs.filter((l) => String(l.parameter || '').trim() && String(l.value ?? '').trim());
+  const valid = (labs || []).filter((l) => String(l.parameter || '').trim() && String(l.value ?? '').trim());
   if (!valid.length) return '';
   const dedup = ClinicalDeduplicationEngine.deduplicateParaclinicals(valid as any) as LabResult[];
-  const items = dedup.map((l) => clean(`${up(l.parameter)}: ${l.value}${l.unit ? ' ' + up(l.unit) : ''}`));
+  const groups = new Map<string, { panel: string; name: string; unit: string; values: Array<{ v: string; t: number }> }>();
+  for (const l of dedup) {
+    const key = `${up(l.panel)}|${up(l.parameter)}`;
+    const g = groups.get(key) || { panel: String(l.panel || 'Otros'), name: up(l.parameter), unit: up(l.unit), values: [] };
+    g.values.push({ v: String(l.value).trim(), t: labTime(l) });
+    groups.set(key, g);
+  }
+  const rank = (p: string) => {
+    const i = PANEL_RANK.indexOf(p);
+    return i < 0 ? 99 : i;
+  };
+  const items = Array.from(groups.values())
+    .sort((a, b) => rank(a.panel) - rank(b.panel))
+    .map((g) => {
+      const vals = g.values.sort((x, y) => x.t - y.t).map((x) => x.v);
+      const uniq = vals.filter((v, i) => i === 0 || v !== vals[i - 1]);
+      return clean(`${g.name}: ${uniq.join(' → ')}${g.unit ? ' ' + g.unit : ''}`);
+    });
   return `${intro} ${items.join(', ')}.`;
 }
 
-function studiesSentence(studies: MedicalStudy[]): string {
-  const real = studies.filter((s) => (s.officialResult || s.preliminaryInterpretation || s.description || '').trim());
+/** Descripción de los estudios de imagen (resultado oficial, o hallazgos, o descripción). */
+function studiesSentence(studies: MedicalStudy[], intro = 'EN CUANTO A LOS ESTUDIOS DE IMAGEN:'): string {
+  const real = (studies || []).filter((s) => (s.officialResult || s.preliminaryInterpretation || s.description || '').trim());
   if (!real.length) return '';
-  return real
-    .map((s) => `${up(s.title || s.category)}: ${up(s.officialResult || s.preliminaryInterpretation || s.description).replace(/\.+$/, '')}.`)
-    .join(' ');
+  const items = real.map((s) => {
+    const name = up(s.title || s.category);
+    const txt = up(s.officialResult || s.preliminaryInterpretation || s.description).replace(/\.+$/, '');
+    return name ? `${name}: ${txt}` : txt;
+  });
+  return clean(`${intro} ${items.join('. ')}.`);
+}
+
+/** Nombre del médico en sesión para el pie de la nota (sin exequátur). */
+export function currentDoctorName(): string {
+  try {
+    const n = String(authService.getActiveDoctorSignature().name || '').trim();
+    return n ? n.toUpperCase() : '';
+  } catch {
+    return '';
+  }
+}
+
+/** Discusión terapéutica escrita por el médico (cuadro de diálogo). */
+function discussionParagraphs(p: Patient): string[] {
+  const t = String((p as any).therapeuticDiscussion || '').trim();
+  if (!t) return [];
+  return t
+    .split(/\n\s*\n/)
+    .map((x) => clean(up(x)))
+    .filter(Boolean);
 }
 
 function managementSentence(orders: MedicalOrder[], prefix: string): string {
@@ -289,19 +343,22 @@ export function buildEmergencyNoteModel(p: Patient, orders: MedicalOrder[] = [],
   let examPara = `ACTUALMENTE PACIENTE ${status || 'EN EVALUACIÓN'}${vit ? `, MANEJANDO UNOS SIGNOS VITALES: ${vit}.` : '.'}`;
   if (exam) examPara += ` EN CUANTO AL EXAMEN FÍSICO: ${exam}`;
   if (scales.length) examPara += ` ESCALAS: ${scales.join(', ')}.`;
-  const st = studiesSentence(studies);
-  if (st) examPara += ` ${st}`;
+  const finals: string[] = [];
   const lb = labsSentence(labs, 'LA MISMA CUENTA CON UNAS PARACLÍNICAS QUE REPORTAN:');
-  if (lb) examPara += ` ${lb}`;
+  if (lb) finals.push(lb);
+  const st = studiesSentence(studies);
+  if (st) finals.push(st);
 
   return {
     kind: 'emergencia',
     title: 'NOTA DE INGRESO EMERGENCIA',
     header,
-    bodyBefore: [clean(hea), clean(examPara)],
+    bodyBefore: [clean(hea), clean(examPara), ...(finals.length ? [clean(finals.join(' '))] : [])],
     intro: diagnoses.length ? 'POR LO QUE SE DEJA CON DIAGNOSTICOS DE:' : '',
     diagnoses,
-    bodyAfter: [managementSentence(orders, 'EN CUANTO AL MANEJO: EN NUESTRO PACIENTE')]
+    // Después de los diagnósticos solo va la discusión terapéutica que escriba el médico
+    bodyAfter: discussionParagraphs(p),
+    signature: currentDoctorName()
   };
 }
 
@@ -325,20 +382,23 @@ export function buildWardNoteModel(
   body += ` AL MOMENTO DEL RECIBIMIENTO SE ENCUENTRA ${status || 'EN EVALUACIÓN'}${vit ? `. SIGNOS VITALES: ${vit}.` : '.'}`;
   if (exam) body += ` EXAMEN FÍSICO: ${exam}`;
   if (scales.length) body += ` ESCALAS: ${scales.join(', ')}.`;
-  const st = studiesSentence(studies);
-  if (st) body += ` ${st}`;
+  const finals: string[] = [];
   const lb = labsSentence(labs, 'LA MISMA CUENTA CON UNAS ANALÍTICAS QUE REPORTAN:');
-  if (lb) body += ` ${lb}`;
-  if (diagnoses.length) body += ' POR LO QUE LA MISMA CUENTA CON LOS SIGUIENTES DIAGNÓSTICOS:';
+  if (lb) finals.push(lb);
+  const st = studiesSentence(studies);
+  if (st) finals.push(st);
+  const paragraphs = [clean(body), ...(finals.length ? [clean(finals.join(' '))] : [])];
+  if (diagnoses.length) paragraphs[paragraphs.length - 1] += ' POR LO QUE LA MISMA CUENTA CON LOS SIGUIENTES DIAGNÓSTICOS:';
 
   return {
     kind: 'sala',
     title: 'NOTA DE RECIBIMIENTO EN SALA',
     header,
-    bodyBefore: [clean(body)],
+    bodyBefore: paragraphs,
     intro: '',
     diagnoses,
-    bodyAfter: [managementSentence(orders, 'PLAN: CONTINUAR MANEJO EN SALA POR MEDICINA INTERNA.').replace('MEDICINA INTERNA. SEGÚN', 'MEDICINA INTERNA SEGÚN')]
+    bodyAfter: [managementSentence(orders, 'PLAN: CONTINUAR MANEJO EN SALA POR MEDICINA INTERNA.').replace('MEDICINA INTERNA. SEGÚN', 'MEDICINA INTERNA SEGÚN')],
+    signature: currentDoctorName()
   };
 }
 
@@ -521,7 +581,8 @@ function parseNote(text: string, fallbackKind: 'emergencia' | 'sala'): NoteModel
     bodyBefore: before,
     intro,
     diagnoses,
-    bodyAfter: after
+    bodyAfter: after,
+    signature: currentDoctorName()
   };
 }
 
@@ -625,6 +686,7 @@ function markerData(parts: OfficialPart[]): Record<string, string | string[]> {
       data.S_BODY = [...part.bodyBefore, ...(part.intro ? [part.intro] : [])];
       data.S_ITEM = part.diagnoses;
       data.S_AFTER = part.bodyAfter;
+      data.S_SIGN = part.signature || '';
     } else {
       data.E_TITLE = part.title;
       data.E_HEADER = part.header;
@@ -632,6 +694,7 @@ function markerData(parts: OfficialPart[]): Record<string, string | string[]> {
       data.E_INTRO = part.intro;
       data.E_ITEM = part.diagnoses;
       data.E_AFTER = part.bodyAfter;
+      data.E_SIGN = part.signature || '';
     }
   }
   return data;
@@ -684,6 +747,20 @@ function richRuns(paragraph: string, marker: string, text: string): string {
   return paragraph.replace(token, escapeXml(text));
 }
 
+/** Párrafos centrados de firma (línea + nombre) con el mismo tipo de letra del párrafo modelo. */
+function signatureParagraphs(model: string, marker: string, name: string): string[] {
+  const center = (xml: string, before: number) => {
+    let x = xml.replace(/<w:numPr>[\s\S]*?<\/w:numPr>/g, '').replace(/<w:ind\b[^>]*\/>/g, '');
+    x = /<w:jc\b[^>]*\/>/.test(x) ? x.replace(/<w:jc\b[^>]*\/>/, '<w:jc w:val="center"/>') : /<w:pPr>/.test(x) ? x.replace('<w:pPr>', '<w:pPr><w:jc w:val="center"/>') : x.replace(/<w:p\b([^>]*)>/, '<w:p$1><w:pPr><w:jc w:val="center"/></w:pPr>');
+    x = x.replace(/<w:spacing\b[^>]*\/>/, '');
+    x = x.replace(/<w:pPr>/, `<w:pPr><w:spacing w:before="${before}" w:after="0"/>`);
+    return x;
+  };
+  const token = `[[${marker}]]`;
+  const bold = (xml: string) => xml.replace(/<w:rPr>(?![\s\S]*?<w:b\/>)/, '<w:rPr><w:b/><w:bCs/>');
+  return [center(model.replace(token, '_______________________________'), 720), bold(center(model.replace(token, escapeXml(name)), 0))];
+}
+
 /** Rellena el document.xml: cada párrafo modelo se repite/omite según los datos. */
 export function fillTemplateXml(xml: string, data: Record<string, string | string[]>): string {
   const bodyMatch = xml.match(/<w:body>([\s\S]*)<\/w:body>/);
@@ -702,6 +779,10 @@ export function fillTemplateXml(xml: string, data: Record<string, string | strin
     for (const text of arr) {
       out.push(LABEL_BOLD[m[1]] ? richRuns(it, m[1], text) : it.replace(`[[${m[1]}]]`, escapeXml(text)));
     }
+    // Firma: nombre del médico al final de la nota (sin exequátur)
+    const signKey = m[1] === 'E_AFTER' ? 'E_SIGN' : m[1] === 'S_AFTER' ? 'S_SIGN' : '';
+    const sign = signKey ? String(data[signKey] || '').trim() : '';
+    if (sign) out.push(...signatureParagraphs(it, m[1], sign));
   }
   return xml.replace(/<w:body>[\s\S]*<\/w:body>/, `<w:body>${out.join('')}</w:body>`);
 }
@@ -775,6 +856,7 @@ export function renderPrintHtml(parts: OfficialPart[]): string {
         ${[...n.bodyBefore, ...(n.intro ? [n.intro] : [])].map((b) => `<p class="s-body">${esc(b)}</p>`).join('')}
         ${n.diagnoses.length ? `<ol class="s-dx">${n.diagnoses.map((d) => `<li>${esc(d)}</li>`).join('')}</ol>` : ''}
         ${n.bodyAfter.map((b) => `<p class="s-body">${esc(b)}</p>`).join('')}
+        ${n.signature ? `<div class="sig s-sig"><div class="sig-line"></div><p>${esc(n.signature)}</p></div>` : ''}
       </section>`;
     }
     return `<section class="pg emerg${brk}">
@@ -785,6 +867,7 @@ export function renderPrintHtml(parts: OfficialPart[]): string {
       ${n.intro ? `<p class="e-body e-intro">${esc(n.intro)}</p>` : ''}
       ${n.diagnoses.length ? `<ul class="e-dx">${n.diagnoses.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
       ${n.bodyAfter.map((b) => `<p class="e-body e-after">${esc(b)}</p>`).join('')}
+      ${n.signature ? `<div class="sig e-sig"><div class="sig-line"></div><p>${esc(n.signature)}</p></div>` : ''}
     </section>`;
   });
 
@@ -818,6 +901,12 @@ export function renderPrintHtml(parts: OfficialPart[]): string {
     .s-body { font-size: 8pt; text-align: justify; margin-bottom: 8pt; }
     .s-dx { font-size: 8pt; margin: 8pt 0; padding-left: 1.27cm; }
     .s-dx li { padding-left: 0.1cm; text-align: justify; }
+
+    .sig { margin-top: 36pt; text-align: center; break-inside: avoid; }
+    .sig-line { width: 6.5cm; border-top: 1px solid #000; margin: 0 auto 3pt; }
+    .sig p { font-weight: bold; }
+    .e-sig p { font-size: 9pt; }
+    .s-sig p { font-size: 8pt; }
 
     .orden { page: orden; font-family: 'Times New Roman', Times, serif; font-size: 9pt; }
     .o-logo { padding-left: 2.82cm; margin: 3.7pt 0 6pt; line-height: 0; }
@@ -1060,6 +1149,10 @@ export async function buildOfficialPdfBlob(parts: OfficialPart[]): Promise<Blob>
       [...part.bodyBefore, ...(part.intro ? [part.intro] : [])].forEach((b) => para(b, { size: 8, align: 'justify', after: 8, line: 1.08 }));
       part.diagnoses.forEach((d, i) => para(d, { size: 8, indent: 1.27 * CM, marker: `${i + 1}.`, line: 1.08, after: i === part.diagnoses.length - 1 ? 8 : 0 }));
       part.bodyAfter.forEach((b) => para(b, { size: 8, align: 'justify', after: 8, line: 1.08 }));
+      if (part.signature) {
+        para('_______________________________', { size: 8, align: 'center', before: 30 });
+        para(part.signature, { size: 8, bold: true, align: 'center' });
+      }
     } else {
       newPage(LAYOUTS.emergencia);
       await logo('emergencia', 5.82 * CM, 1.11 * CM, 'center', 5, 7.5);
@@ -1069,6 +1162,10 @@ export async function buildOfficialPdfBlob(parts: OfficialPart[]): Promise<Blob>
       if (part.intro) para(part.intro, { size: 9, align: 'justify', before: 14, after: 5, line: 1.083 });
       part.diagnoses.forEach((d) => para(d, { size: 9, indent: 1.27 * CM, marker: 'dot', after: 2.5 }));
       part.bodyAfter.forEach((b) => para(b, { size: 9, align: 'justify', before: 5, after: 6, line: 1.083 }));
+      if (part.signature) {
+        para('_______________________________', { size: 9, align: 'center', before: 30 });
+        para(part.signature, { size: 9, bold: true, align: 'center' });
+      }
     }
   }
   if (!doc) newPage(LAYOUTS.emergencia);

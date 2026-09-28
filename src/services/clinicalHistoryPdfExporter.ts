@@ -266,7 +266,7 @@ export function generateClinicalHistoryPdf(history: ClinicalHistoryPlanta): void
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(`${sig.exequatur.toUpperCase()} • ${sig.specialty.toUpperCase()} • HOSPITAL DR. ÁNGEL MARÍA GATÓN`, pageWidth / 2, y, { align: 'center' });
+  doc.text(`${sig.specialty.toUpperCase()} • HOSPITAL DR. ÁNGEL MARÍA GATÓN`, pageWidth / 2, y, { align: 'center' });
 
   // Numeración de páginas
   const totalPages = (doc.internal as any).getNumberOfPages();

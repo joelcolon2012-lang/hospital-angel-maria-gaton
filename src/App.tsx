@@ -1390,6 +1390,7 @@ export default function App() {
           labs={currentPatientLabs}
           orders={currentPatientOrders}
           evolutions={currentPatientEvolutions}
+          studies={currentPatientStudies}
         />
       )}
 
@@ -1446,6 +1447,12 @@ export default function App() {
           isOpen={isHospitalNotesOpen}
           onClose={() => setIsHospitalNotesOpen(false)}
           initialDocType={hospitalDocType}
+          onSaveTherapeuticDiscussion={async (text) => {
+            if (!activePatient) return;
+            await handleEditPatient({ therapeuticDiscussion: text }, [
+              { field: 'discusion_terapeutica', oldVal: activePatient.therapeuticDiscussion || '', newVal: text }
+            ]);
+          }}
           onSavePatientEvolution={async (text) => {
             if (activePatient) {
               await handleAddEvolution({

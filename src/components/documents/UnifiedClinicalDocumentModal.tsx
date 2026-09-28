@@ -20,7 +20,8 @@ import {
   Building2,
   Sliders,
   FileCheck,
-  Save
+  Save,
+  MessageSquareText
 } from 'lucide-react';
 import { Patient, MedicalOrder, LabResult, MedicalStudy, PatientEvolution } from '../../types';
 import { ClinicalDocumentBuilder, FinalDocumentAuditResult, ClinicalValidationReport, formatClinicalVitals } from '../../services/clinicalDocumentBuilder';
@@ -43,7 +44,8 @@ import {
 } from '../../services/pdfHospitalDocumentService';
 import { generateClinicalHistoryDocx } from '../../services/clinicalHistoryDocxExporter';
 import { printOfficialHospitalDocument } from '../../services/directPrintService';
-import { buildOfficialParts, serializeParts } from '../../services/officialDocuments';
+import { buildOfficialParts, serializeParts, parseOfficialText } from '../../services/officialDocuments';
+import { TherapeuticDiscussionDialog } from './TherapeuticDiscussionDialog';
 
 export type UnifiedDocType = 'emergencia' | 'sala' | 'orden' | 'combinada' | 'historia' | 'evolucion';
 
@@ -56,6 +58,8 @@ interface Props {
   studies: MedicalStudy[];
   evolutions?: PatientEvolution[];
   initialDocType?: UnifiedDocType;
+  /** Guarda la discusión terapéutica del paciente (cuadro de diálogo de la nota de ingreso) */
+  onSaveTherapeuticDiscussion?: (text: string) => Promise<void> | void;
   onSavePatientEvolution?: (evolutionText: string) => void;
 }
 
@@ -69,7 +73,14 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
   evolutions = [],
   initialDocType = 'emergencia',
   onSavePatientEvolution,
+  onSaveTherapeuticDiscussion,
 }) => {
+  const [isDiscussionOpen, setIsDiscussionOpen] = useState(false);
+  const [localDiscussion, setLocalDiscussion] = useState<string | null>(null);
+  const docPatient = useMemo(
+    () => (patient && localDiscussion !== null ? { ...patient, therapeuticDiscussion: localDiscussion } : patient),
+    [patient, localDiscussion]
+  );
   const [docType, setDocType] = useState<UnifiedDocType>(initialDocType);
   const [isEditing, setIsEditing] = useState(false);
   const [customText, setCustomText] = useState('');
@@ -99,17 +110,17 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
 
     switch (docType) {
       case 'emergencia':
-        return ClinicalDocumentBuilder.buildAdmissionNote(patient, orders, labs, studies, 'EMERGENCIA');
+        return ClinicalDocumentBuilder.buildAdmissionNote(docPatient, orders, labs, studies, 'EMERGENCIA');
 
       case 'sala':
-        return ClinicalDocumentBuilder.buildAdmissionNote(patient, orders, labs, studies, 'SALA');
+        return ClinicalDocumentBuilder.buildAdmissionNote(docPatient, orders, labs, studies, 'SALA');
 
       case 'orden':
         return ClinicalDocumentBuilder.buildMedicalOrder(patient, orders);
 
       case 'combinada':
         // Nota (emergencia o sala según el paciente) + salto de página + orden médica
-        return serializeParts(buildOfficialParts('combinada', patient, orders, labs, studies));
+        return serializeParts(buildOfficialParts('combinada', docPatient, orders, labs, studies));
 
       case 'historia': {
         const h = patient.clinicalHistory;
@@ -163,7 +174,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         txt += `                     NOTA DE EVOLUCIÓN MÉDICA\n\n`;
         txt += `NOMBRE: ${patient.fullName.toUpperCase()}   EDAD: ${patient.age || '--'} AÑOS   CUBÍCULO: ${patient.cubicle || '--'}\n`;
         txt += `FECHA: ${new Date().toLocaleDateString('es-ES')}   HORA: ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}\n`;
-        txt += `MÉDICO TRATANTE: DR. ${String(activeDoc.name || '').replace(/^\s*(DR|DRA)\.?\s+/i, '').toUpperCase()} (EXEQ. ${String(activeDoc.exequatur || '').replace(/^\s*EXEQ\.?:?\s*/i, '')})\n\n`;
+        txt += `MÉDICO TRATANTE: DR. ${String(activeDoc.name || '').replace(/^\s*(DR|DRA)\.?\s+/i, '').toUpperCase()}\n\n`;
 
         txt += `S (SUBJETIVO):\n`;
         txt += `${latestEvol?.clinicalChanges || 'PACIENTE SE ENCUENTRA EN SU CUBÍCULO/CAMA, REFIERE MEJORÍA CLÍNICA SINTOMÁTICA RESPECTO AL INGRESO. TOLERA VÍA ORAL Y NIEGA DISNEA O DOLOR PRECORDIAL EN EL MOMENTO.'}\n\n`;
@@ -185,7 +196,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         return txt;
       }
     }
-  }, [docType, patient, orders, labs, studies, evolutions]);
+  }, [docType, patient, orders, labs, studies, evolutions, docPatient]);
 
   // Sincronizar texto editable cuando cambia la selección de documento
   useEffect(() => {
@@ -198,6 +209,24 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const currentDisplayText = customText || generatedBaseText;
+
+  // Discusión terapéutica (se escribe fuera de la nota y va después de los diagnósticos)
+  const handleSaveDiscussion = async (text: string) => {
+    setLocalDiscussion(text);
+    if (customText.trim() && (docType === 'emergencia' || docType === 'combinada')) {
+      const parts = parseOfficialText(customText, docType, patient);
+      parts.forEach((pt: any) => {
+        if (pt.kind === 'emergencia') {
+          pt.bodyAfter = text
+            ? text.split(/\n\s*\n/).map((x) => x.replace(/\s+/g, ' ').trim().toUpperCase()).filter(Boolean)
+            : [];
+        }
+      });
+      setCustomText(serializeParts(parts));
+    }
+    if (onSaveTherapeuticDiscussion) await onSaveTherapeuticDiscussion(text);
+  };
+  const showDiscussionButton = docType === 'emergencia' || docType === 'combinada';
 
   // Acciones: Normalizar y Corregir
   const handleNormalizeAndClean = () => {
@@ -546,7 +575,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
                 DR. {String(activeDoc.name || '').replace(/^\s*(DR|DRA)\.?\s+/i, '')}
               </div>
               <div className="text-[11px] text-slate-600 font-medium">
-                EXEQ: {String(activeDoc.exequatur || '').replace(/^\s*EXEQ\.?:?\s*/i, '')} &bull; {activeDoc.specialty || 'MÉDICO INTERNISTA'}
+                {activeDoc.specialty || 'MÉDICO INTERNISTA'}
               </div>
               <div className="text-[10px] text-slate-400 mt-1">
                 Hospital Regional Dr. Ángel María Gatón &bull; Generado electrónicamente
@@ -560,7 +589,19 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         {/* Footer Actions Toolbar */}
         <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
           
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {showDiscussionButton && (
+              <button
+                type="button"
+                onClick={() => setIsDiscussionOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-black rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition active:scale-95 shadow-xs"
+                title="Escribir la discusión terapéutica que va después de los diagnósticos"
+                data-testid="open-discussion"
+              >
+                <MessageSquareText className="w-3.5 h-3.5 text-amber-700" />
+                <span>{(docPatient as any)?.therapeuticDiscussion ? 'Editar discusión terapéutica' : 'Discusión terapéutica'}</span>
+              </button>
+            )}
             {/* Botón Normalizar y Desduplicar */}
             <button
               type="button"
@@ -640,6 +681,12 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         </div>
 
       </div>
+      <TherapeuticDiscussionDialog
+        isOpen={isDiscussionOpen}
+        onClose={() => setIsDiscussionOpen(false)}
+        initialText={String((docPatient as any)?.therapeuticDiscussion || '')}
+        onSave={handleSaveDiscussion}
+      />
     </div>
   );
 };

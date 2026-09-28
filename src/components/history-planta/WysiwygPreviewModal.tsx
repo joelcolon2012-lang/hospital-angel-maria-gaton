@@ -286,7 +286,7 @@ export const WysiwygPreviewModal: React.FC<WysiwygPreviewModalProps> = ({
             <div className="text-center pt-8 border-t border-slate-200 mt-12">
               <div className="w-56 h-0.5 bg-slate-400 mx-auto mb-2"></div>
               <p className="text-xs font-bold text-slate-900 uppercase">{activeDoc.name}</p>
-              <p className="text-[11px] text-slate-500">{activeDoc.exequatur} &bull; {activeDoc.specialty || 'MEDICINA INTERNA'}</p>
+              <p className="text-[11px] text-slate-500">{activeDoc.specialty || 'MEDICINA INTERNA'}</p>
               <p className="text-[10px] text-slate-400 mt-0.5">HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN</p>
             </div>
 

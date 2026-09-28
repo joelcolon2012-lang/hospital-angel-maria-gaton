@@ -8,7 +8,8 @@ import {
   generateNotaIngresoPlantaText, 
   exportNotaIngresoPlantaDocx, 
   exportNotaIngresoPlantaPdf, 
-  saveNotaIngresoPlantaToPatient 
+  saveNotaIngresoPlantaToPatient,
+  loadPatientClinicalData
 } from '../../services/notaIngresoPlantaService';
 
 interface NotaIngresoPlantaModalProps {
@@ -34,13 +35,24 @@ export const NotaIngresoPlantaModal: React.FC<NotaIngresoPlantaModalProps> = ({
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
 
   // Inicializar o regenerar texto de la nota al abrir o cuando cambia la historia
+  const buildNote = async () => {
+    const data = await loadPatientClinicalData(patient.id).catch(() => ({ labs: [], studies: [], orders: [] }));
+    return generateNotaIngresoPlantaText(history, patient, data.labs, data.studies, data.orders);
+  };
+
   useEffect(() => {
+    let alive = true;
     if (isOpen && history) {
-      const generated = generateNotaIngresoPlantaText(history, patient);
-      setNoteContent(generated);
-      setIsCopied(false);
-      setSaveSuccess(false);
+      buildNote().then((generated) => {
+        if (!alive) return;
+        setNoteContent(generated);
+        setIsCopied(false);
+        setSaveSuccess(false);
+      });
     }
+    return () => {
+      alive = false;
+    };
   }, [isOpen, history, patient]);
 
   if (!isOpen) return null;
@@ -59,9 +71,10 @@ export const NotaIngresoPlantaModal: React.FC<NotaIngresoPlantaModalProps> = ({
   // Regenerar desde la historia clínica
   const handleRegenerate = () => {
     if (window.confirm('¿Desea regenerar el texto de la nota a partir de los datos actuales de la Historia Clínica? Se sobreescribirán los cambios manuales.')) {
-      const generated = generateNotaIngresoPlantaText(history, patient);
-      setNoteContent(generated);
-      setSaveSuccess(false);
+      buildNote().then((generated) => {
+        setNoteContent(generated);
+        setSaveSuccess(false);
+      });
     }
   };
 
@@ -91,7 +104,7 @@ export const NotaIngresoPlantaModal: React.FC<NotaIngresoPlantaModalProps> = ({
   const handleDownloadDocx = async () => {
     setIsExportingDocx(true);
     try {
-      await exportNotaIngresoPlantaDocx(history, noteContent);
+      await exportNotaIngresoPlantaDocx(history, noteContent, patient);
     } finally {
       setIsExportingDocx(false);
     }
@@ -101,7 +114,7 @@ export const NotaIngresoPlantaModal: React.FC<NotaIngresoPlantaModalProps> = ({
   const handleDownloadPdf = async () => {
     setIsExportingPdf(true);
     try {
-      await exportNotaIngresoPlantaPdf(history, noteContent);
+      await exportNotaIngresoPlantaPdf(history, noteContent, patient);
     } finally {
       setIsExportingPdf(false);
     }

@@ -546,6 +546,8 @@ export interface Patient {
   notesHistory?: ClinicalNoteRecord[];
   sourceDocuments?: SourceDocument[];
   generalMeasures?: string;
+  /** Discusión terapéutica escrita por el médico para la nota de ingreso (va después de los diagnósticos) */
+  therapeuticDiscussion?: string;
   requestedParaclinics?: string[];
   requestedImaging?: string[];
 }

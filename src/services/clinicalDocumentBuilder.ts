@@ -268,31 +268,16 @@ export function validateDownloadableClinicalNote(noteText: string, patient: Pati
     errors.push('Falta el apartado de diagnósticos clínicos en la nota.');
   }
 
-  // 8. Órdenes médicas / Plan de manejo
-  const hasOrders = upperNote.includes('EN CUANTO AL MANEJO') || 
-                    upperNote.includes('PLAN:') || 
-                    upperNote.includes('SE INDICA') || 
+  // 8. Plan: obligatorio solo en la nota de recibimiento en sala. La nota de ingreso de emergencia
+  //    termina en los diagnósticos, salvo la discusión terapéutica que el médico escriba aparte.
+  const isWard = /RECIBIMIENTO|TRASLADO A SALA/.test(upperNote);
+  const hasOrders = upperNote.includes('EN CUANTO AL MANEJO') ||
+                    upperNote.includes('PLAN:') ||
+                    upperNote.includes('SE INDICA') ||
                     upperNote.includes('ORDEN MEDICA') ||
                     upperNote.includes('CONDUCTA MÉDICA');
-  if (!hasOrders) {
-    errors.push('Falta el apartado de órdenes médicas o plan terapéutico en la nota.');
-  }
-
-  // 9. REGLA PRINCIPAL: Ausencia estricta de discusión terapéutica en el documento descargado
-  const forbiddenPhrases = [
-    'DISCUSIÓN TERAPÉUTICA',
-    'DISCUSION TERAPEUTICA',
-    'FARMACOTERAPÉUTICA RAZONADA',
-    'FARMACOTERAPEUTICA RAZONADA',
-    'DISCUSIÓN FARMACOLÓGICA',
-    'DISCUSION FARMACOLOGICA',
-    'DIRECTRICES Y JUSTIFICACIONES DE GUÍAS',
-    'JUSTIFICACIÓN BASADA EN EVIDENCIA'
-  ];
-  for (const phrase of forbiddenPhrases) {
-    if (upperNote.includes(phrase)) {
-      errors.push(`Violación de la regla principal: se detectó '${phrase}' en el documento descargable.`);
-    }
+  if (isWard && !hasOrders) {
+    errors.push('Falta el apartado de plan en la nota de recibimiento en sala.');
   }
 
   // Prohibir datos técnicos corruptos

@@ -404,7 +404,7 @@ export async function generateFinalDispositionDocx(
     newParagraphs.push(createDocxParagraphXml('', false, false, 160));
     newParagraphs.push(createDocxParagraphXml(`____________________________________`, true, true, 40));
     newParagraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • MÉDICO TRATANTE • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
+    newParagraphs.push(createDocxParagraphXml(`MÉDICO TRATANTE • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
 
     const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
     if (bodyMatch) {
@@ -494,7 +494,7 @@ export async function generateEvolutionDocx(
     newParagraphs.push(createDocxParagraphXml('', false, false, 120));
     newParagraphs.push(createDocxParagraphXml('____________________________________', true, true, 40));
     newParagraphs.push(createDocxParagraphXml(`${docName.toUpperCase()}`, true, true, 40));
-    newParagraphs.push(createDocxParagraphXml(`${exequatur.toUpperCase()} • MÉDICO TRATANTE • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
+    newParagraphs.push(createDocxParagraphXml(`MÉDICO TRATANTE • HOSPITAL REGIONAL DR. ÁNGEL MARÍA GATÓN`, false, true, 100));
 
     const bodyMatch = xml.match(/<w:body>([\s\S]*?)<\/w:body>/);
     if (bodyMatch) {

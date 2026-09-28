@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Patient, MedicalOrder, LabResult, PatientEvolution } from '../../types';
+import { Patient, MedicalOrder, LabResult, PatientEvolution, MedicalStudy } from '../../types';
 import { generatePatientPDF, DocumentSectionSelection } from '../../services/pdfGenerator';
 import { googleDriveService } from '../../services/googleDriveService';
 import { X, FileDown, Copy, Cloud, Check, Loader2, FileText, CheckCircle2, Download } from 'lucide-react';
@@ -13,6 +13,7 @@ interface Props {
   labs: LabResult[];
   orders: MedicalOrder[];
   evolutions: PatientEvolution[];
+  studies?: MedicalStudy[];
 }
 
 export const DocumentExporterModal: React.FC<Props> = ({
@@ -22,6 +23,7 @@ export const DocumentExporterModal: React.FC<Props> = ({
   labs,
   orders,
   evolutions,
+  studies = [],
 }) => {
   const [docType, setDocType] = useState('HISTORIA CLÍNICA DE EMERGENCIA');
   const [sections, setSections] = useState<DocumentSectionSelection>({
@@ -370,7 +372,7 @@ export const DocumentExporterModal: React.FC<Props> = ({
           patient={patient}
           orders={orders}
           labs={labs}
-          studies={[]}
+          studies={studies}
           evolutions={evolutions}
           initialDocType="emergencia"
         />
