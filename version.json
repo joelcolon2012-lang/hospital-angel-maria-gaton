@@ -1,8 +1,9 @@
 {
-  "version": "2.11.0",
-  "buildTime": 1790577886139,
-  "buildDate": "2026-09-28T06:44:46.139Z",
+  "version": "2.12.0",
+  "buildTime": 1790579117712,
+  "buildDate": "2026-09-28T07:05:17.712Z",
   "features": [
+    "Lectura de electrocardiogramas desde foto o PDF: doble análisis, alertas críticas e informe que confirma el médico",
     "Notas de ingreso y de sala con paraclínicos e imágenes; firma con el nombre del médico (sin exequátur)",
     "Discusión terapéutica escrita aparte (cuadro de diálogo) después de los diagnósticos",
     "Paraclínicos desde foto o PDF sin inventar valores: doble lectura y confirmación del médico",
