@@ -68,7 +68,7 @@ async function waitForServer() {
 }
 
 const server = spawn(process.execPath, ['server/index.js'], {
-  env: { ...process.env, PORT: String(PORT), HOSPITAL_DB_DIR: tmpDir },
+  env: { ...process.env, PORT: String(PORT), HOSPITAL_DB_DIR: tmpDir, MONGODB_URI: '', CLOUD_RELAY: 'off' },
   stdio: ['ignore', 'ignore', 'inherit']
 });
 

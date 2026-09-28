@@ -666,40 +666,8 @@ export async function seedDatabaseIfEmpty(db: any): Promise<void> {
         console.warn('[Seed] Error leyendo respaldo local:', e);
       }
 
-      // 2. Cargar base de datos maestra publicada del hospital (hospital_master_db.json)
-      try {
-        if (typeof window !== 'undefined') {
-          const baseUrl = (import.meta as any).env?.BASE_URL || './';
-          const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
-          if (res.ok) {
-            let text = await res.text();
-            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-            const json = JSON.parse(text);
-            const masterData = json.data || json;
-            if (masterData && Array.isArray(masterData.patients) && masterData.patients.length > 0) {
-              console.log('[Seed] Cargando expedientes reales desde hospital_master_db.json...', masterData.patients.length);
-              await db.patients.bulkPut(masterData.patients);
-              if (masterData.studies && masterData.studies.length > 0) await db.studies.bulkPut(masterData.studies);
-              if (masterData.labs && masterData.labs.length > 0) await db.labs.bulkPut(masterData.labs);
-              if (masterData.orders && masterData.orders.length > 0) await db.orders.bulkPut(masterData.orders);
-              if (masterData.evolutions && masterData.evolutions.length > 0) await db.evolutions.bulkPut(masterData.evolutions);
-              localStorage.setItem('hr_colon_patients_backup', JSON.stringify(masterData.patients));
-              return;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Seed] No se pudo cargar hospital_master_db.json base:', e);
-      }
-
-      // 3. Solo si no hay ningún archivo previo ni internet, sembrar casos modelo
-      console.log('Seeding initial clinical database with realistic emergency cases...');
-      await db.patients.bulkPut(SEED_PATIENTS);
-      await db.studies.bulkPut(SEED_STUDIES);
-      await db.labs.bulkPut(SEED_LABS);
-      await db.orders.bulkPut(SEED_ORDERS);
-      await db.evolutions.bulkPut(SEED_EVOLUTIONS);
-      console.log('Database successfully seeded.');
+      // Un dispositivo nuevo espera los datos del servidor autenticado.
+      // Nunca insertar casos ficticios ni leer expedientes desde una carpeta pública.
     }
     // Nota: se eliminó la "auto-reparación" que volvía a insertar un paciente fijo en cada
     // inicio; resucitaba expedientes archivados y sobrescribía cambios de otros dispositivos.

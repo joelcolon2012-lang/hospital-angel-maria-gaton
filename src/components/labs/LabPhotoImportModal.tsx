@@ -403,10 +403,15 @@ export const LabPhotoImportModal: React.FC<Props> = ({ isOpen, onClose, patientI
                     <span className="font-bold text-slate-700">Formato horizontal (solo lo marcado)</span>
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(horizontal()).catch(() => {});
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 1500);
+                      onClick={async () => {
+                        try {
+                          if (!navigator.clipboard) throw new Error('Portapapeles no disponible');
+                          await navigator.clipboard.writeText(horizontal());
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 1500);
+                        } catch {
+                          setError('No se pudo copiar. Seleccione el texto del resultado y cópielo manualmente.');
+                        }
                       }}
                       className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 font-bold"
                     >
@@ -472,7 +477,7 @@ export const LabPhotoImportModal: React.FC<Props> = ({ isOpen, onClose, patientI
       {bigPhoto && (
         <div className="fixed inset-0 z-[90] bg-black/90 flex flex-col" onClick={() => setBigPhoto(null)}>
           <div className="flex justify-end p-2">
-            <button type="button" className="text-white p-2" aria-label="Cerrar foto">
+            <button type="button" onClick={() => setBigPhoto(null)} className="text-white p-2" aria-label="Cerrar foto">
               <X size={22} />
             </button>
           </div>

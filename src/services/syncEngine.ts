@@ -538,8 +538,9 @@ class SyncEngine {
         this.connectedDevices = d.connectedDevices || this.connectedDevices;
         if (typeof d.seq === 'number' && d.seq > this.getSince()) this.schedulePull(50);
       } catch {}
-      if (this.state !== 'syncing') this.setState('connected');
-      else this.emit();
+      // A live event channel does not confirm durable storage of local changes.
+      this.emit();
+      this.schedulePull(50);
     });
     es.addEventListener('devices', (e: MessageEvent) => {
       try {
@@ -639,6 +640,7 @@ class SyncEngine {
   private async post(body: any): Promise<any> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25000);
+    const tokenAtRequest = authToken.get();
     try {
       const res = await fetch(`${this.backendUrl}/api/sync/v2`, {
         method: 'POST',
@@ -648,6 +650,11 @@ class SyncEngine {
         cache: 'no-store'
       });
       if (res.status === 401) {
+        if (authToken.get() !== tokenAtRequest) {
+          const stale: any = new Error('La sesión cambió durante la solicitud; reintentando.');
+          stale.sessionChanged = true;
+          throw stale;
+        }
         const e: any = new Error('Inicie sesión con su PIN para sincronizar');
         e.authRequired = true;
         throw e;
@@ -742,6 +749,10 @@ class SyncEngine {
       return true;
     } catch (err: any) {
       await this.refreshPendingCount();
+      if (err?.sessionChanged) {
+        this.rerun = true;
+        return false;
+      }
       if (err?.authRequired) {
         // Los cambios siguen guardados en este dispositivo; se envían al iniciar sesión.
         this.setState('error', 'Inicie sesión con su PIN para sincronizar (sus cambios están guardados en este dispositivo)');

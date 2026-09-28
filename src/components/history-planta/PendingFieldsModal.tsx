@@ -86,7 +86,7 @@ export const PendingFieldsModal: React.FC<PendingFieldsModalProps> = ({
                       }}
                     >
                       <span className="text-sm font-medium text-slate-700">{it.fieldName}</span>
-                      <button className="text-xs text-teal-600 font-semibold group-hover:text-teal-700 flex items-center gap-1">
+                      <button type="button" onClick={(e) => { e.stopPropagation(); onNavigateToSection(it.sectionId); onClose(); }} className="text-xs text-teal-600 font-semibold group-hover:text-teal-700 flex items-center gap-1">
                         Completar <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     </div>

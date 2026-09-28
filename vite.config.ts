@@ -12,6 +12,11 @@ function versionFilePlugin() {
     name: 'hospital-version-file',
     apply: 'build' as const,
     // Se escribe al final (después de copiar public/) para reemplazar cualquier version.json antiguo
+    buildStart() {
+      if (fs.existsSync(path.resolve(__dirname, 'public/hospital_master_db.json'))) {
+        throw new Error('No publicar expedientes clínicos en public/. Conserve el respaldo fuera del sitio.');
+      }
+    },
     closeBundle() {
       const outDir = path.resolve(__dirname, 'dist');
       if (!fs.existsSync(outDir)) return;
