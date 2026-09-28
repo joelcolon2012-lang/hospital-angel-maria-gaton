@@ -739,7 +739,7 @@ export const MedicalOrdersTab: React.FC<Props> = ({
               </span>
             )}
           </div>
-          <button type="button" className="text-slate-400 hover:text-slate-600">
+          <button type="button" aria-label="Mostrar u ocultar medidas generales" aria-expanded={isMeasuresSectionOpen} onClick={(e) => { e.stopPropagation(); setIsMeasuresSectionOpen(!isMeasuresSectionOpen); }} className="text-slate-400 hover:text-slate-600">
             {isMeasuresSectionOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
         </div>

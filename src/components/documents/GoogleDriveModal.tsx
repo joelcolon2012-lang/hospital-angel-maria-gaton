@@ -1,3 +1,4 @@
+import { cloudSyncService } from '../../services/cloudSyncService';
 import React, { useState } from 'react';
 import { googleDriveService } from '../../services/googleDriveService';
 import { db } from '../../db/dexieDb';
@@ -160,25 +161,8 @@ export const GoogleDriveModal: React.FC<Props> = ({
         }
 
         if (confirm(`Se restaurarán ${json.patients.length} pacientes. ¿Deseas continuar?`)) {
-          await db.patients.clear();
-          await db.patients.bulkAdd(json.patients);
-
-          if (json.studies) {
-            await db.studies.clear();
-            await db.studies.bulkAdd(json.studies);
-          }
-          if (json.labs) {
-            await db.labs.clear();
-            await db.labs.bulkAdd(json.labs);
-          }
-          if (json.orders) {
-            await db.orders.clear();
-            await db.orders.bulkAdd(json.orders);
-          }
-          if (json.evolutions) {
-            await db.evolutions.clear();
-            await db.evolutions.bulkAdd(json.evolutions);
-          }
+          await cloudSyncService.hydrateDexie(json);
+          await cloudSyncService.triggerPushSync();
 
           setStatusMessage({ text: 'Copia de seguridad restaurada exitosamente.', isError: false });
           if (onRefreshData) onRefreshData();

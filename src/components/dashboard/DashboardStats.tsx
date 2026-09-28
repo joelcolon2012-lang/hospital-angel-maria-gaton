@@ -20,15 +20,15 @@ export const DashboardStats: React.FC<Props> = ({
   const activeCount = activePatients.length;
   const emergencyCount = patients.filter((p) => !p.isArchived && !p.isDeleted && p.status === 'activos').length;
   const wardCount = patients.filter((p) => !p.isArchived && !p.isDeleted && p.status === 'ingresados').length;
-  const pendingCount = patients.filter((p) => !p.isArchived && !p.isDeleted && (p.status === 'pendientes' || p.status === 'observacion')).length;
+  const pendingCount = patients.filter((p) => !p.isArchived && !p.isDeleted && p.status === 'pendientes').length;
   const criticalCount = patients.filter((p) => !p.isArchived && !p.isDeleted && p.status !== 'alta' && p.triageLevel <= 2).length;
-  const dischargedTodayCount = patients.filter((p) => p.status === 'alta').length;
+  const dischargedTodayCount = patients.filter((p) => !p.isArchived && !p.isDeleted && p.status === 'alta').length;
 
   const cards = [
     {
       id: 'todos' as const,
-      label: 'Pacientes Activos',
-      value: activeCount,
+      label: 'Pacientes registrados',
+      value: patients.filter((p) => !p.isArchived && !p.isDeleted).length,
       icon: Users,
       color: 'text-slate-900',
       activeBorder: 'border-[#0F4C5C] bg-[#0F4C5C]/5',
@@ -51,7 +51,7 @@ export const DashboardStats: React.FC<Props> = ({
     },
     {
       id: 'pendientes' as const,
-      label: 'Pendientes / Observación',
+      label: 'Estudios pendientes',
       value: pendingCount,
       icon: Clock,
       color: 'text-amber-700',
@@ -67,7 +67,7 @@ export const DashboardStats: React.FC<Props> = ({
     },
     {
       id: 'alta' as const,
-      label: 'Altas del Día',
+      label: 'Altas',
       value: dischargedTodayCount,
       icon: CheckCircle2,
       color: 'text-emerald-700',
@@ -90,7 +90,7 @@ export const DashboardStats: React.FC<Props> = ({
             Hospital Regional Dr. Ángel María Gatón
           </h2>
           <p className="text-xs text-slate-500">
-            {activeCount} {activeCount === 1 ? 'paciente' : 'pacientes'} en seguimiento clínico hoy
+            {activeCount} {activeCount === 1 ? 'paciente' : 'pacientes'} en seguimiento clínico
           </p>
         </div>
 
@@ -104,7 +104,7 @@ export const DashboardStats: React.FC<Props> = ({
       </div>
 
       {/* Metric Cards Grid (6 Columns) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6 gap-2 sm:gap-2.5">
         {cards.map((c) => {
           const Icon = c.icon;
           const isSelected = selectedStatus === c.id;
@@ -120,7 +120,7 @@ export const DashboardStats: React.FC<Props> = ({
               }`}
             >
               <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="text-[11px] font-semibold text-slate-500 truncate">
+                <span className="text-[11px] font-semibold text-slate-600 leading-snug">
                   {c.label}
                 </span>
                 <Icon className={`w-4 h-4 ${c.color} shrink-0 stroke-[1.8]`} />

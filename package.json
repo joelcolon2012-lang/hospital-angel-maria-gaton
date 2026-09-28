@@ -1,7 +1,7 @@
 {
   "name": "emergencia-clinica-dr-colon",
   "private": true,
-  "version": "2.13.2",
+  "version": "2.13.3",
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
@@ -11,7 +11,8 @@
     "serve": "npm run build && node server/index.js",
     "preview": "vite preview",
     "test:sync": "node scripts/test-sync.mjs",
-    "deploy": "node scripts/deploy.js"
+    "deploy": "node scripts/deploy.js",
+    "test:durable": "node scripts/test-durable-sync.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

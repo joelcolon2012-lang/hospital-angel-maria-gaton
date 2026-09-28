@@ -308,8 +308,9 @@ class CentralDatabaseManager {
           this.mongo.lastError = err?.message || String(err);
           console.error('[CentralDB] No se pudo guardar en la nube (se reintentará):', this.mongo.lastError);
           clearTimeout(this.mongoRetry);
-          this.mongoRetry = setTimeout(() => this.flushMongo(), 15000);
-          return;
+          this.mongoRetry = setTimeout(() => { void this.flushMongo().catch(() => {}); }, 15000);
+          this.mongoRetry.unref?.();
+          throw err;
         }
       } while (this.mongoAgain);
     };
@@ -1017,7 +1018,7 @@ class CentralDatabaseManager {
       if (Array.isArray(incomingData[t])) changesApplied += this.sync.mergeRecords(t, incomingData[t], ctx);
     }
     if (Array.isArray(incomingData.tombstones)) changesApplied += this.sync.applyTombstones(incomingData.tombstones, ctx);
-    if (changesApplied > 0) await this.persistToDisk();
+    if (changesApplied > 0 || (this.mongo && this.mongo.persistedSeq < this.memoryData.seq)) await this.persistToDisk();
     return this.getMasterData();
   }
 
@@ -1032,7 +1033,7 @@ class CentralDatabaseManager {
       accepted += this.sync.mergeRecords(t, tables[t], ctx);
     }
     accepted += this.sync.applyTombstones(payload.tombstones || [], ctx);
-    if (accepted > 0) await this.persistToDisk();
+    if (accepted > 0 || (this.mongo && this.mongo.persistedSeq < this.memoryData.seq)) await this.persistToDisk();
     return { accepted, ...this.sync.changesSince(payload.since || 0, ctx) };
   }
 

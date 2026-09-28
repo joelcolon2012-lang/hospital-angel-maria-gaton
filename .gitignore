@@ -29,3 +29,8 @@ backup_pre_upgrade/database/
 diagnostico_git.txt
 publicar_log.txt
 /templates/
+
+# Clinical snapshots must stay outside the published site
+public/hospital_master_db.json
+audit/
+.merge_ours_once

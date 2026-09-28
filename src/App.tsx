@@ -120,7 +120,7 @@ export default function App() {
   const [aiSuiteInitialTab, setAiSuiteInitialTab] = useState<'notas' | 'rx' | 'tac' | 'gases' | 'ecg'>('notas');
 
   // Filters & Sorting (por defecto los últimos pacientes registrados aparecen de primero)
-  const [selectedStatus, setSelectedStatus] = useState<PatientStatus | 'todos'>('todos');
+  const [selectedStatus, setSelectedStatus] = useState<PatientStatus | 'todos' | 'criticos'>('todos');
   const [sortBy, setSortBy] = useState<'severity' | 'arrival' | 'name' | 'cubicle'>('arrival');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -187,34 +187,12 @@ export default function App() {
 
   const doRefreshData = async () => {
     try {
-      // Los datos de demostración/respaldo local se insertan SIN marcarlos como cambios,
-      // para que nunca sobrescriban los expedientes reales del servidor central.
+      // Recuperar únicamente la copia local del usuario; la nube se descarga por el motor autenticado.
       const hadPatients = (await db.patients.count()) > 0;
-      // Casos de demostración sólo en un dispositivo que nunca se ha conectado al servidor central
       const everSynced = syncEngine.getStatus().lastSyncedAtMs > 0 || localStorage.getItem('hr_colon_has_synced') === '1';
       if (!everSynced && !hadPatients) await syncEngine.withoutTracking(() => seedDatabaseIfEmpty(db));
       if (!hadPatients && (await db.patients.count()) > 0) syncEngine.requestFullResend();
-      let pList = await db.patients.toArray();
-
-      // Sólo si la base local quedó vacía, intentar cargar la copia publicada
-      if (pList.length === 0) {
-        try {
-          const baseUrl = (import.meta as any).env?.BASE_URL || './';
-          const res = await fetch(`${baseUrl}hospital_master_db.json?t=${Date.now()}`);
-          if (res.ok) {
-            let text = await res.text();
-            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-            const json = JSON.parse(text);
-            const masterData = json.data || json;
-            if (masterData && Array.isArray(masterData.patients)) {
-              await syncEngine.applyRemote({ tables: masterData });
-              pList = await db.patients.toArray();
-            }
-          }
-        } catch (e) {
-          console.warn('[refreshData] Fallback fetch master DB:', e);
-        }
-      }
+      const pList = await db.patients.toArray();
 
       const sList = await db.studies.toArray();
       const lList = await db.labs.toArray();
@@ -294,7 +272,7 @@ export default function App() {
         console.log('[Sync] Servidor central lento o sin conexión; trabajando con datos locales:', e);
       }
 
-      // 3. Cargar (o sembrar si es un dispositivo nuevo sin conexión) y traer la nube de Google
+      // 3. Cargar la copia local y completar la sincronización central
       await refreshData();
       cloudSyncService.pullLatestData().catch(() => {});
       preloadLazyChunks();
@@ -355,7 +333,7 @@ export default function App() {
         return p.isDeleted || p.isArchived;
       }
       if (p.isDeleted || p.isArchived) return false;
-      const matchesStatus = selectedStatus === 'todos' || p.status === selectedStatus;
+      const matchesStatus = selectedStatus === 'todos' || (selectedStatus === 'criticos' ? p.status !== 'alta' && p.triageLevel <= 2 : p.status === selectedStatus);
       const q = searchQuery.toLowerCase().trim();
       const matchesQuery =
         !q ||
@@ -438,23 +416,13 @@ export default function App() {
       },
     };
 
-    // 1. Optimistic UI update immediately
+    // Mostrar el expediente solamente cuando su copia local esté guardada.
+    await db.patients.put(newP);
     setPatients((prev) => [newP, ...prev.filter((p) => p.id !== newP.id)]);
     setActivePatient(newP);
     setIsRegisterModalOpen(false);
-
-    try {
-      // 2. Guardar en Dexie DB con put para prevenir errores de constraint
-      await db.patients.put(newP);
-      
-      // 3. Guardar respaldo local
-      await saveLocalBackup();
-
-      // 4. Refrescar datos
-      await refreshData();
-    } catch (err) {
-      console.error('Error saving patient locally:', err);
-    }
+    await saveLocalBackup();
+    await refreshData();
 
     // 5. Empujar al backend central y a la nube asíncronamente sin bloquear la UI
     centralSyncService.createPatient(newP).catch(console.warn);
@@ -1207,7 +1175,7 @@ export default function App() {
                   selectedStatus={selectedStatus as any}
                   onSelectFilter={(st) => {
                     if (st === 'criticos') {
-                      setSelectedStatus('todos');
+                      setSelectedStatus('criticos');
                       setSortBy('severity');
                     } else {
                       setSelectedStatus(st as any);
@@ -1225,7 +1193,7 @@ export default function App() {
 
                 {/* Filters and Search */}
                 <TriageFilter
-                  selectedStatus={selectedStatus}
+                  selectedStatus={selectedStatus === 'criticos' ? 'todos' : selectedStatus}
                   onSelectStatus={setSelectedStatus}
                   sortBy={sortBy}
                   onSortChange={setSortBy}

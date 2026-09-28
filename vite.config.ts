@@ -12,6 +12,11 @@ function versionFilePlugin() {
     name: 'hospital-version-file',
     apply: 'build' as const,
     // Se escribe al final (después de copiar public/) para reemplazar cualquier version.json antiguo
+    buildStart() {
+      if (fs.existsSync(path.resolve(__dirname, 'public/hospital_master_db.json'))) {
+        throw new Error('No publicar expedientes clínicos en public/. Conserve el respaldo fuera del sitio.');
+      }
+    },
     closeBundle() {
       const outDir = path.resolve(__dirname, 'dist');
       if (!fs.existsSync(outDir)) return;
@@ -23,7 +28,10 @@ function versionFilePlugin() {
             buildTime: BUILD_TIME,
             buildDate: new Date(BUILD_TIME).toISOString(),
             features: [
-              'Orden médica: diagnósticos numerados por prioridad, uno debajo del otro y sin abreviaturas; botón Descargar PDF; al imprimir ya no salen la dirección de la app ni la hora en el pie de página',
+              'Imprimir evoluciones y otros documentos sin la dirección de la app ni la hora en el pie de página',
+              'Orden médica: diagnósticos numerados por prioridad, uno debajo del otro y sin abreviaturas; botón Descargar PDF; impresión sin la dirección de la app ni la hora',
+              'Confirmación de guardado permanente y reintento automático de sincronización',
+              'Estado de sincronización visible en celular y una única base central',
               'Diagnósticos con lista desplegable CIE-10 (búsqueda por código, abreviatura o palabras) en historia, guardia, egreso, evoluciones y planta',
               'Detector de errores lógico-clínicos: alerta si el examen físico, los signos vitales, los paraclínicos o el sexo/edad no concuerdan con el diagnóstico',
               'El administrador puede eliminar cuentas de usuario (se cierran sus sesiones)',

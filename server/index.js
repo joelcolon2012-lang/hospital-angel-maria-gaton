@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, '..', 'dist');
+const APP_VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version;
 
 dotenv.config();
 
@@ -249,6 +250,8 @@ function lanUrls() {
 
 app.get('/api/health', (req, res) => {
   res.json({
+    appVersion: APP_VERSION,
+    release: (process.env.RENDER_GIT_COMMIT || '').slice(0, 12),
     lanUrls: lanUrls(),
     seq: centralDb.memoryData.seq,
     status: 'ok',

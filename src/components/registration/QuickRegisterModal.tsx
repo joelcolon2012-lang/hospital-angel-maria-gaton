@@ -10,7 +10,7 @@ import { authService } from '../../services/authService';
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSavePatient: (patientData: Partial<Patient>) => void;
+  onSavePatient: (patientData: Partial<Patient>) => void | Promise<void>;
   existingPatients: Patient[];
   onOpenExistingPatient?: (patient: Patient) => void;
 }
@@ -45,6 +45,8 @@ export const QuickRegisterModal: React.FC<Props> = ({
       attendingDoctor: active?.name || 'Dr. Joel Colón',
     };
   });
+
+  const [isSaving, setIsSaving] = useState(false);
 
   const [duplicateWarning, setDuplicateWarning] = useState<{
     show: boolean;
@@ -112,7 +114,9 @@ export const QuickRegisterModal: React.FC<Props> = ({
     saveAndFinish();
   };
 
-  const saveAndFinish = () => {
+  const saveAndFinish = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
     const newPatient: Partial<Patient> = {
       internalCode: formData.internalCode || generateDefaultCode(),
       medicalRecordNumber: formData.medicalRecordNumber,
@@ -136,8 +140,14 @@ export const QuickRegisterModal: React.FC<Props> = ({
       },
     };
 
-    onSavePatient(newPatient);
-    onClose();
+    try {
+      await onSavePatient(newPatient);
+      onClose();
+    } catch {
+      alert('No se pudo guardar el paciente en este dispositivo. Los campos se conservan; vuelva a intentarlo.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return createPortal(
@@ -304,6 +314,7 @@ export const QuickRegisterModal: React.FC<Props> = ({
           <div className="pt-2">
             <button
               type="submit"
+              disabled={isSaving}
               className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold rounded-2xl shadow-md transition-all text-sm flex items-center justify-center gap-2"
             >
               <span>Completar Ingreso a Emergencia</span>

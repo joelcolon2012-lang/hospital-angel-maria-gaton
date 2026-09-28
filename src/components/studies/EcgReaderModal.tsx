@@ -238,7 +238,7 @@ export const EcgReaderModal: React.FC<Props> = ({ isOpen, onClose, patientId, pa
       {big && photo && (
         <div className="fixed inset-0 z-[95] bg-black/90 flex flex-col" onClick={() => setBig(false)}>
           <div className="flex justify-end p-2">
-            <button type="button" className="text-white p-2" aria-label="Cerrar">
+            <button type="button" onClick={() => setBig(false)} className="text-white p-2" aria-label="Cerrar">
               <X size={22} />
             </button>
           </div>

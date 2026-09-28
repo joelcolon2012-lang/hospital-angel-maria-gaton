@@ -225,6 +225,7 @@ export const Header: React.FC<Props> = ({
   };
 
   return (
+    <>
     <header className="sticky top-0 z-30 h-[56px] bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-2 sm:px-4 flex items-center justify-between gap-1.5 sm:gap-2.5 select-none overflow-x-auto no-scrollbar scroll-smooth touch-pan-x">
       {/* Left: Hospital Logo, Name, Current Area & Active Patient Pill */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
@@ -372,51 +373,6 @@ export const Header: React.FC<Props> = ({
             </button>
           )}
 
-          {/* Estado de sincronización multidispositivo (visible también en el celular) */}
-          {layout.showCloudSyncStatus && (
-            <button
-              type="button"
-              onClick={onOpenCloudSyncModal}
-              className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs border ${
-                centralStatus.state === 'connected'
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                  : centralStatus.state === 'syncing'
-                  ? 'bg-sky-50 text-sky-800 border-sky-200'
-                  : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
-              }`}
-              title={`Servidor central: ${centralStatus.backendUrl}\nDispositivos conectados: ${centralStatus.connectedDevices}\nÚltima sincronización: ${centralStatus.lastSyncedAt}${
-                centralStatus.pendingChanges ? `\nCambios por enviar: ${centralStatus.pendingChanges}` : ''
-              }${centralStatus.errorMessage ? `\n${centralStatus.errorMessage}` : ''}`}
-              aria-label="Estado de sincronización"
-            >
-              <span className="relative flex h-2 w-2">
-                {centralStatus.state === 'syncing' && (
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75 animate-ping" />
-                )}
-                <span
-                  className={`relative inline-flex h-2 w-2 rounded-full ${
-                    centralStatus.state === 'connected'
-                      ? 'bg-emerald-500'
-                      : centralStatus.state === 'syncing'
-                      ? 'bg-sky-500'
-                      : 'bg-amber-500'
-                  }`}
-                />
-              </span>
-              <span className="hidden sm:inline">
-                {centralStatus.state === 'syncing' && 'Sincronizando…'}
-                {centralStatus.state === 'connected' &&
-                  (centralStatus.connectedDevices > 1 ? `En línea · ${centralStatus.connectedDevices} disp.` : 'En línea')}
-                {(centralStatus.state === 'offline' || centralStatus.state === 'error') && 'Sin conexión'}
-              </span>
-              {centralStatus.pendingChanges > 0 && centralStatus.state !== 'syncing' && (
-                <span className="ml-0.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-amber-500 text-white text-[10px] leading-[1.1rem] text-center tabular-nums">
-                  {centralStatus.pendingChanges > 99 ? '99+' : centralStatus.pendingChanges}
-                </span>
-              )}
-            </button>
-          )}
-
           {/* Quick Calculator Trigger */}
           {layout.showQuickCalculator && onOpenCalculator && (
             <button
@@ -459,7 +415,7 @@ export const Header: React.FC<Props> = ({
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                   : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
               }`}
-              title={isDriveConnected ? 'Google Drive sincronizado' : 'Conectar Google Drive'}
+              title="Respaldos manuales en Google Drive"
             >
               <Cloud className="w-3.5 h-3.5" />
             </button>
@@ -850,5 +806,52 @@ export const Header: React.FC<Props> = ({
         </div>
       )}
     </header>
+    <div className="flex justify-end px-3 py-1.5 bg-white border-b border-slate-200">
+          {/* Estado de sincronización multidispositivo (visible también en el celular) */}
+          {layout.showCloudSyncStatus && (
+            <button
+              type="button"
+              onClick={onOpenCloudSyncModal}
+              className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs border ${
+                centralStatus.state === 'connected' && centralStatus.pendingChanges === 0
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  : centralStatus.state === 'syncing'
+                  ? 'bg-sky-50 text-sky-800 border-sky-200'
+                  : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+              }`}
+              title={`Servidor central: ${centralStatus.backendUrl}\nDispositivos conectados: ${centralStatus.connectedDevices}\nÚltima sincronización: ${centralStatus.lastSyncedAt}${
+                centralStatus.pendingChanges ? `\nCambios por enviar: ${centralStatus.pendingChanges}` : ''
+              }${centralStatus.errorMessage ? `\n${centralStatus.errorMessage}` : ''}`}
+              aria-label="Estado de sincronización"
+            >
+              <span className="relative flex h-2 w-2">
+                {centralStatus.state === 'syncing' && (
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75 animate-ping" />
+                )}
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${
+                    centralStatus.state === 'connected' && centralStatus.pendingChanges === 0
+                      ? 'bg-emerald-500'
+                      : centralStatus.state === 'syncing'
+                      ? 'bg-sky-500'
+                      : 'bg-amber-500'
+                  }`}
+                />
+              </span>
+              <span aria-live="polite">
+                {centralStatus.state === 'syncing' ? 'Sincronizando…' :
+                  centralStatus.pendingChanges > 0 ? `Guardado local · ${centralStatus.pendingChanges} ${centralStatus.pendingChanges === 1 ? 'cambio pendiente' : 'cambios pendientes'}` :
+                  centralStatus.state === 'connected' ? 'Sincronizado' : 'Sin conexión · esperando sincronización'}
+              </span>
+              {centralStatus.pendingChanges > 0 && centralStatus.state !== 'syncing' && (
+                <span className="ml-0.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-amber-500 text-white text-[10px] leading-[1.1rem] text-center tabular-nums">
+                  {centralStatus.pendingChanges > 99 ? '99+' : centralStatus.pendingChanges}
+                </span>
+              )}
+            </button>
+          )}
+
+    </div>
+    </>
   );
 };
