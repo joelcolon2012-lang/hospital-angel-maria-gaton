@@ -218,11 +218,20 @@ function executeIframePrint(htmlContent: string, docTitle: string): void {
     <html lang="es">
     <head>
       <meta charset="UTF-8">
-      <title>${docTitle}</title>
+      <title>&#8203;</title>
       <style>
+        /* Margen de página 0: el navegador no imprime su encabezado/pie
+           (dirección de la app, fecha y hora). El margen real va como relleno. */
         @page {
           size: letter portrait;
-          margin: 14mm 16mm 14mm 16mm;
+          margin: 0;
+        }
+        @media print {
+          body {
+            padding: 14mm 16mm !important;
+            -webkit-box-decoration-break: clone;
+            box-decoration-break: clone;
+          }
         }
         *, *::before, *::after {
           box-sizing: border-box;
