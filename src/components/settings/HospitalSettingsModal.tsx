@@ -510,6 +510,25 @@ export const HospitalSettingsModal: React.FC<Props> = ({
     }
   };
 
+  // Eliminar definitivamente la cuenta de un médico
+  const handleDeleteUser = async (targetUser: UserType) => {
+    if (!isSuperAdmin) {
+      alert('Solo el administrador puede eliminar usuarios.');
+      return;
+    }
+    if (!window.confirm(`¿Eliminar definitivamente la cuenta de ${targetUser.name}?\n\nYa no podrá entrar en ningún dispositivo. Sus notas y registros en los expedientes se conservan.`)) return;
+    const typed = window.prompt(`Para confirmar escriba ELIMINAR`);
+    if (!typed || typed.trim().toUpperCase() !== 'ELIMINAR') return;
+    const res = await authService.deleteUserPermanently(targetUser.id);
+    if (!res.success) {
+      alert(res.error || 'No se pudo eliminar el usuario.');
+      return;
+    }
+    await refreshUsersList();
+    setUserSuccessMsg(`Cuenta de ${targetUser.name} eliminada.`);
+    setTimeout(() => setUserSuccessMsg(''), 3000);
+  };
+
   // Cambiar estado activo/inactivo (Soft Delete)
   const handleToggleUserStatus = async (targetUser: UserType) => {
     if (!isSuperAdmin) {
@@ -1466,6 +1485,18 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                                     <span>Reactivar</span>
                                   </>
                                 )}
+                              </button>
+                            )}
+                            {!isColon && u.id !== authService.getCurrentUser()?.id && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(u)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-white bg-red-600 hover:bg-red-700"
+                                title="Eliminar definitivamente esta cuenta"
+                                data-testid={`delete-user-${u.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>Eliminar</span>
                               </button>
                             )}
                           </div>

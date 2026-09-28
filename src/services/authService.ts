@@ -425,6 +425,33 @@ export class AuthService {
   }
 
   /**
+   * Elimina definitivamente la cuenta de un médico (solo administrador).
+   * Sus notas y registros en los expedientes se conservan con su nombre; solo desaparece la cuenta.
+   * El borrado se propaga a todos los dispositivos y cierra sus sesiones abiertas.
+   */
+  public async deleteUserPermanently(userId: string): Promise<{ success: boolean; error?: string }> {
+    const target = await db.users.get(userId).catch(() => undefined);
+    if (userId === 'usr-admin-colon' || (target as any)?.isSuperAdmin) {
+      return { success: false, error: 'No es posible eliminar al SuperAdmin institucional.' };
+    }
+    if (userId === this.currentUser.id) {
+      return { success: false, error: 'No puede eliminar la cuenta con la que tiene la sesión abierta.' };
+    }
+    const me: any = this.currentUser;
+    if (!(me?.isSuperAdmin || me?.id === 'usr-admin-colon' || String(me?.role || '').toUpperCase() === 'ADMINISTRADOR')) {
+      return { success: false, error: 'Solo un administrador puede eliminar usuarios.' };
+    }
+    try {
+      await db.users.delete(userId);
+      await this.recordAudit({ action: 'ELIMINAR' as any, recordId: userId, recordType: 'usuario', oldValue: { name: (target as any)?.name }, details: `Cuenta de usuario eliminada: ${(target as any)?.name || userId}` });
+      syncEngine.syncNow().catch(() => {});
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'No se pudo eliminar el usuario.' };
+    }
+  }
+
+  /**
    * Restaura un usuario previamente desactivado (Soft Delete Recovery)
    */
   public async restoreUser(userId: string): Promise<{ success: boolean; error?: string }> {

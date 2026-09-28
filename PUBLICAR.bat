@@ -11,7 +11,7 @@ git rm -r --cached --ignore-unmatch database database_backup_pre_upgrade backup_
 
 echo [2/5] Guardando cambios en Git... >> "%LOG%"
 git add -A >> "%LOG%" 2>&1
-git commit -m "v2.12.0: lectura asistida de electrocardiogramas con doble analisis, alertas e informe confirmado por el medico" >> "%LOG%" 2>&1
+git commit -m "v2.12.1: boton para eliminar usuarios (solo administrador)" >> "%LOG%" 2>&1
 echo COMMIT_EXIT=%errorlevel% >> "%LOG%"
 
 echo [3/5] Subiendo a GitHub (Render se actualiza desde aqui)... >> "%LOG%"

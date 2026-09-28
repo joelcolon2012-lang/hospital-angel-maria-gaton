@@ -70,7 +70,11 @@ export function verifyToken(memoryData, token) {
     const { u, e, i } = JSON.parse(unb64u(payload).toString('utf8'));
     if (!u || !e || Date.now() > Number(e)) return null;
     const user = (memoryData.users || []).find((x) => x.id === u);
-    if (!user) return { id: u, role: 'MÉDICO', name: '', _restoring: true };
+    if (!user) {
+      // Cuenta eliminada por el administrador: su sesión deja de valer
+      if ((memoryData.tombstones || []).some((tb) => tb.table === 'users' && String(tb.id) === String(u))) return null;
+      return { id: u, role: 'MÉDICO', name: '', _restoring: true };
+    }
     if (user.isDeleted || user.isActive === false) return null;
     if (user.tokensValidAfter && Number(i || 0) < Number(user.tokensValidAfter)) return null;
     return user;
