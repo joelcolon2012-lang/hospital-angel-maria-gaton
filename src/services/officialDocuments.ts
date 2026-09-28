@@ -279,9 +279,12 @@ function labsSentence(labs: LabResult[], intro: string): string {
 }
 
 /** Descripción de los estudios de imagen (resultado oficial, o hallazgos, o descripción). */
-function studiesSentence(studies: MedicalStudy[], intro = 'EN CUANTO A LOS ESTUDIOS DE IMAGEN:'): string {
+function studiesSentence(studies: MedicalStudy[], intro?: string): string {
   const real = (studies || []).filter((s) => (s.officialResult || s.preliminaryInterpretation || s.description || '').trim());
   if (!real.length) return '';
+  const hasEcg = real.some((s) => s.category === 'Electrocardiograma');
+  const hasImg = real.some((s) => s.category !== 'Electrocardiograma');
+  intro = intro || (hasEcg && hasImg ? 'EN CUANTO A LOS ESTUDIOS DE IMAGEN Y ELECTROCARDIOGRAMA:' : hasEcg ? 'EN CUANTO AL ELECTROCARDIOGRAMA:' : 'EN CUANTO A LOS ESTUDIOS DE IMAGEN:');
   const items = real.map((s) => {
     const name = up(s.title || s.category);
     const txt = up(s.officialResult || s.preliminaryInterpretation || s.description).replace(/\.+$/, '');

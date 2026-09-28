@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MedicalStudy, StudyCategory, StudyStatus } from '../../types';
-import { Plus, Image as ImageIcon, ZoomIn, RotateCw, Columns, Trash2, Download, Eye } from 'lucide-react';
+import { Plus, Image as ImageIcon, ZoomIn, RotateCw, Columns, Trash2, Download, Eye, HeartPulse } from 'lucide-react';
+import { EcgReaderModal } from '../studies/EcgReaderModal';
 import { authService } from '../../services/authService';
 
 interface Props {
@@ -9,6 +10,8 @@ interface Props {
   onAddStudy: (study: Partial<MedicalStudy>) => void;
   onDeleteStudy: (studyId: string) => void;
   onOpenCompare: (s1: MedicalStudy, s2: MedicalStudy) => void;
+  patientAge?: number;
+  patientSex?: string;
 }
 
 export const StudiesGalleryTab: React.FC<Props> = ({
@@ -17,7 +20,10 @@ export const StudiesGalleryTab: React.FC<Props> = ({
   onAddStudy,
   onDeleteStudy,
   onOpenCompare,
+  patientAge,
+  patientSex,
 }) => {
+  const [isEcgOpen, setIsEcgOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<StudyCategory | 'Todas'>('Todas');
   const [activeViewerStudy, setActiveViewerStudy] = useState<MedicalStudy | null>(null);
   const [rotationDegree, setRotationDegree] = useState(0);
@@ -146,6 +152,16 @@ export const StudiesGalleryTab: React.FC<Props> = ({
               <span>Comparar 2</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => setIsEcgOpen(true)}
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm"
+            data-testid="open-ecg-reader"
+          >
+            <HeartPulse className="w-4 h-4" />
+            <span>Leer ECG</span>
+          </button>
 
           <button
             type="button"
@@ -361,6 +377,14 @@ export const StudiesGalleryTab: React.FC<Props> = ({
           </div>
         </div>
       )}
+      <EcgReaderModal
+        isOpen={isEcgOpen}
+        onClose={() => setIsEcgOpen(false)}
+        patientId={patientId}
+        patientAge={patientAge}
+        patientSex={patientSex}
+        onSave={onAddStudy}
+      />
     </div>
   );
 };

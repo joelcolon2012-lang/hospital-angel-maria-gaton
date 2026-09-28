@@ -1110,6 +1110,8 @@ export default function App() {
                   studies={currentPatientStudies}
                   onAddStudy={handleAddStudy}
                   onDeleteStudy={handleDeleteStudy}
+                  patientAge={activePatient.age}
+                  patientSex={activePatient.sex}
                   onOpenCompare={(s1, s2) => {
                     setCompareStudy1(s1);
                     setCompareStudy2(s2);

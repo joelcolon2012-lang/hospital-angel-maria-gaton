@@ -23,6 +23,7 @@ function versionFilePlugin() {
             buildTime: BUILD_TIME,
             buildDate: new Date(BUILD_TIME).toISOString(),
             features: [
+              'Lectura de electrocardiogramas desde foto o PDF: doble análisis, alertas críticas e informe que confirma el médico',
               'Notas de ingreso y de sala con paraclínicos e imágenes; firma con el nombre del médico (sin exequátur)',
               'Discusión terapéutica escrita aparte (cuadro de diálogo) después de los diagnósticos',
               'Paraclínicos desde foto o PDF sin inventar valores: doble lectura y confirmación del médico',

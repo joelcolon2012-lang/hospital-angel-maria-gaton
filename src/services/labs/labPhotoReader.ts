@@ -45,7 +45,7 @@ NOMBRE: RESULTADO UNIDAD
 Copia cada número exactamente como está impreso (mismos dígitos y decimales). No calcules, no conviertas unidades,
 no completes análisis que no aparezcan y no agregues comentarios. Si un número no se lee con seguridad escribe ILEGIBLE.`;
 
-function toBase64(buf: ArrayBuffer): string {
+export function toBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -53,7 +53,7 @@ function toBase64(buf: ArrayBuffer): string {
 }
 
 /** Reduce la foto (celular: 12 MP) a un tamaño nítido para leer, en JPEG. */
-async function prepareImage(file: File): Promise<{ data: string; mime: string; preview: string }> {
+export async function prepareImage(file: File): Promise<{ data: string; mime: string; preview: string }> {
   try {
     const url = URL.createObjectURL(file);
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
