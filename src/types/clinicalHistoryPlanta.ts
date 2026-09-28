@@ -243,6 +243,7 @@ export interface DiagnosisItemPlanta {
   id: string;
   name: string;
   priorityIndex: number;
+  cie10Code?: string;
 }
 
 export type ClinicalHistoryStatus = 'BORRADOR' | 'EN REVISIÓN' | 'COMPLETADA';

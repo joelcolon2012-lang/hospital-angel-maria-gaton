@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Patient, ClinicalHistory } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Patient, ClinicalHistory, StructuredDiagnosis, LabResult, MedicalStudy } from '../../types';
+import { DiagnosisListEditor } from '../common/DiagnosisListEditor';
+import { IssueList } from '../common/LogicIssueList';
+import { checkClinicalLogic, issuesFor } from '../../services/clinicalLogic/clinicalLogicChecker';
 import {
   ChevronDown,
   ChevronUp,
@@ -36,9 +39,35 @@ interface Props {
   patient: Patient;
   onUpdateHistory: (history: ClinicalHistory) => void;
   onOpenHistoryPlanta?: () => void;
+  labs?: LabResult[];
+  studies?: MedicalStudy[];
 }
 
-export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, onOpenHistoryPlanta }) => {
+/** Líneas de la impresión diagnóstica que NO son diagnósticos numerados (escalas, comentarios). */
+export function impressionExtras(impression?: string): string {
+  return String(impression || '')
+    .split('\n')
+    .filter((l) => l.trim() && !/^\s*\d+\.\s/.test(l))
+    .join('\n')
+    .trim();
+}
+
+function buildImpression(list: StructuredDiagnosis[], extras: string): string {
+  const dx = list.map((d, i) => `${i + 1}. ${d.name}`).join('\n');
+  return [dx, extras.trim()].filter(Boolean).join('\n\n');
+}
+
+function initialDxList(patient: Patient, history?: ClinicalHistory): StructuredDiagnosis[] {
+  if (patient.diagnosesList && patient.diagnosesList.length) return patient.diagnosesList;
+  if (history?.diagnosesList && history.diagnosesList.length) return history.diagnosesList;
+  const lines = String(history?.clinicalImpression || '')
+    .split(/\n|;/)
+    .map((l) => l.replace(/^\s*(\d+[.)-]|[•●\-*])\s*/, '').trim())
+    .filter((l) => l && !/^\[/.test(l) && l.length < 200);
+  return lines.map((name, i) => ({ id: `dx-hc-${i}-${Date.now()}`, name: name.toUpperCase(), status: 'Probable', type: i === 0 ? 'Primario' : 'Secundario', orderIndex: i }));
+}
+
+export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, onOpenHistoryPlanta, labs = [], studies = [] }) => {
   const [history, setHistory] = useState<ClinicalHistory>(
     patient.clinicalHistory || {
       reasonForConsultation: patient.chiefComplaint || '',
@@ -80,6 +109,7 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
   const patientIdRef = React.useRef<string>(patient?.id || '');
   const latestHistoryRef = React.useRef<ClinicalHistory>(history);
   latestHistoryRef.current = history;
+  const [dxList, setDxList] = useState<StructuredDiagnosis[]>(() => initialDxList(patient, patient.clinicalHistory));
 
   // Sincronizar hacia el padre con debounce (600ms) para escritura ultra-fluida sin lag ni reseteo de cursor
   const syncToParent = React.useCallback(
@@ -89,6 +119,7 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
         onUpdateHistory(updated);
       } else {
         debounceTimerRef.current = setTimeout(() => {
+          debounceTimerRef.current = null;
           onUpdateHistory(updated);
         }, 600);
       }
@@ -107,8 +138,18 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
       if (patient.clinicalHistory) {
         setHistory(patient.clinicalHistory);
       }
+      setDxList(initialDxList(patient, patient.clinicalHistory));
     }
   }, [patient?.id, onUpdateHistory]);
+
+  // Diagnósticos cambiados desde otro lugar (guardia, otro dispositivo): reflejarlos aquí
+  const externalDx = JSON.stringify(patient.diagnosesList || []);
+  useEffect(() => {
+    if (debounceTimerRef.current) return; // hay cambios locales sin guardar
+    const ext = patient.diagnosesList || [];
+    if (ext.length && JSON.stringify(ext) !== JSON.stringify(dxList)) setDxList(ext);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalDx]);
 
   // Al desmontar, asegurar que los cambios pendientes se guarden
   useEffect(() => {
@@ -133,6 +174,25 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
     examen: true,
     impresion: true,
   });
+
+  const handleDxChange = (list: StructuredDiagnosis[]) => {
+    setDxList(list);
+    const updated = { ...history, diagnosesList: list, clinicalImpression: buildImpression(list, impressionExtras(history.clinicalImpression)) };
+    setHistory(updated);
+    syncToParent(updated);
+  };
+
+  const handleExtrasChange = (extras: string) => {
+    const updated = { ...history, diagnosesList: dxList, clinicalImpression: buildImpression(dxList, extras) };
+    setHistory(updated);
+    syncToParent(updated);
+  };
+
+  // Detector de errores lógico-clínicos (se recalcula al escribir)
+  const logicIssues = useMemo(
+    () => checkClinicalLogic({ ...patient, clinicalHistory: history, diagnosesList: dxList }, labs, studies),
+    [patient, history, dxList, labs, studies]
+  );
 
   const toggleSection = (id: string) => {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -237,8 +297,10 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
           otherFindings: '',
         },
         clinicalImpression: '',
+        diagnosesList: [],
         diagnosticAndTherapeuticPlan: '',
       };
+      setDxList([]);
       setHistory(emptyHistory);
       onUpdateHistory(emptyHistory);
     }
@@ -381,8 +443,10 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
       const updated = {
         ...history,
         clinicalImpression: '',
+        diagnosesList: [],
         diagnosticAndTherapeuticPlan: '',
       };
+      setDxList([]);
       setHistory(updated);
       onUpdateHistory(updated);
     }
@@ -499,6 +563,16 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
           </button>
         </div>
       </div>
+
+      {logicIssues.length > 0 && (
+        <div className="bg-white rounded-2xl border border-amber-300 shadow-sm p-3 space-y-2" data-testid="logic-panel">
+          <div className="flex items-center gap-2 text-xs font-black text-amber-900 uppercase">
+            <AlertCircle className="w-4 h-4 text-amber-600" /> Revisión lógico-clínica ({logicIssues.length})
+          </div>
+          <IssueList issues={logicIssues} />
+          <p className="text-[10px] text-slate-500">Son avisos para revisar: el programa no cambia nada por su cuenta.</p>
+        </div>
+      )}
 
       {/* 1. HDA */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -845,8 +919,10 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
                       value={curVal}
                       onChange={(e) => handleExamChange(sys.id as any, e.target.value)}
                       placeholder={`Hallazgos clínicos de ${sys.name.toLowerCase()}...`}
+                      data-testid={`exam-${sys.id}`}
                       className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-800 focus:border-[#0F4C5C] focus:bg-white transition-colors"
                     />
+                    <IssueList issues={issuesFor(logicIssues, sys.id as any)} />
                   </div>
                 );
               })}
@@ -883,45 +959,31 @@ export const ClinicalHistoryTab: React.FC<Props> = ({ patient, onUpdateHistory, 
               </button>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-slate-700">Impresión Clínica Inicial</label>
-                <VoiceDictationButton
-                  onTranscript={(text) =>
-                    handleFieldChange(
-                      'clinicalImpression',
-                      history.clinicalImpression ? `${history.clinicalImpression} ${text}` : text
-                    )
-                  }
-                />
+            <div className="space-y-2" data-testid="dx-section">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700">Diagnósticos (CIE-10)</label>
+                <span className="text-[10px] text-slate-500">Busque por nombre, código o abreviatura (HTA, NAC, ICC…)</span>
               </div>
-
-              {/* Chips rápidos de diagnóstico */}
-              <QuickChipsSelector
-                title="Diagnósticos frecuentes:"
-                chips={[
-                  'EVC Isquémico Agudo (Arteria Cerebral Media)',
-                  'EVC Hemorrágico',
-                  'Ataque Isquémico Transitorio (AIT)',
-                  'Crisis Hipertensiva tipo Emergencia',
-                  'Síndrome Coronario Agudo sin elevación del ST (SCASEST)',
-                  'Insuficiencia Cardíaca Congestiva Descompensada',
-                  'Cetoacidosis Diabética moderada',
-                  'Neumonía Adquirida en la Comunidad (CURB-65)',
-                ]}
-                onSelectChip={(chip) => {
-                  const cur = history.clinicalImpression || '';
-                  handleFieldChange('clinicalImpression', cur ? `${cur}\n• ${chip}` : `• ${chip}`);
-                }}
-              />
-
-              <textarea
-                rows={2}
-                value={history.clinicalImpression}
-                onChange={(e) => handleFieldChange('clinicalImpression', e.target.value)}
-                placeholder="Diagnósticos presuntivos, sindrómicos o etiológicos..."
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs sm:text-sm font-semibold focus:bg-white transition-colors"
-              />
+              <DiagnosisListEditor diagnoses={dxList} onChange={handleDxChange} testId="hc-dx" />
+              <IssueList issues={issuesFor(logicIssues, 'diagnoses')} />
+              <details className="text-xs" open={Boolean(impressionExtras(history.clinicalImpression))}>
+                <summary className="cursor-pointer font-bold text-slate-600">Escalas y comentarios de la impresión diagnóstica</summary>
+                <div className="flex justify-end mt-1">
+                  <VoiceDictationButton
+                    onTranscript={(text) => {
+                      const extras = impressionExtras(history.clinicalImpression);
+                      handleExtrasChange(extras ? `${extras} ${text}` : text);
+                    }}
+                  />
+                </div>
+                <textarea
+                  rows={2}
+                  value={impressionExtras(history.clinicalImpression)}
+                  onChange={(e) => handleExtrasChange(e.target.value)}
+                  placeholder="Escalas (NIHSS, CURB-65…) u observaciones que acompañan a los diagnósticos…"
+                  className="mt-1 w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold focus:bg-white transition-colors"
+                />
+              </details>
             </div>
 
             {/* Detección y Barra de Escalas NIHSS & Rankin */}

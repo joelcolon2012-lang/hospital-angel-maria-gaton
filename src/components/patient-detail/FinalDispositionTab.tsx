@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Patient, FinalDisposition, FinalOutcome, PatientStatus } from '../../types';
 import { LogOut, CheckCircle2, Ambulance, Home, AlertCircle, Save, Download, Check, FileText, ShieldCheck } from 'lucide-react';
+import { Cie10Picker } from '../common/Cie10Picker';
 import { generateFinalDispositionDocx } from '../../services/docxTemplateService';
 
 interface Props {
@@ -193,6 +194,19 @@ export const FinalDispositionTab: React.FC<Props> = ({ patient, onSaveDispositio
                 placeholder="Diagnósticos confirmados..."
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-bold text-slate-800"
               />
+              <div className="mt-1.5">
+                <Cie10Picker
+                  compact
+                  testId="egreso-dx"
+                  placeholder="Agregar desde CIE-10…"
+                  onSelect={(p) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      finalDiagnoses: [prev.finalDiagnoses.trim(), `${p.name.toUpperCase()}${p.code ? ` (${p.code})` : ''}`].filter(Boolean).join('; ')
+                    }))
+                  }
+                />
+              </div>
             </div>
           </div>
 

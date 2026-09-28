@@ -6,6 +6,8 @@
  */
 
 import { ClinicalHistoryPlanta, ClinicalInconsistencyAlert } from '../types';
+import { checkClinicalLogic } from './clinicalLogic/clinicalLogicChecker';
+import { plantaHistoryAsPatient } from './notaIngresoPlantaService';
 
 export class ClinicalHistoryConsistencyService {
 
@@ -147,6 +149,22 @@ export class ClinicalHistoryConsistencyService {
         });
       }
     }
+
+    // Detector de errores lógico-clínicos (diagnósticos/motivo vs examen, signos vitales, sexo, medicamentos)
+    try {
+      const stub: any = { id: history.patientId, fullName: history.generalData?.nombre || '', sex: 'M', cubicle: '', vitals: {}, clinicalHistory: {} };
+      const pat = plantaHistoryAsPatient(history, stub);
+      const SECTION: Record<string, string> = {
+        lungs: 'sec-examen-fisico', heart: 'sec-examen-fisico', abdominal: 'sec-examen-fisico', skin: 'sec-examen-fisico',
+        upperExtremities: 'sec-examen-fisico', lowerExtremities: 'sec-examen-fisico', general: 'sec-estado-general', genitals: 'sec-examen-fisico',
+        neurological: 'sec-neurologico', vitals: 'sec-signos-vitales', diagnoses: 'sec-diagnosticos', labs: 'sec-diagnosticos',
+        studies: 'sec-diagnosticos', antecedents: 'sec-medicamentos'
+      };
+      for (const i of checkClinicalLogic(pat)) {
+        if (i.field === 'labs' || i.field === 'studies') continue; // la historia de planta no trae paraclínicos
+        alerts.push({ id: `logic-${i.id}`, type: i.severity === 'error' ? 'DANGER' : i.severity === 'alerta' ? 'WARNING' : 'INFO', title: i.title, description: i.message, sectionId: SECTION[i.field] || 'sec-diagnosticos' });
+      }
+    } catch {}
 
     return alerts;
   }

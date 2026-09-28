@@ -3,6 +3,7 @@ import { Patient, GuardiaClinicalBed, TriageLevel, User } from '../../types';
 import { db } from '../../db/dexieDb';
 import { centralSyncService } from '../../services/centralSyncService';
 import { X, UserPlus, Bed, Search, CheckCircle2, ArrowRightLeft, Sparkles, Building2 } from 'lucide-react';
+import { Cie10Picker } from '../common/Cie10Picker';
 
 interface Props {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export const AdmitPatientModal: React.FC<Props> = ({
   const [patientSearch, setPatientSearch] = useState<string>('');
 
   // Modo Nuevo Paciente
+  const [initialDxCie, setInitialDxCie] = useState<{ code?: string; description?: string }>({});
   const [newPatientData, setNewPatientData] = useState({
     fullName: '',
     idDocument: '',
@@ -170,9 +172,11 @@ export const AdmitPatientModal: React.FC<Props> = ({
                   id: `diag-${Date.now()}`,
                   name: newPatientData.initialDiagnosis.trim(),
                   status: 'Confirmado',
+                  cie10Code: initialDxCie.code,
+                  cie10Description: initialDxCie.description,
                   type: 'Primario',
                   notes: 'Diagnóstico de ingreso a guardia',
-                  orderIndex: 1
+                  orderIndex: 1,
                 }
               ]
             : []
@@ -183,6 +187,8 @@ export const AdmitPatientModal: React.FC<Props> = ({
                 id: `diag-${Date.now()}`,
                 name: newPatientData.initialDiagnosis.trim(),
                 status: 'Confirmado',
+                cie10Code: initialDxCie.code,
+                cie10Description: initialDxCie.description,
                 type: 'Primario',
                 notes: 'Diagnóstico de ingreso a guardia',
                 orderIndex: 1
@@ -414,6 +420,18 @@ export const AdmitPatientModal: React.FC<Props> = ({
                   placeholder="Ej. Neumonía Adquirida en la Comunidad (NAC)"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-600 focus:outline-hidden font-semibold"
                 />
+                <div className="mt-1.5">
+                  <Cie10Picker
+                    compact
+                    testId="admit-dx"
+                    placeholder="Buscar en CIE-10…"
+                    onSelect={(p) => {
+                      setNewPatientData({ ...newPatientData, initialDiagnosis: p.name.toUpperCase() });
+                      setInitialDxCie({ code: p.code, description: p.description });
+                    }}
+                  />
+                  {initialDxCie.code && <div className="text-[11px] font-bold text-[#0F4C5C] mt-1">CIE-10 {initialDxCie.code}</div>}
+                </div>
               </div>
 
               <div>

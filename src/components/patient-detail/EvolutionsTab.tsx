@@ -5,6 +5,7 @@ import {
   Plus, Clock, FileText, Save, Download, Check, Trash2, Copy, Sparkles, 
   Stethoscope, AlertCircle, Eye, Printer, ClipboardCheck, ArrowDownToLine 
 } from 'lucide-react';
+import { Cie10Picker } from '../common/Cie10Picker';
 import { VoiceDictationButton } from '../common/VoiceDictationButton';
 import { downloadFileToPC, generateOfficialSoapEvolutionNote } from '../../services/hospitalNoteGenerator';
 import { MandatoryNotePreviewModal } from '../documents/MandatoryNotePreviewModal';
@@ -615,6 +616,19 @@ export const EvolutionsTab: React.FC<Props> = ({ patient, evolutions, onAddEvolu
                     placeholder="Ej: 1. Neumonía Adquirida en la Comunidad (NAC) 2. Hipertensión Arterial Grado 2"
                     className="w-full bg-white border border-amber-300/80 rounded-xl p-2 text-slate-800 text-xs focus:ring-2 focus:ring-amber-700 outline-none"
                   />
+                  <div className="mt-1.5">
+                    <Cie10Picker
+                      compact
+                      testId="evo-dx"
+                      placeholder="Agregar desde CIE-10…"
+                      onSelect={(p) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          updatedDiagnoses: [prev.updatedDiagnoses.trim(), p.name.toUpperCase()].filter(Boolean).join('; ')
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
               </div>
 

@@ -26,6 +26,7 @@ import { HistoryVersionsModal } from './HistoryVersionsModal';
 import { WysiwygPreviewModal } from './WysiwygPreviewModal';
 import { NotaIngresoPlantaModal } from './NotaIngresoPlantaModal';
 import { IntelligentPlantaImportModal } from './IntelligentPlantaImportModal';
+import { DiagnosisListEditor } from '../common/DiagnosisListEditor';
 import { VersionConflictModal } from '../common/VersionConflictModal';
 import { ConcurrencyConflictError } from '../../services/clinicalHistoryPlantaService';
 import { Sparkles } from 'lucide-react';
@@ -1552,57 +1553,18 @@ export const ClinicalHistoryPlantaModal: React.FC<ClinicalHistoryPlantaModalProp
                 <span className="w-2 h-2 rounded-full bg-teal-500"></span>
                 14. Diagnósticos de Ingreso en Planta
               </h3>
-              <button
-                onClick={() => {
-                  const val = prompt('Ingrese diagnóstico clínico:');
-                  if (val && val.trim()) {
-                    const list = [
-                      ...history.diagnoses,
-                      { id: `diag-${Date.now()}`, name: val.trim().toUpperCase(), priorityIndex: history.diagnoses.length + 1 }
-                    ];
-                    triggerAutosave({ ...history, diagnoses: list });
-                  }
-                }}
-                className="px-3 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-teal-200"
-              >
-                <Plus className="w-3.5 h-3.5" /> Agregar Diagnóstico
-              </button>
             </div>
-            <div className="space-y-2">
-              {history.diagnoses.map((d, idx) => (
-                <div key={d.id} className="flex items-center justify-between bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200 text-xs">
-                  <span className="font-bold text-slate-900">
-                    {idx + 1}. {d.name}
-                  </span>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => {
-                        const edited = prompt('Modificar diagnóstico:', d.name);
-                        if (edited && edited.trim()) {
-                          const list = [...history.diagnoses];
-                          list[idx].name = edited.trim().toUpperCase();
-                          triggerAutosave({ ...history, diagnoses: list });
-                        }
-                      }}
-                      className="p-1 text-slate-400 hover:text-teal-600 rounded transition-colors"
-                      title="Editar"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        const list = history.diagnoses.filter((_, i) => i !== idx);
-                        triggerAutosave({ ...history, diagnoses: list });
-                      }}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                      title="Eliminar"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <DiagnosisListEditor
+              testId="planta-dx"
+              showStatus={false}
+              diagnoses={history.diagnoses.map((d, i) => ({ id: d.id, name: d.name, status: 'Confirmado', type: i === 0 ? 'Primario' : 'Secundario', orderIndex: i, cie10Code: d.cie10Code }))}
+              onChange={(list) =>
+                triggerAutosave({
+                  ...history,
+                  diagnoses: list.map((d, i) => ({ id: d.id, name: d.name.toUpperCase(), priorityIndex: i + 1, ...(d.cie10Code ? { cie10Code: d.cie10Code } : {}) }))
+                })
+              }
+            />
           </section>
 
         </main>

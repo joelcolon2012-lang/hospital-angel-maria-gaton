@@ -78,7 +78,7 @@ export function plantaHistoryAsPatient(history: ClinicalHistoryPlanta, patient: 
       }
     } as any,
     diagnosesList: (history.diagnoses || []).length
-      ? history.diagnoses.map((d, i) => ({ id: d.id || `dx-${i}`, name: d.name, status: 'Confirmado', type: i === 0 ? 'Primario' : 'Secundario', orderIndex: i } as any))
+      ? history.diagnoses.map((d, i) => ({ id: d.id || `dx-${i}`, name: d.name, status: 'Confirmado', type: i === 0 ? 'Primario' : 'Secundario', orderIndex: i, cie10Code: (d as any).cie10Code } as any))
       : patient.diagnosesList
   };
 }

@@ -44,7 +44,9 @@ import {
 } from '../../services/pdfHospitalDocumentService';
 import { generateClinicalHistoryDocx } from '../../services/clinicalHistoryDocxExporter';
 import { printOfficialHospitalDocument } from '../../services/directPrintService';
-import { buildOfficialParts, serializeParts, parseOfficialText } from '../../services/officialDocuments';
+import { buildOfficialParts, serializeParts, parseOfficialText, cie10InNotes } from '../../services/officialDocuments';
+import { checkClinicalLogic } from '../../services/clinicalLogic/clinicalLogicChecker';
+import { IssueList } from '../common/LogicIssueList';
 import { TherapeuticDiscussionDialog } from './TherapeuticDiscussionDialog';
 
 export type UnifiedDocType = 'emergencia' | 'sala' | 'orden' | 'combinada' | 'historia' | 'evolucion';
@@ -76,6 +78,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
   onSaveTherapeuticDiscussion,
 }) => {
   const [isDiscussionOpen, setIsDiscussionOpen] = useState(false);
+  const [cie10Notes, setCie10Notes] = useState<boolean>(() => cie10InNotes());
   const [localDiscussion, setLocalDiscussion] = useState<string | null>(null);
   const docPatient = useMemo(
     () => (patient && localDiscussion !== null ? { ...patient, therapeuticDiscussion: localDiscussion } : patient),
@@ -196,7 +199,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
         return txt;
       }
     }
-  }, [docType, patient, orders, labs, studies, evolutions, docPatient]);
+  }, [docType, patient, orders, labs, studies, evolutions, docPatient, cie10Notes]);
 
   // Sincronizar texto editable cuando cambia la selección de documento
   useEffect(() => {
@@ -205,6 +208,8 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
     setShowValidation(false);
     setValidationAudit(null);
   }, [generatedBaseText]);
+
+  const logicIssues = useMemo(() => (patient ? checkClinicalLogic(patient, labs, studies) : []), [patient, labs, studies]);
 
   if (!isOpen) return null;
 
@@ -541,6 +546,34 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
                 </tbody>
               </table>
             </div>
+
+            {(docType === 'emergencia' || docType === 'sala' || docType === 'combinada') && (
+              <div className="mb-3 space-y-2 print:hidden">
+                <label className="inline-flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="accent-[#0F4C5C]"
+                    checked={cie10Notes}
+                    onChange={(e) => {
+                      try {
+                        localStorage.setItem('hr_cie10_en_notas', e.target.checked ? '1' : '0');
+                      } catch {}
+                      setCie10Notes(e.target.checked);
+                    }}
+                    data-testid="cie10-in-notes"
+                  />
+                  Mostrar el código CIE-10 junto a cada diagnóstico
+                </label>
+                {logicIssues.length > 0 && (
+                  <details className="rounded-xl border border-amber-300 bg-amber-50/60 p-2" data-testid="note-logic-issues">
+                    <summary className="cursor-pointer text-[11px] font-black text-amber-900">Revisión lógico-clínica: {logicIssues.length} punto(s) para revisar antes de imprimir</summary>
+                    <div className="mt-2">
+                      <IssueList issues={logicIssues} />
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
 
             {/* Document Content View / In-Place Editor */}
             {isEditing ? (

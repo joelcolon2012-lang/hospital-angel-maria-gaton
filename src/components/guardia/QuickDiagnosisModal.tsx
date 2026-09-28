@@ -3,6 +3,7 @@ import { Patient, StructuredDiagnosis, ClinicalHistory, User } from '../../types
 import { db } from '../../db/dexieDb';
 import { centralSyncService } from '../../services/centralSyncService';
 import { X, Activity, Plus, CheckCircle2, Stethoscope } from 'lucide-react';
+import { Cie10Picker } from '../common/Cie10Picker';
 
 interface Props {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export const QuickDiagnosisModal: React.FC<Props> = ({
   onDiagnosisSaved
 }) => {
   const [diagName, setDiagName] = useState('');
+  const [cie, setCie] = useState<{ code?: string; description?: string }>({});
   const [diagType, setDiagType] = useState<'Primario' | 'Secundario'>('Secundario');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,7 +58,9 @@ export const QuickDiagnosisModal: React.FC<Props> = ({
         status: 'Confirmado',
         type: diagType,
         notes: notes.trim() || 'Agregado desde Guardia de Medicina Interna',
-        orderIndex: existingList.length + 1
+        orderIndex: existingList.length + 1,
+        cie10Code: cie.code,
+        cie10Description: cie.description
       };
 
       const updatedHistory: ClinicalHistory = patient.clinicalHistory
@@ -127,27 +131,24 @@ export const QuickDiagnosisModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Diagnósticos Frecuentes */}
-        <div className="bg-slate-50 p-3 border-b border-slate-200">
-          <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider block mb-1.5">
-            Diagnósticos Frecuentes en Medicina Interna:
-          </span>
-          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-            {COMMON_DIAGNOSES.map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => setDiagName(d)}
-                className={`text-[10px] px-2 py-0.5 rounded-lg border font-bold text-left transition-all ${
-                  diagName === d
-                    ? 'bg-[#0F4C5C] text-white border-[#0F4C5C]'
-                    : 'bg-white text-slate-700 border-slate-300 hover:border-teal-500 hover:bg-teal-50'
-                }`}
-              >
-                {d}
+        {/* Buscador CIE-10 */}
+        <div className="bg-slate-50 p-3 border-b border-slate-200 space-y-1.5">
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Buscar en CIE-10 (nombre, código o abreviatura)</span>
+          <Cie10Picker
+            testId="quick-dx"
+            onSelect={(p) => {
+              setDiagName(p.name.toUpperCase());
+              setCie({ code: p.code, description: p.description });
+            }}
+          />
+          {cie.code && (
+            <div className="text-[11px] font-bold text-[#0F4C5C]">
+              Código seleccionado: <span className="font-mono">{cie.code}</span> · {cie.description}{' '}
+              <button type="button" className="underline text-slate-500 ml-1" onClick={() => setCie({})}>
+                quitar
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Formulario */}

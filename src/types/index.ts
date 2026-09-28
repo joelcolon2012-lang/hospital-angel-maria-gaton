@@ -180,6 +180,10 @@ export interface StructuredDiagnosis {
   type: 'Primario' | 'Secundario';
   notes?: string;
   orderIndex: number;
+  /** Código CIE-10 (ej. "J18.9") */
+  cie10Code?: string;
+  /** Descripción oficial del código CIE-10 */
+  cie10Description?: string;
 }
 
 export interface ClinicalHistory {

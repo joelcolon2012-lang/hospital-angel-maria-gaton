@@ -400,7 +400,8 @@ export class ClinicalHistoryPlantaService {
         diagnoses.push({
           id: d.id || `diag-${idx + 1}`,
           name: d.name.toUpperCase(),
-          priorityIndex: idx + 1
+          priorityIndex: idx + 1,
+          ...(d.cie10Code ? { cie10Code: d.cie10Code } : {})
         });
       });
     } else if (patient.clinicalHistory?.clinicalImpression) {
@@ -412,18 +413,9 @@ export class ClinicalHistoryPlantaService {
           priorityIndex: idx + 1
         });
       });
-    } else {
-      diagnoses.push({
-        id: 'diag-1',
-        name: 'HIPERTENSIÓN ARTERIAL ESTADIO II AHA',
-        priorityIndex: 1
-      });
-      diagnoses.push({
-        id: 'diag-2',
-        name: 'DIABETES MELLITUS TIPO 2',
-        priorityIndex: 2
-      });
     }
+    // Sin diagnósticos registrados: la lista queda vacía (nunca se inventan diagnósticos).
+
 
     const newHistory: ClinicalHistoryPlanta = {
       id: `HC-PLANTA-${patient.id}-${Date.now()}`,

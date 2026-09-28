@@ -530,6 +530,8 @@ export default function App() {
     const updated = {
       ...activePatient,
       clinicalHistory: updatedHistory,
+      // La lista de diagnósticos (CIE-10) del expediente es una sola: la de la historia clínica
+      ...(Array.isArray(updatedHistory.diagnosesList) ? { diagnosesList: updatedHistory.diagnosesList } : {}),
       updatedAt: new Date().toISOString(),
     };
     await db.patients.put(updated);
@@ -1100,6 +1102,8 @@ export default function App() {
               {activeDossierTab === 'history' && (
                 <ClinicalHistoryTab 
                   patient={activePatient} 
+                  labs={currentPatientLabs}
+                  studies={currentPatientStudies}
                   onUpdateHistory={handleUpdateHistory} 
                   onOpenHistoryPlanta={() => handleOpenHistoryPlantaForPatient(activePatient)}
                 />

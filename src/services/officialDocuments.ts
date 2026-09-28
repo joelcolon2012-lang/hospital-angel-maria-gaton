@@ -189,14 +189,35 @@ function orderVitals(p: Patient): string {
   return line.trim();
 }
 
+/** ¿Imprimir el código CIE-10 junto a cada diagnóstico? (preferencia del dispositivo) */
+export function cie10InNotes(): boolean {
+  try {
+    return localStorage.getItem('hr_cie10_en_notas') === '1';
+  } catch {
+    return false;
+  }
+}
+
 function diagnosesOf(p: Patient): { diagnoses: string[]; scales: string[] } {
-  const raw = p.diagnosesList && p.diagnosesList.length
-    ? [...p.diagnosesList].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)).map((d) => d.name).join('\n')
-    : p.clinicalHistory?.clinicalImpression || '';
-  if (!raw.trim()) return { diagnoses: [], scales: [] };
-  const { scales, diagnoses } = extractScalesAndDiagnoses(raw);
+  const h: any = p.clinicalHistory || {};
+  const structured: any[] = p.diagnosesList && p.diagnosesList.length ? p.diagnosesList : Array.isArray(h.diagnosesList) ? h.diagnosesList : [];
+  const impression = String(h.clinicalImpression || '');
+  if (structured.length) {
+    const withCodes = cie10InNotes();
+    const sorted = [...structured].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+    const names = ClinicalDeduplicationEngine.deduplicateDiagnoses(sorted.map((d) => String(d.name || '').trim()).filter(Boolean)) as string[];
+    const list = names.map((n) => {
+      const d = sorted.find((x) => String(x.name || '').trim() === n);
+      const base = up(n).replace(/^\d+[.)-]\s*/, '').replace(/^[•●\-*]\s*/, '');
+      return withCodes && d?.cie10Code && !base.includes(d.cie10Code) ? `${base} (${d.cie10Code})` : base;
+    });
+    const scales = impression ? extractScalesAndDiagnoses(impression).scales.map(up) : [];
+    return { diagnoses: list.filter(Boolean), scales };
+  }
+  if (!impression.trim()) return { diagnoses: [], scales: [] };
+  const { scales, diagnoses } = extractScalesAndDiagnoses(impression);
   const list = ClinicalDeduplicationEngine.deduplicateDiagnoses(
-    (diagnoses.length ? diagnoses : raw.split(/\n|;/)).map((d: string) => d.trim()).filter(Boolean)
+    (diagnoses.length ? diagnoses : impression.split(/\n|;/)).map((d: string) => d.trim()).filter(Boolean)
   ).map((d) => up(d).replace(/^\d+[.)-]\s*/, '').replace(/^[•●\-*]\s*/, ''));
   return { diagnoses: list.filter(Boolean), scales: scales.map(up) };
 }
