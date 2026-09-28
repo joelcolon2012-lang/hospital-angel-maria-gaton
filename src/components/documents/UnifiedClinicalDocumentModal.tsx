@@ -78,6 +78,7 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
   onSaveTherapeuticDiscussion,
 }) => {
   const [isDiscussionOpen, setIsDiscussionOpen] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [cie10Notes, setCie10Notes] = useState<boolean>(() => cie10InNotes());
   const [localDiscussion, setLocalDiscussion] = useState<string | null>(null);
   const docPatient = useMemo(
@@ -276,6 +277,22 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
       labs,
       studies,
     });
+  };
+
+  // Descargar PDF oficial (sin encabezado/pie del navegador: ni dirección ni hora)
+  const canPdf = docType === 'emergencia' || docType === 'sala' || docType === 'orden' || docType === 'combinada';
+  const handleDownloadPdf = async () => {
+    try {
+      setIsDownloadingPdf(true);
+      if (docType === 'orden') await exportOfficialMedicalOrderPdf(patient, orders, currentDisplayText);
+      else if (docType === 'combinada') await exportOfficialCombinedNoteAndOrderPdf(patient, orders, labs, studies, currentDisplayText);
+      else if (docType === 'emergencia' || docType === 'sala') await exportOfficialAdmissionNotePdf(patient, orders, labs, studies, docType, currentDisplayText);
+    } catch (err) {
+      console.error('Error al generar PDF:', err);
+      alert('No se pudo generar el PDF. Intente de nuevo o use Imprimir.');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   };
 
   // Descargar DOCX Oficial utilizando las plantillas maestras exactas
@@ -693,6 +710,23 @@ export const UnifiedClinicalDocumentModal: React.FC<Props> = ({
               <Printer className="w-3.5 h-3.5 text-emerald-100" />
               <span>🖨️ IMPRIMIR</span>
             </button>
+
+            {/* Descargar PDF Oficial */}
+            {canPdf && (
+              <button
+                type="button"
+                disabled={isDownloadingPdf}
+                onClick={handleDownloadPdf}
+                className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-black rounded-xl text-white transition active:scale-95 shadow-sm ${
+                  isDownloadingPdf ? 'bg-slate-400 cursor-not-allowed' : 'bg-rose-700 hover:bg-rose-800 cursor-pointer'
+                }`}
+                title="Descargar PDF con el formato oficial, listo para imprimir (sin dirección de la app ni hora)"
+                data-testid="download-pdf"
+              >
+                <Download className="w-3.5 h-3.5 text-rose-100" />
+                <span>{isDownloadingPdf ? 'Generando PDF...' : 'Descargar PDF'}</span>
+              </button>
+            )}
 
             {/* Descargar DOCX Oficial */}
             <button

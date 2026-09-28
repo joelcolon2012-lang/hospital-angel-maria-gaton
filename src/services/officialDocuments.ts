@@ -12,6 +12,7 @@
  */
 
 import PizZip from 'pizzip';
+import { normalizeOrderDiagnoses } from './diagnosisAbbreviations';
 import { Patient, MedicalOrder, LabResult, MedicalStudy } from '../types';
 import { ClinicalDeduplicationEngine } from './clinicalDeduplicationEngine';
 import { extractScalesAndDiagnoses } from './hospitalNoteGenerator';
@@ -466,7 +467,8 @@ export function buildOrderModel(p: Patient, orders: MedicalOrder[] = [], when: D
     title: 'ORDEN MEDICA',
     header: `NOMBRE: ${up(p.fullName)} EDAD: ${ageText(p)}. ${location}`,
     medidas,
-    diagnoses: diagnosesOf(p).diagnoses,
+    // Orden médica: en orden de prioridad, uno por renglón y sin siglas
+    diagnoses: normalizeOrderDiagnoses(diagnosesOf(p).diagnoses),
     vitals: orderVitals(p),
     medications: meds.map(formatOrderLine),
     extras
@@ -497,7 +499,7 @@ export function serializeParts(parts: OfficialPart[]): string {
         const o = part;
         const lines: string[] = [o.dateLine, o.title, o.header, '', o.medidas, ''];
         if (o.diagnoses.length) {
-          lines.push('DIAGNÓSTICOS:', ...o.diagnoses.map((d) => `• ${d}`), '');
+          lines.push('DIAGNÓSTICOS:', ...o.diagnoses.map((d, i) => `${i + 1}. ${d}`), '');
         }
         if (o.vitals) lines.push(o.vitals, '');
         if (o.medications.length) {
@@ -637,6 +639,7 @@ function parseOrder(text: string): OrderModel {
     if (section === 'medidas') { model.medidas = clean(`${model.medidas} ${l}`); continue; }
     model.extras.push(l);
   }
+  model.diagnoses = normalizeOrderDiagnoses(model.diagnoses);
   return model;
 }
 
@@ -811,9 +814,34 @@ export function fillTemplateXml(xml: string, data: Record<string, string | strin
   return xml.replace(/<w:body>[\s\S]*<\/w:body>/, `<w:body>${out.join('')}</w:body>`);
 }
 
+/**
+ * Orden médica en Word: los diagnósticos van numerados (1., 2., 3.…) con la misma
+ * numeración y sangría de la medicación, pero reiniciando en 1 para no mezclar ambas listas.
+ */
+export function numberOrderDiagnoses(xml: string, numbering: string): { xml: string; numbering: string } {
+  const para = (marker: string) => (xml.match(new RegExp(`<w:p\\b(?:(?!<w:p[\\s>])[\\s\\S])*?\\[\\[${marker}\\]\\][\\s\\S]*?<\\/w:p>`)) || [])[0];
+  const dxP = para('O_DXITEM');
+  const medP = para('O_MEDITEM');
+  const medNum = medP?.match(/<w:numId w:val="(\d+)"\/>/)?.[1];
+  if (!dxP || !medNum) return { xml, numbering };
+  const abs = numbering.match(new RegExp(`<w:num w:numId="${medNum}"[^>]*>[\\s\\S]*?<w:abstractNumId w:val="(\\d+)"\\/>`))?.[1];
+  if (!abs) return { xml, numbering };
+  const ids = Array.from(numbering.matchAll(/<w:num w:numId="(\d+)"/g)).map((m) => Number(m[1]));
+  const newId = Math.max(0, ...ids) + 1;
+  const num = `<w:num w:numId="${newId}"><w:abstractNumId w:val="${abs}"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num>`;
+  const newDx = /<w:numId w:val="\d+"\/>/.test(dxP) ? dxP.replace(/<w:numId w:val="\d+"\/>/, `<w:numId w:val="${newId}"/>`) : dxP;
+  return { xml: xml.replace(dxP, newDx), numbering: numbering.replace('</w:numbering>', `${num}</w:numbering>`) };
+}
+
 export async function buildOfficialDocxBlob(parts: OfficialPart[]): Promise<Blob> {
   const zip = new PizZip(await loadTemplate(templateFor(parts)));
-  const xml = zip.file('word/document.xml')!.asText();
+  let xml = zip.file('word/document.xml')!.asText();
+  const numbering = zip.file('word/numbering.xml')?.asText();
+  if (numbering) {
+    const r = numberOrderDiagnoses(xml, numbering);
+    xml = r.xml;
+    zip.file('word/numbering.xml', r.numbering);
+  }
   zip.file('word/document.xml', fillTemplateXml(xml, markerData(parts)));
   return zip.generate({
     type: 'blob',
@@ -865,7 +893,7 @@ export function renderPrintHtml(parts: OfficialPart[]): string {
         <p class="o-title">${esc(o.title)}</p>
         <p class="o-header">${rich('O_HEADER', o.header)}</p>
         ${o.medidas ? `<p class="o-bold o-medidas">${esc(o.medidas)}</p>` : ''}
-        ${o.diagnoses.length ? `<p class="o-bold">DIAGNÓSTICOS:</p><ul class="o-dx">${o.diagnoses.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+        ${o.diagnoses.length ? `<p class="o-bold">DIAGNÓSTICOS:</p><ol class="o-dx">${o.diagnoses.map((d) => `<li>${esc(d)}</li>`).join('')}</ol>` : ''}
         ${o.vitals ? `<p class="o-vitals o-gap">${rich('O_VITALS', o.vitals)}</p>` : ''}
         ${o.medications.length ? `<p class="o-bold o-medlabel">MEDICACIÓN:</p><ol class="o-med">${o.medications.map((m) => `<li>${esc(m)}</li>`).join('')}</ol>` : ''}
         ${o.extras.map((e) => `<p class="o-extra">${esc(e)}</p>`).join('')}
@@ -897,9 +925,19 @@ export function renderPrintHtml(parts: OfficialPart[]): string {
 
   // Medidas tomadas de las plantillas oficiales (.docx)
   const css = `
-    @page emerg { size: A4 portrait; margin: 2.54cm; }
-    @page sala { size: letter portrait; margin: 2.5cm 3cm; }
-    @page orden { size: A4 portrait; margin: 2.54cm 3.17cm; }
+    /* Márgenes de página en 0: así el navegador NO imprime su encabezado/pie
+       (dirección de la app, fecha y hora, título, número de página). Los márgenes
+       oficiales se aplican como relleno de cada hoja y se repiten en cada página. */
+    @page { margin: 0; }
+    @page emerg { size: A4 portrait; margin: 0; }
+    @page sala { size: letter portrait; margin: 0; }
+    @page orden { size: A4 portrait; margin: 0; }
+    @media print {
+      .pg { box-sizing: border-box; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+      .emerg { padding: 2.54cm; }
+      .sala { padding: 2.5cm 3cm; }
+      .orden { padding: 2.54cm 3.17cm; }
+    }
     html, body { margin: 0; padding: 0; background: #fff; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     p { margin: 0; }
     .pg { break-inside: auto; }
@@ -945,13 +983,13 @@ export function renderPrintHtml(parts: OfficialPart[]): string {
     .o-medlabel { margin-bottom: 8pt; }
     .o-dx, .o-med { margin: 0; padding-left: 1.27cm; }
     .o-dx li, .o-med li { padding-left: 0.1cm; }
-    .o-dx { list-style: disc; }
+    .o-dx { list-style: decimal; }
     .o-extra { margin-top: 24pt; }
     .o-extra + .o-extra { margin-top: 4pt; }
     @media screen { body { background: #e5e7eb; } .pg { background: #fff; width: 21cm; min-height: 29.7cm; margin: 16px auto; padding: 2.54cm; box-sizing: border-box; box-shadow: 0 2px 10px rgba(0,0,0,.15); }
       .sala { width: 21.59cm; min-height: 27.94cm; padding: 2.5cm 3cm; } .orden { padding: 2.54cm 3.17cm; } }
   `;
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Documento oficial</title><style>${css}</style></head><body>${pages.join('')}</body></html>`;
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>&#8203;</title><style>${css}</style></head><body>${pages.join('')}</body></html>`;
 }
 
 export function printOfficialParts(parts: OfficialPart[]): void {
@@ -1157,7 +1195,7 @@ export async function buildOfficialPdfBlob(parts: OfficialPart[]): Promise<Blob>
       para(part.medidas, { size: 9, bold: true, align: 'justify', before: 12, after: 8 });
       if (part.diagnoses.length) {
         para('DIAGNÓSTICOS:', { size: 9, bold: true });
-        part.diagnoses.forEach((d) => para(d, { size: 9, indent: 1.27 * CM, marker: 'dot' }));
+        part.diagnoses.forEach((d, i) => para(d, { size: 9, indent: 1.27 * CM, marker: `${i + 1}.` }));
       }
       if (part.vitals) richPara('O_VITALS', part.vitals, { size: 9, align: 'justify', before: 12, after: 12 });
       if (part.medications.length) {

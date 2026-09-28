@@ -11,7 +11,7 @@ git rm -r --cached --ignore-unmatch database database_backup_pre_upgrade backup_
 
 echo [2/5] Guardando cambios en Git... >> "%LOG%"
 git add -A >> "%LOG%" 2>&1
-git commit -m "v2.13.0: CIE-10 en diagnosticos y detector de errores logico-clinicos" >> "%LOG%" 2>&1
+git commit -m "v2.13.1: orden medica con diagnosticos numerados sin siglas; PDF e impresion sin direccion ni hora" >> "%LOG%" 2>&1
 echo COMMIT_EXIT=%errorlevel% >> "%LOG%"
 
 echo [3/5] Subiendo a GitHub (Render se actualiza desde aqui)... >> "%LOG%"

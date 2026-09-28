@@ -23,6 +23,7 @@ function versionFilePlugin() {
             buildTime: BUILD_TIME,
             buildDate: new Date(BUILD_TIME).toISOString(),
             features: [
+              'Orden médica: diagnósticos numerados por prioridad, uno debajo del otro y sin abreviaturas; botón Descargar PDF; impresión sin la dirección de la app ni la hora',
               'Diagnósticos con lista desplegable CIE-10 (búsqueda por código, abreviatura o palabras) en historia, guardia, egreso, evoluciones y planta',
               'Detector de errores lógico-clínicos: alerta si el examen físico, los signos vitales, los paraclínicos o el sexo/edad no concuerdan con el diagnóstico',
               'El administrador puede eliminar cuentas de usuario (se cierran sus sesiones)',
