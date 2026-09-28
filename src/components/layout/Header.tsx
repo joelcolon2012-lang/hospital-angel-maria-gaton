@@ -415,7 +415,7 @@ export const Header: React.FC<Props> = ({
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                   : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
               }`}
-              title={isDriveConnected ? 'Google Drive sincronizado' : 'Conectar Google Drive'}
+              title="Respaldos manuales en Google Drive"
             >
               <Cloud className="w-3.5 h-3.5" />
             </button>
