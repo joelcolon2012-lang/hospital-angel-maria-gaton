@@ -285,63 +285,19 @@ Responde en JSON con interpretation, findings, urgency y recommendations.`
     return this.getOfflineImageInterpretationFallback(studyType, clinicalContext);
   }
 
+  /** Sin IA no se inventa una lectura "normal": se informa claramente que no hubo análisis. */
   private static getOfflineImageInterpretationFallback(
-    studyType: 'rx' | 'tac' | 'ecg' | 'gases',
-    clinicalContext?: string
+    _studyType: 'rx' | 'tac' | 'ecg' | 'gases',
+    _clinicalContext?: string
   ): { interpretation: string; findings: string[]; urgency: 'BAJA' | 'MEDIA' | 'ALTA' | 'CRITICA'; recommendations: string[] } {
-    const contextSnippet = clinicalContext ? ` con contexto de ${clinicalContext}` : '';
-    switch (studyType) {
-      case 'rx':
-        return {
-          interpretation: `Estudio radiográfico torácico preliminar${contextSnippet}. Parénquima pulmonar sin consolidaciones francas en campos medios. Silueta cardíaca en límites conservados. Ángulos costofrénicos libres.`,
-          findings: [
-            'Campos pulmonares normoexpansibles',
-            'Silueta cardiovascular dentro de límites anatómicos normales',
-            'No se observan neumotórax ni derrame pleural franco evidente'
-          ],
-          urgency: 'MEDIA',
-          recommendations: [
-            'Correlacionar con oximetría de pulso y auscultación pulmonar',
-            'Mantener monitoreo clínico en sala de emergencias'
-          ]
-        };
-      case 'tac':
-        return {
-          interpretation: `Tomografía computarizada cerebral${contextSnippet}. Estructuras de la línea media centradas. No se identifican áreas hiperdensas agudas sugestivas de sangrado intraparenquimatoso evidente en cortes axiales basales.`,
-          findings: [
-            'Línea media centrada sin efecto de masa',
-            'Sistema ventricular y cisternas de la base permeables',
-            'Descartar isquemia hiperaguda precoz mediante escala ASPECTS clínica'
-          ],
-          urgency: 'ALTA',
-          recommendations: [
-            'Completar valoración neurológica y escala NIHSS',
-            'Vigilar ventana de reperfusión vascular si los síntomas son hiperagudos'
-          ]
-        };
-      case 'ecg':
-        return {
-          interpretation: `Trazado electrocardiográfico de 12 derivaciones${contextSnippet}. Ritmo sinusal regular, frecuencia ventricular adecuada, sin supradesnivel persistente del segmento ST en caras concordantes.`,
-          findings: [
-            'Ritmo regular sinusal',
-            'Intervalos PR y QRS en rangos normales de conducción',
-            'Repolarización ventricular sin criterios de isquemia transmural aguda evidente'
-          ],
-          urgency: 'MEDIA',
-          recommendations: [
-            'Correlacionar con enzimas cardíacas seriadas (Troponina I de alta sensibilidad)',
-            'Repetir ECG a los 30-60 minutos ante persistencia de sintomatología torácica'
-          ]
-        };
-      default:
-        return {
-          interpretation: 'Estudio clínico procesado. Se recomienda verificación directa con los valores impresos del laboratorio.',
-          findings: ['Valores pendientes de confirmación formal'],
-          urgency: 'BAJA',
-          recommendations: ['Repetir toma de muestra si no se correlaciona con la clínica del paciente']
-        };
-    }
+    return {
+      interpretation: 'NO SE PUDO ANALIZAR LA IMAGEN (sin conexión o inteligencia artificial no disponible). No se generó ninguna interpretación: evalúe el estudio directamente.',
+      findings: [],
+      urgency: 'MEDIA',
+      recommendations: ['Intente de nuevo con conexión o interprete el estudio manualmente.']
+    };
   }
+
 
   /**
    * Cálculo matemático e interpretación de Gases Arteriales (ABG)

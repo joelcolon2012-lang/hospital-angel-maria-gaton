@@ -11,7 +11,7 @@ git rm -r --cached --ignore-unmatch database database_backup_pre_upgrade backup_
 
 echo [2/5] Guardando cambios en Git... >> "%LOG%"
 git add -A >> "%LOG%" 2>&1
-git commit -m "v2.9.0: importacion inteligente de notas e historias clinicas (Word, PDF, fotos, texto) distribuida por acapites" >> "%LOG%" 2>&1
+git commit -m "v2.10.0: paraclinicos desde foto sin inventar valores (doble lectura, verificacion), fotos desde el celular" >> "%LOG%" 2>&1
 echo COMMIT_EXIT=%errorlevel% >> "%LOG%"
 
 echo [3/5] Subiendo a GitHub (Render se actualiza desde aqui)... >> "%LOG%"

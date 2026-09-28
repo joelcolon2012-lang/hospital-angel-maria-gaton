@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Patient, LabResult, LabPanel, LabFlag } from '../../types';
 import { centralSyncService } from '../../services/centralSyncService';
-import { X, TestTube2, Camera, Upload, CheckCircle2, AlertTriangle, Eye, Sparkles } from 'lucide-react';
+import { X, TestTube2, Camera, CheckCircle2, AlertTriangle, Eye } from 'lucide-react';
+import { LabPhotoImportModal } from '../labs/LabPhotoImportModal';
 
 interface Props {
   isOpen: boolean;
@@ -25,45 +26,28 @@ export const AddLabModal: React.FC<Props> = ({
   const [panel, setPanel] = useState<LabPanel>('Química');
   const [timestamp, setTimestamp] = useState(new Date().toISOString().slice(0, 16));
 
-  // Lista de parámetros para confirmación
-  const [entries, setEntries] = useState<Array<{ parameter: string; value: string; unit: string; referenceRange: string; flag: LabFlag }>>([
-    { parameter: 'Hemoglobina', value: '7.2', unit: 'g/dL', referenceRange: '12.0 - 16.0', flag: 'critico' },
-    { parameter: 'Potasio (K+)', value: '6.2', unit: 'mEq/L', referenceRange: '3.5 - 5.1', flag: 'critico' },
-    { parameter: 'Creatinina', value: '2.8', unit: 'mg/dL', referenceRange: '0.7 - 1.3', flag: 'alto' },
-    { parameter: 'Fósforo', value: '7.8', unit: 'mg/dL', referenceRange: '2.5 - 4.5', flag: 'critico' }
-  ]);
+  // Lista de parámetros para confirmación (empieza vacía: nunca con valores de ejemplo)
+  type Entry = { parameter: string; value: string; unit: string; referenceRange: string; flag: LabFlag; panel?: LabPanel };
+  const blankRow = (): Entry => ({ parameter: '', value: '', unit: '', referenceRange: '', flag: 'normal' });
+  const [entries, setEntries] = useState<Entry[]>([blankRow()]);
+  const [isPhotoOpen, setIsPhotoOpen] = useState(false);
 
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSimulateExtraction = () => {
-    if (panel === 'Hemograma') {
-      setEntries([
-        { parameter: 'Leucocitos (GB)', value: '14.5', unit: 'x10^3/uL', referenceRange: '4.5 - 11.0', flag: 'alto' },
-        { parameter: 'Neutrófilos', value: '78', unit: '%', referenceRange: '45 - 70', flag: 'alto' },
-        { parameter: 'Hemoglobina (Hb)', value: '7.3', unit: 'g/dL', referenceRange: '12.0 - 16.0', flag: 'critico' },
-        { parameter: 'Hematocrito (Hct)', value: '22.8', unit: '%', referenceRange: '36 - 48', flag: 'critico' },
-        { parameter: 'VCM', value: '74.2', unit: 'fL', referenceRange: '80 - 100', flag: 'bajo' },
-        { parameter: 'HCM', value: '23.8', unit: 'pg', referenceRange: '27 - 33', flag: 'bajo' },
-        { parameter: 'Plaquetas (PLT)', value: '98', unit: 'x10^3/uL', referenceRange: '150 - 450', flag: 'bajo' }
-      ]);
-    } else if (panel === 'Electrolitos') {
-      setEntries([
-        { parameter: 'Sodio (Na+)', value: '126', unit: 'mEq/L', referenceRange: '135 - 145', flag: 'critico' },
-        { parameter: 'Potasio (K+)', value: '6.3', unit: 'mEq/L', referenceRange: '3.5 - 5.1', flag: 'critico' },
-        { parameter: 'Cloro (Cl-)', value: '94', unit: 'mEq/L', referenceRange: '98 - 107', flag: 'bajo' },
-        { parameter: 'Fósforo (P)', value: '8.2', unit: 'mg/dL', referenceRange: '2.5 - 4.5', flag: 'critico' }
-      ]);
-    } else {
-      setEntries([
-        { parameter: 'Glucemia', value: '235', unit: 'mg/dL', referenceRange: '70 - 110', flag: 'alto' },
-        { parameter: 'Urea', value: '78', unit: 'mg/dL', referenceRange: '15 - 45', flag: 'alto' },
-        { parameter: 'Creatinina', value: '3.2', unit: 'mg/dL', referenceRange: '0.7 - 1.3', flag: 'critico' },
-        { parameter: 'Ácido Úrico', value: '8.5', unit: 'mg/dL', referenceRange: '3.5 - 7.2', flag: 'alto' }
-      ]);
-    }
+  const handleImportedLabs = (labs: Partial<LabResult>[]) => {
+    const rows: Entry[] = labs.map((l) => ({
+      parameter: l.parameter || '',
+      value: l.value || '',
+      unit: l.unit || '',
+      referenceRange: l.referenceRange || '',
+      flag: (l.flag as LabFlag) || 'normal',
+      panel: l.panel as LabPanel
+    }));
+    setEntries((prev) => [...prev.filter((e) => e.parameter.trim() || e.value.trim()), ...rows]);
+    setMode('FOTO');
     setIsPreviewOpen(true);
   };
 
@@ -74,10 +58,7 @@ export const AddLabModal: React.FC<Props> = ({
   };
 
   const handleAddEntryRow = () => {
-    setEntries([
-      ...entries,
-      { parameter: '', value: '', unit: '', referenceRange: '', flag: 'normal' }
-    ]);
+    setEntries([...entries, blankRow()]);
   };
 
   const handleRemoveEntryRow = (index: number) => {
@@ -94,7 +75,7 @@ export const AddLabModal: React.FC<Props> = ({
         const lab: LabResult = {
           id: `lab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           patientId,
-          panel,
+          panel: entry.panel || panel,
           parameter: entry.parameter.trim(),
           value: entry.value.trim(),
           numericValue: !isNaN(numVal) ? numVal : undefined,
@@ -181,41 +162,22 @@ export const AddLabModal: React.FC<Props> = ({
           {/* Método de Carga */}
           <div>
             <label className="block font-bold text-slate-700 mb-1.5">Método de Captura:</label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setMode('MANUAL')}
-                className={`p-2 rounded-xl border text-center font-bold text-xs transition-all ${
+                className={`p-2.5 rounded-xl border text-center font-bold text-xs transition-all ${
                   mode === 'MANUAL' ? 'bg-teal-50 border-teal-600 text-teal-900 shadow-xs' : 'bg-slate-50 border-slate-200 text-slate-600'
                 }`}
               >
-                ✍️ Manual
+                ✍️ Escribir a mano
               </button>
               <button
                 type="button"
-                onClick={() => { setMode('FOTO'); handleSimulateExtraction(); }}
-                className={`p-2 rounded-xl border text-center font-bold text-xs transition-all ${
-                  mode === 'FOTO' ? 'bg-teal-50 border-teal-600 text-teal-900 shadow-xs' : 'bg-slate-50 border-slate-200 text-slate-600'
-                }`}
+                onClick={() => setIsPhotoOpen(true)}
+                className="p-2.5 rounded-xl border border-teal-600 bg-teal-700 text-white text-center font-bold text-xs flex items-center justify-center gap-1.5"
               >
-                📷 Subir Foto
-              </button>
-              <button
-                type="button"
-                onClick={() => { setMode('PDF'); handleSimulateExtraction(); }}
-                className={`p-2 rounded-xl border text-center font-bold text-xs transition-all ${
-                  mode === 'PDF' ? 'bg-teal-50 border-teal-600 text-teal-900 shadow-xs' : 'bg-slate-50 border-slate-200 text-slate-600'
-                }`}
-              >
-                📄 Subir PDF
-              </button>
-              <button
-                type="button"
-                onClick={handleSimulateExtraction}
-                className="p-2 rounded-xl border border-purple-300 bg-purple-50 text-purple-800 text-center font-bold text-xs hover:bg-purple-100 flex items-center justify-center gap-1"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Demo OCR
+                <Camera className="w-4 h-4" /> Foto / PDF (celular o PC)
               </button>
             </div>
           </div>
@@ -342,6 +304,13 @@ export const AddLabModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
+      <LabPhotoImportModal
+        isOpen={isPhotoOpen}
+        onClose={() => setIsPhotoOpen(false)}
+        patientId={patientId}
+        focus="todos"
+        onSaveLabs={handleImportedLabs}
+      />
     </div>
   );
 };

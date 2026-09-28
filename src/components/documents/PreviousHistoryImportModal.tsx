@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Patient, StructuredDiagnosis } from '../../types';
 import {
   extractTextWithDetails,
@@ -19,7 +20,8 @@ import {
   ChevronDown,
   ChevronRight,
   ShieldAlert,
-  RotateCcw
+  RotateCcw,
+  Camera
 } from 'lucide-react';
 
 interface PreviousHistoryImportModalProps {
@@ -167,6 +169,7 @@ export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProp
   const [showRaw, setShowRaw] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const camRef = useRef<HTMLInputElement>(null);
 
   const mismatch = useMemo(() => (data ? !nameMatchesPatient(data.patientInfo?.fullName, patient.fullName) : false), [data, patient.fullName]);
 
@@ -430,7 +433,7 @@ export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProp
     );
   };
 
-  return (
+  const modal = (
     <div className="fixed inset-0 z-[80] bg-slate-900/60 flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true" data-testid="history-import-modal">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden">
         {/* Encabezado */}
@@ -460,6 +463,28 @@ export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProp
               </div>
 
               {tab === 'file' ? (
+                <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => camRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#0F4C5C] bg-[#0F4C5C]/5 text-[#0F4C5C] text-sm font-black active:scale-95 disabled:opacity-50"
+                  data-testid="import-camera"
+                >
+                  <Camera size={20} /> Tomar foto de la nota con el celular
+                </button>
+                <input
+                  ref={camRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) processFile(f);
+                    e.target.value = '';
+                  }}
+                />
                 <div
                   onDragOver={(e) => {
                     e.preventDefault();
@@ -483,7 +508,7 @@ export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProp
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-slate-600">
                       <FileText size={30} className="text-[#0F4C5C]" />
-                      <p className="text-sm font-black">Toque para elegir o arrastre el archivo aquí</p>
+                      <p className="text-sm font-black">Elegir archivo o foto de la galería</p>
                       <p className="text-[11px] text-slate-500">Word (.docx / .doc), PDF (con texto o escaneado), foto de la nota (JPG, PNG, HEIC), RTF o texto.</p>
                     </div>
                   )}
@@ -498,6 +523,7 @@ export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProp
                       if (f) processFile(f);
                     }}
                   />
+                </div>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -637,6 +663,7 @@ export const PreviousHistoryImportModal: React.FC<PreviousHistoryImportModalProp
       </div>
     </div>
   );
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : modal;
 };
 
 export default PreviousHistoryImportModal;

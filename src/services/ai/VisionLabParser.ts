@@ -510,182 +510,53 @@ export const CHEMISTRY_DEFINITIONS: ChemistryDef[] = [
   },
 ];
 
-/**
- * Parses raw text extracted from an image or input and formats structured hemogram
- */
-export function parseHemogramFromText(text: string): HemogramExtractionResult {
-  const lines = text.split(/\r?\n/);
-  const parameters: LabParameterDetection[] = [];
+import { parseLabText } from '../labs/labReportParser';
 
-  let identifiedCount = 0;
-
-  for (const def of HEMOGRAM_DEFINITIONS) {
-    let detectedVal: string | null = null;
-    let confidence: LabParameterDetection['confidence'] = 'NO IDENTIFICADO';
-
-    for (const regex of def.aliases) {
-      for (const line of lines) {
-        const match = line.match(regex);
-        if (match && match[1]) {
-          detectedVal = match[1].replace(',', '.');
-          confidence = 'alta';
-          break;
-        }
-      }
-      if (detectedVal) break;
-    }
-
-    if (!detectedVal) {
-      // Intentar búsqueda tokenizada más flexible
-      const looseRegex = new RegExp(`(?:^|\\s)${def.key}[\\s:=]+([0-9.,]+)`, 'i');
-      for (const line of lines) {
-        const match = line.match(looseRegex);
-        if (match && match[1]) {
-          detectedVal = match[1].replace(',', '.');
-          confidence = 'media';
-          break;
-        }
-      }
-    }
-
-    let flag: LabParameterDetection['flag'] = 'normal';
-    const isIdentified = detectedVal !== null;
-
-    if (isIdentified) {
-      identifiedCount++;
-      const num = parseFloat(detectedVal!);
-      if (!isNaN(num)) {
-        if (def.criticalLow !== undefined && num <= def.criticalLow) {
-          flag = 'critico';
-        } else if (def.criticalHigh !== undefined && num >= def.criticalHigh) {
-          flag = 'critico';
-        } else if (num < def.minNormal) {
-          flag = 'bajo';
-        } else if (num > def.maxNormal) {
-          flag = 'alto';
-        }
-      }
-    }
-
-    parameters.push({
+function detectionsFrom(defs: Array<{ key: string; label: string; unit: string; defaultRef: string }>, text: string): LabParameterDetection[] {
+  const found = new Map(parseLabText(text).map((v) => [v.key, v]));
+  return defs.map((def) => {
+    const v = found.get(def.key);
+    const ok = Boolean(v && v.value && !v.illegible);
+    return {
       key: def.key,
       label: def.label,
-      value: detectedVal || 'NO IDENTIFICADO',
-      unit: def.unit,
-      referenceRange: def.defaultRef,
-      confidence,
-      flag,
-      isIdentified,
-    });
-  }
+      value: ok ? v!.value : 'NO IDENTIFICADO',
+      unit: v?.printedUnit ? v.unit : def.unit,
+      referenceRange: v?.printedRef ? v.ref : def.defaultRef,
+      confidence: ok ? (v!.implausible ? 'baja' : 'alta') : 'NO IDENTIFICADO',
+      flag: ok ? v!.flag : 'normal',
+      isIdentified: ok
+    } as LabParameterDetection;
+  });
+}
 
-  // Generate horizontal string strictly ordered:
-  // GB: X | RBC: X | HGB: X | HCT: X | VCM: X | HCM: X | CHCM: X | PLT: X | MPV: X | NEUT: X | LINF: X | MON: X | EOS: X | BAS: X
-  const horizontalSegments = parameters.map((p) => `${p.key}: ${p.value}`);
-  const horizontalString = horizontalSegments.join(' | ');
-
-  const confidenceScore = Math.round((identifiedCount / HEMOGRAM_DEFINITIONS.length) * 100);
-
+/**
+ * Hemograma desde texto (lector determinista: solo toma valores escritos junto a su nombre).
+ */
+export function parseHemogramFromText(text: string): HemogramExtractionResult {
+  const parameters = detectionsFrom(HEMOGRAM_DEFINITIONS, text);
+  const identified = parameters.filter((p) => p.isIdentified).length;
   return {
     parameters,
-    horizontalString,
+    horizontalString: parameters.map((p) => `${p.key}: ${p.value}`).join(' | '),
     rawRecognizedText: text,
     timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
-    confidenceScore,
+    confidenceScore: Math.round((identified / HEMOGRAM_DEFINITIONS.length) * 100)
   };
 }
 
 /**
- * Parses raw text extracted from an image or input and formats structured blood chemistries
+ * Químicas y electrolitos desde texto (lector determinista).
  */
 export function parseChemistryFromText(text: string): ChemistryExtractionResult {
-  const lines = text.split(/\r?\n/);
-  const parameters: LabParameterDetection[] = [];
-
-  let identifiedCount = 0;
-
-  for (const def of CHEMISTRY_DEFINITIONS) {
-    let detectedVal: string | null = null;
-    let confidence: LabParameterDetection['confidence'] = 'NO IDENTIFICADO';
-
-    for (const regex of def.aliases) {
-      for (const line of lines) {
-        const match = line.match(regex);
-        if (match && match[1]) {
-          detectedVal = match[1].replace(',', '.');
-          confidence = 'alta';
-          break;
-        }
-      }
-      if (detectedVal) break;
-    }
-
-    if (!detectedVal) {
-      // Intentar búsqueda tokenizada flexible
-      const looseRegex = new RegExp(`(?:^|\\s)${def.key}[\\s:=]+([0-9.,]+)`, 'i');
-      for (const line of lines) {
-        const match = line.match(looseRegex);
-        if (match && match[1]) {
-          detectedVal = match[1].replace(',', '.');
-          confidence = 'media';
-          break;
-        }
-      }
-    }
-
-    let flag: LabParameterDetection['flag'] = 'normal';
-    const isIdentified = detectedVal !== null;
-
-    if (isIdentified) {
-      identifiedCount++;
-      const num = parseFloat(detectedVal!);
-      if (!isNaN(num)) {
-        if (def.criticalLow !== undefined && num <= def.criticalLow) {
-          flag = 'critico';
-        } else if (def.criticalHigh !== undefined && num >= def.criticalHigh) {
-          flag = 'critico';
-        } else if (num < def.minNormal) {
-          flag = 'bajo';
-        } else if (num > def.maxNormal) {
-          flag = 'alto';
-        }
-      }
-    }
-
-    parameters.push({
-      key: def.key,
-      label: def.label,
-      value: detectedVal || 'NO IDENTIFICADO',
-      unit: def.unit,
-      referenceRange: def.defaultRef,
-      confidence,
-      flag,
-      isIdentified,
-    });
-  }
-
-  // Generar formatos horizontales según Secciones 12 y 13
-  // Con unidades: GLUCOSA: 120 mg/dL | CREATININA: 1.2 mg/dL ...
-  const withUnitsSegments = parameters
-    .filter((p) => p.isIdentified)
-    .map((p) => `${p.key}: ${p.value} ${p.unit}`);
-
-  // Sin unidades: GLUCOSA: 120 | CREATININA: 1.2 ...
-  const withoutUnitsSegments = parameters
-    .filter((p) => p.isIdentified)
-    .map((p) => `${p.key}: ${p.value}`);
-
-  const horizontalWithUnits = withUnitsSegments.length > 0 ? withUnitsSegments.join(' | ') : 'Sin datos identificados';
-  const horizontalWithoutUnits = withoutUnitsSegments.length > 0 ? withoutUnitsSegments.join(' | ') : 'Sin datos identificados';
-
-  const confidenceScore = Math.round((identifiedCount / CHEMISTRY_DEFINITIONS.length) * 100);
-
+  const parameters = detectionsFrom(CHEMISTRY_DEFINITIONS, text);
+  const ok = parameters.filter((p) => p.isIdentified);
   return {
     parameters,
-    horizontalWithUnits,
-    horizontalWithoutUnits,
+    horizontalWithUnits: ok.map((p) => `${p.key}: ${p.value} ${p.unit}`).join(' | ') || 'Sin datos identificados',
+    horizontalWithoutUnits: ok.map((p) => `${p.key}: ${p.value}`).join(' | ') || 'Sin datos identificados',
     rawRecognizedText: text,
     timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
-    confidenceScore,
+    confidenceScore: Math.round((ok.length / CHEMISTRY_DEFINITIONS.length) * 100)
   };
 }

@@ -23,6 +23,8 @@ function versionFilePlugin() {
             buildTime: BUILD_TIME,
             buildDate: new Date(BUILD_TIME).toISOString(),
             features: [
+              'Paraclínicos desde foto o PDF sin inventar valores: doble lectura y confirmación del médico',
+              'Tomar fotos con la cámara del celular (varias páginas por reporte)',
               'Subir nota o historia clínica (Word, PDF, foto o texto) y distribuirla por acápites',
               'Una sola base de datos central para todos los dispositivos',
               'Los datos de pacientes sólo se entregan con sesión iniciada (PIN)',
