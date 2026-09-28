@@ -1,8 +1,9 @@
 {
-  "version": "2.8.0",
-  "buildTime": 1790562513893,
-  "buildDate": "2026-09-28T02:28:33.893Z",
+  "version": "2.9.0",
+  "buildTime": 1790566562013,
+  "buildDate": "2026-09-28T03:36:02.013Z",
   "features": [
+    "Subir nota o historia clínica (Word, PDF, foto o texto) y distribuirla por acápites",
     "Una sola base de datos central para todos los dispositivos",
     "Los datos de pacientes sólo se entregan con sesión iniciada (PIN)",
     "Sincronización registro por registro entre PC, iPhone y Android",
