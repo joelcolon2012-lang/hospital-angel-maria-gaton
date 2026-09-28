@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GeminiAIService } from './geminiAiService.js';
-import { centralDb } from './centralDb.js';
+import { centralDb, verifyPassword } from './centralDb.js';
 import { authContext, issueToken, ensureAuthSecret, isAdminUser, relayEnabled } from './auth.js';
 import { MongoStore } from './mongoStore.js';
 import { startCloudRelay, cloudRelayStatus } from './cloudRelay.js';
@@ -484,13 +484,26 @@ app.post('/api/users/:id/password', async (req, res) => {
   if (!requireAdminOrSelf(req, res)) return;
   try {
     const editor = req.headers['x-user-name'] || 'Dr. Joel Colón';
-    const { newPassword, confirmPassword } = req.body;
+    const { newPassword, confirmPassword, currentPassword } = req.body;
 
     if (!newPassword || newPassword !== confirmPassword) {
       return res.status(400).json({ success: false, error: 'La confirmación de contraseña no coincide.' });
     }
 
+    // Cambiar el PIN propio exige el PIN actual (protege si alguien toma el dispositivo)
+    const isSelf = req.auth.kind === 'user' && req.auth.user.id === req.params.id;
+    if (isSelf) {
+      const me = centralDb.memoryData.users.find((u) => u.id === req.params.id);
+      if (!currentPassword || !me || !verifyPassword(String(currentPassword).trim(), me.pinHash)) {
+        return res.status(400).json({ success: false, error: 'El PIN actual no es correcto.' });
+      }
+    }
+
     await centralDb.resetUserPassword(req.params.id, newPassword, editor);
+    if (isSelf) {
+      const me = centralDb.memoryData.users.find((u) => u.id === req.params.id);
+      return res.json({ success: true, message: 'PIN actualizado.', token: issueToken(centralDb.memoryData, me) });
+    }
 
     broadcastRealtimeEvent('user.password_reset', {
       userId: req.params.id,

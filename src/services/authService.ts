@@ -83,6 +83,12 @@ export class AuthService {
     // El servidor central pidió iniciar sesión (token ausente, vencido o PIN cambiado):
     // se muestra la pantalla de acceso. Los datos del dispositivo NO se borran.
     try {
+      // Si el perfil del usuario en sesión cambió en OTRO dispositivo, actualizarlo aquí también
+      window.addEventListener('hospital_central_data_changed', () => {
+        this.refreshCurrentUserFromDb();
+      });
+    } catch {}
+    try {
       window.addEventListener(AUTH_REQUIRED_EVENT, () => {
         if (!this.sessionActive || this.tokenPending) return;
         try {
@@ -90,6 +96,18 @@ export class AuthService {
         } catch {}
         this.logout();
       });
+    } catch {}
+  }
+
+  private async refreshCurrentUserFromDb() {
+    try {
+      const id = this.currentUser?.id;
+      if (!id) return;
+      const fresh = await db.users.get(id);
+      if (!fresh) return;
+      const keys: (keyof User)[] = ['name', 'email', 'phone', 'specialty', 'exequatur', 'avatarUrl', 'role', 'isActive', 'isSuperAdmin'];
+      const changed = keys.some((k) => (fresh as any)[k] !== (this.currentUser as any)[k]);
+      if (changed) this.setCurrentUser({ ...this.currentUser, ...fresh });
     } catch {}
   }
 
@@ -254,16 +272,20 @@ export class AuthService {
         exequatur: cleanExeq,
         email: data.email?.trim() || `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}@hospitalangelgaton.gob.do`,
         pin: data.pin.trim(),
-        avatarUrl: data.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80',
+        avatarUrl: data.avatarUrl || '',
         isActive: true,
         isDeleted: false
       };
 
       const newUser = await centralSyncService.createUser(payload, creator);
 
-      await db.users.put(newUser);
-      pinVerifier.remember(newUser.id, data.pin.trim());
-      this.login(newUser);
+      // La cuenta nueva llega a los demás dispositivos por la sincronización.
+      // El administrador que la crea SIGUE en su propia sesión.
+      await syncEngine.withoutTracking(() => db.users.put(newUser));
+      if (!this.sessionActive) {
+        pinVerifier.remember(newUser.id, data.pin.trim());
+        this.login(newUser);
+      }
 
       return { success: true, user: newUser };
     } catch (err: any) {
@@ -277,64 +299,103 @@ export class AuthService {
   }
 
   /**
-   * Actualiza datos de un usuario en el backend central y la réplica local
+   * Edición del perfil (propio, o de cualquier cuenta si es administrador).
+   * Se guarda primero en este dispositivo y el motor de sincronización lo envía
+   * a la base central campo por campo: funciona sin señal y el cambio aparece
+   * en todos los dispositivos. Un campo vacío ("") también se sincroniza.
    */
+  public async updateProfile(userId: string, changes: Partial<User>): Promise<{ success: boolean; user?: User; error?: string; offline?: boolean }> {
+    try {
+      const isAdmin = this.isSuperAdmin() || this.currentUser?.role === 'ADMINISTRADOR';
+      if (userId !== this.currentUser?.id && !isAdmin) {
+        return { success: false, error: 'Solo puede editar su propio perfil.' };
+      }
+      const allowed: (keyof User)[] = ['name', 'email', 'phone', 'specialty', 'exequatur', 'avatarUrl'];
+      if (isAdmin) allowed.push('role');
+      const clean: Partial<User> = {};
+      for (const k of allowed) {
+        if (changes[k] === undefined) continue;
+        const v: any = changes[k];
+        (clean as any)[k] = typeof v === 'string' ? (k === 'avatarUrl' ? v : v.trim()) : v;
+      }
+      if ('name' in clean && !clean.name) return { success: false, error: 'El nombre no puede quedar vacío.' };
+      if (clean.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email)) {
+        return { success: false, error: 'El correo electrónico no es válido.' };
+      }
+      if (clean.avatarUrl && clean.avatarUrl.length > 1_000_000) {
+        return { success: false, error: 'La foto es demasiado grande. Elija otra imagen.' };
+      }
+
+      const existing = (await db.users.get(userId)) || (userId === this.currentUser?.id ? this.currentUser : null);
+      if (!existing) return { success: false, error: 'Usuario no encontrado.' };
+      const changedKeys = Object.keys(clean).filter((k) => (existing as any)[k] !== (clean as any)[k]);
+      const now = new Date().toISOString();
+      if (changedKeys.length) {
+        const patch = { ...clean, updatedAt: now };
+        const had = await db.users.get(userId);
+        if (had) await db.users.update(userId, patch);
+        else await db.users.put({ ...(existing as User), ...patch });
+      }
+      const saved = ((await db.users.get(userId)) || { ...existing, ...clean }) as User;
+      if (userId === this.currentUser?.id) this.setCurrentUser({ ...this.currentUser, ...saved });
+      if (changedKeys.length) {
+        this.recordAudit({
+          action: 'USER_UPDATED',
+          recordId: userId,
+          recordType: 'user',
+          details: `Perfil actualizado (${changedKeys.map((k) => (k === 'avatarUrl' ? 'foto' : k)).join(', ')}) por ${this.currentUser?.name || ''}`
+        }).catch(() => {});
+        try {
+          syncEngine.syncNow();
+        } catch {}
+      }
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      return { success: true, user: saved, offline };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'No se pudo guardar el perfil.' };
+    }
+  }
+
+  /** Compatibilidad: edición desde Configuración (administrador). */
   public async updateUser(user: User): Promise<{ success: boolean; error?: string }> {
-    try {
-      const editor = this.currentUser?.name || 'Dr. Joel Colón';
-      const updated = await centralSyncService.updateUser(user.id, user, editor);
-
-      await db.users.put(updated);
-      if (this.currentUser.id === user.id) {
-        this.setCurrentUser(updated);
-      }
-
-      return { success: true };
-    } catch (err: any) {
-      // Fallback local si no hay red
-      try {
-        const now = new Date().toISOString();
-        const updated = { ...user, updatedAt: now };
-        await db.users.put(updated);
-        if (this.currentUser.id === user.id) {
-          this.setCurrentUser(updated);
-        }
-        return { success: true };
-      } catch (fallbackErr: any) {
-        return { success: false, error: err.message };
-      }
-    }
+    const { name, email, phone, specialty, exequatur, avatarUrl, role } = user;
+    return this.updateProfile(user.id, { name, email, phone, specialty, exequatur, avatarUrl, role });
   }
 
   /**
-   * Restablecimiento seguro de contraseña/PIN sin exponer contraseñas en texto plano
+   * Cambio de PIN. Requiere conexión (el PIN se valida y guarda en el servidor).
+   * Si es el propio PIN se exige el PIN actual y se recibe una sesión nueva,
+   * así este dispositivo sigue conectado y los demás piden el PIN nuevo.
    */
-  public async resetPassword(userId: string, newPassword: string, confirmPassword: string): Promise<{ success: boolean; error?: string }> {
+  public async resetPassword(
+    userId: string,
+    newPassword: string,
+    confirmPassword: string,
+    currentPassword?: string
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       const editor = this.currentUser?.name || 'Dr. Joel Colón';
-      await centralSyncService.resetUserPassword(userId, newPassword, confirmPassword, editor);
-      // La huella local anterior deja de ser válida en este dispositivo
-      pinVerifier.forget(userId);
+      const res = await centralSyncService.resetUserPassword(userId, newPassword, confirmPassword, editor, currentPassword);
+      if (userId === this.currentUser?.id) {
+        if (res.token) authToken.set(res.token, userId, syncEngine.getBackendUrl());
+        pinVerifier.remember(userId, newPassword.trim());
+      } else {
+        // La huella local anterior de esa cuenta deja de ser válida en este dispositivo
+        pinVerifier.forget(userId);
+      }
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Error restableciendo contraseña' };
+      const msg = String(err?.message || '');
+      if (/failed to fetch|network|load failed/i.test(msg)) {
+        return { success: false, error: 'Para cambiar el PIN se necesita conexión a internet.' };
+      }
+      return { success: false, error: msg || 'Error restableciendo contraseña' };
     }
   }
 
-  /**
-   * Actualización persistente de foto de perfil
-   */
+  /** Foto de perfil (misma vía que el resto del perfil). */
   public async updateUserPhoto(userId: string, avatarUrl: string): Promise<{ success: boolean; user?: User; error?: string }> {
-    try {
-      const editor = this.currentUser?.name || 'Dr. Joel Colón';
-      const updated = await centralSyncService.uploadUserPhoto(userId, avatarUrl, editor);
-      if (this.currentUser.id === userId) {
-        this.setCurrentUser(updated);
-      }
-      return { success: true, user: updated };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Error actualizando foto de perfil' };
-    }
+    return this.updateProfile(userId, { avatarUrl });
   }
 
   /**

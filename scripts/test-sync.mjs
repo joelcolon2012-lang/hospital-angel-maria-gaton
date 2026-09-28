@@ -173,6 +173,24 @@ try {
     check('sí pudo cambiar su propio dato permitido', self && self.specialty === 'Cambio propio');
     const relog = await loginAs('usr-admin-colon', '2026');
     check('el PIN del administrador no cambió', relog.status === 200);
+
+    console.log('\n7c) Perfil: editar datos propios no toca el PIN; cambiar el PIN exige el actual');
+    await sync('CEL-MED', 0, { users: [{ id: medId, name: 'Dra. Martínez Editada', phone: '809-555-0000', pin: '0000', _mtime: Date.now() + 9e6 }] }, [], med.json.token);
+    const after2 = (await getAll()).tables.users || [];
+    const me2 = after2.find((u) => u.id === medId);
+    check('el nombre y teléfono se actualizan para todos', me2 && me2.name === 'Dra. Martínez Editada' && me2.phone === '809-555-0000');
+    check('un PIN viejo enviado por sincronización se ignora', (await loginAs(medId, '1234')).status === 200 && (await loginAs(medId, '0000')).status === 401);
+    const pw = (body) => fetch(`${BASE}/api/users/${medId}/password`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${med.json.token}` }, body: JSON.stringify(body) });
+    const bad1 = await pw({ newPassword: '4321', confirmPassword: '4321', currentPassword: '9999' });
+    check('cambiar el PIN propio con PIN actual incorrecto se rechaza', bad1.status === 400);
+    const ok1 = await pw({ newPassword: '4321', confirmPassword: '4321', currentPassword: '1234' });
+    const ok1j = await ok1.json();
+    check('cambiar el PIN propio con el PIN actual funciona y da sesión nueva', ok1.status === 200 && typeof ok1j.token === 'string');
+    const withNew = await fetch(`${BASE}/api/sync/v2?since=0`, { headers: { Authorization: `Bearer ${ok1j.token}` } });
+    const withOld = await fetch(`${BASE}/api/sync/v2?since=0`, { headers: { Authorization: `Bearer ${med.json.token}` } });
+    check('la sesión nueva sirve y la anterior se cierra', withNew.status === 200 && withOld.status === 401);
+    check('el PIN nuevo funciona', (await loginAs(medId, '4321')).status === 200);
+    await fetch(`${BASE}/api/users/${medId}/password`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify({ newPassword: '1234', confirmPassword: '1234' }) });
   } else {
     check('usuario médico de prueba disponible', false, JSON.stringify(med.json).slice(0, 120) + ' ' + users0.map((u) => u.id).join(','));
   }

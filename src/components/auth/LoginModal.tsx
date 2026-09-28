@@ -21,6 +21,7 @@ import {
   Sparkles,
   FileCheck2
 } from 'lucide-react';
+import { UserAvatar } from '../common/UserAvatar';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -51,6 +52,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [showPin, setShowPin] = useState(false);
   const [authError, setAuthError] = useState('');
   const [notice, setNotice] = useState('');
+  const canRegister = authService.isAuthenticated() && (authService.isSuperAdmin() || authService.getCurrentUser()?.role === 'ADMINISTRADOR');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Formulario de Registro de Nuevo Médico
@@ -152,9 +154,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       });
 
       if (res.success && res.user) {
-        setNotice('');
-        onUserChanged(res.user);
-        onClose();
+        // El administrador sigue en su sesión; la cuenta nueva ya aparece en todos los dispositivos
+        setNotice(`Cuenta de ${res.user.name} creada. Ya puede iniciar sesión con su PIN en cualquier dispositivo.`);
+        setActiveTab('login');
+        setRegName('');
+        setRegPin('');
+        setRegPinConfirm('');
+        authService.getAllUsers().then(setUsersList);
       } else {
         setRegError(res.error || 'Error al registrar el usuario.');
       }
@@ -300,11 +306,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                               : 'bg-white border-slate-200 hover:border-teal-400 hover:shadow-xs'
                           }`}
                         >
-                          <img
-                            src={user.avatarUrl || PRESET_AVATARS[0]}
-                            alt={user.name}
-                            className="w-11 h-11 rounded-xl object-cover border border-slate-200 shrink-0"
-                          />
+                          <UserAvatar user={user} className="w-11 h-11 rounded-xl border border-slate-200 shrink-0" textClassName="text-sm" />
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1">
@@ -351,11 +353,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <form onSubmit={handleConfirmPin} className="space-y-4 animate-scale-up">
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                      <img
-                        src={selectedUserForPin.avatarUrl || PRESET_AVATARS[0]}
-                        alt={selectedUserForPin.name}
-                        className="w-12 h-12 rounded-2xl object-cover border border-slate-300 shrink-0"
-                      />
+                      <UserAvatar user={selectedUserForPin} className="w-12 h-12 rounded-2xl border border-slate-300 shrink-0" textClassName="text-sm" />
                       <div className="min-w-0">
                         <h4 className="font-bold text-sm text-slate-900 truncate flex items-center gap-1.5">
                           <span>{selectedUserForPin.name}</span>
@@ -446,7 +444,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           {/* ========================================================================= */}
           {/* TAB 2: CREAR CUENTA MÉDICA                                                */}
           {/* ========================================================================= */}
-          {activeTab === 'register' && (
+          {activeTab === 'register' && !canRegister && (
+            <div className="space-y-3">
+              <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 flex items-start gap-2.5">
+                <Award className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-relaxed space-y-1.5">
+                  <p><strong>Las cuentas nuevas las crea el administrador.</strong></p>
+                  <p>
+                    Por seguridad de los datos de los pacientes, pida al Dr. Joel Colón que cree su cuenta desde
+                    <b> Configuración → Usuarios</b>. Le dará un PIN temporal; al entrar, usted podrá cambiar su PIN,
+                    subir su foto y completar su perfil desde <b>Mi Perfil</b>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'register' && canRegister && (
             <form onSubmit={handleRegisterSubmit} className="space-y-4">
               <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-3.5 flex items-start gap-2.5">
                 <Award className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />

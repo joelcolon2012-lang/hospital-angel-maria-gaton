@@ -302,14 +302,21 @@ class CentralSyncService {
     return updated;
   }
 
-  public async resetUserPassword(id: string, newPassword: string, confirmPassword: string, editor: string): Promise<boolean> {
+  /** Cambia el PIN en el servidor. Si es el propio PIN, el servidor devuelve una sesión nueva. */
+  public async resetUserPassword(
+    id: string,
+    newPassword: string,
+    confirmPassword: string,
+    editor: string,
+    currentPassword?: string
+  ): Promise<{ token?: string }> {
     const res = await fetch(`${this.backendUrl()}/api/users/${id}/password`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json', ...authToken.headers(),
         'x-user-name': editor
       },
-      body: JSON.stringify({ newPassword, confirmPassword })
+      body: JSON.stringify({ newPassword, confirmPassword, currentPassword })
     });
 
     if (!res.ok) {
@@ -317,7 +324,8 @@ class CentralSyncService {
       throw new Error(err.error || 'Error restableciendo contraseña');
     }
 
-    return true;
+    const json = await res.json().catch(() => ({}));
+    return { token: json.token };
   }
 
   public async uploadUserPhoto(id: string, avatarUrl: string, editor: string): Promise<User> {

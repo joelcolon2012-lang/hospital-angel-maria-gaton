@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { User } from '../../types';
 import { appVersionService } from '../../services/appVersionService';
+import { UserAvatar } from '../common/UserAvatar';
 
 interface MobileDrawerMenuProps {
   isOpen: boolean;
@@ -78,11 +79,7 @@ export const MobileDrawerMenu: React.FC<MobileDrawerMenuProps> = ({
         {/* Header con Perfil Médico */}
         <div className="p-4 bg-gradient-to-br from-[#0F4C5C] to-[#0A323D] text-white flex items-center justify-between shadow-md">
           <div className="flex items-center gap-3 min-w-0">
-            <img
-              src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-              alt={currentUser.name}
-              className="w-10 h-10 rounded-xl object-cover border-2 border-teal-400 shrink-0"
-            />
+            <UserAvatar user={currentUser} className="w-10 h-10 rounded-xl border-2 border-teal-400 shrink-0" textClassName="text-sm" />
             <div className="min-w-0">
               <h3 className="font-bold text-sm truncate">{currentUser.name}</h3>
               <div className="flex items-center gap-1.5 mt-0.5">

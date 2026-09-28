@@ -207,9 +207,17 @@ export class SyncStore {
    */
   prepareIncoming(table, incoming, existing, ctx) {
     const rec = { ...incoming };
+    if (table === 'users' && typeof rec.avatarUrl === 'string' && rec.avatarUrl.length > 1_500_000) {
+      // Foto demasiado grande (se reducen en el dispositivo): conservar la anterior
+      if (existing && existing.avatarUrl !== undefined) rec.avatarUrl = existing.avatarUrl;
+      else delete rec.avatarUrl;
+    }
     if (table === 'users' && ctx && ctx.kind !== 'relay') {
-      // Nadie puede fijar la huella del PIN por sincronización (sólo la PC del hospital)
+      // El PIN NUNCA se cambia por sincronización: sólo con /api/users/:id/password
+      // (antes un dispositivo con el PIN de fábrica guardado lo restablecía al editar el perfil)
       delete rec.pinHash;
+      delete rec.pin;
+      delete rec.password;
       for (const f of SERVER_ONLY_USER_FIELDS) {
         if (existing && existing[f] !== undefined) rec[f] = existing[f];
         else delete rec[f];

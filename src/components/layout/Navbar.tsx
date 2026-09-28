@@ -2,6 +2,7 @@ import React from 'react';
 import { Shield, Cloud, HardDrive, Lock, Calculator, Smartphone, Share2, UserCheck, ShieldCheck } from 'lucide-react';
 import { googleDriveService } from '../../services/googleDriveService';
 import { User } from '../../types';
+import { UserAvatar } from '../common/UserAvatar';
 
 interface Props {
   currentUser?: User;
@@ -80,11 +81,7 @@ export const Navbar: React.FC<Props> = ({
               title={`Usuario activo: ${currentUser.name} (${currentUser.role}) — Clic para cambiar de médico`}
               className="flex items-center gap-1.5 px-2.5 py-1 bg-white/15 hover:bg-white/25 border border-white/25 rounded-xl text-xs font-bold text-white transition-all active:scale-95"
             >
-              <img
-                src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-                alt={currentUser.name}
-                className="w-5 h-5 rounded-full object-cover border border-teal-300"
-              />
+              <UserAvatar user={currentUser} className="w-5 h-5 rounded-full border border-teal-300" textClassName="text-[8px]" />
               <span className="max-w-[85px] truncate">{currentUser.name}</span>
               <span className="text-[10px] bg-teal-900/80 px-1.5 py-0.2 rounded text-teal-200 border border-teal-700/50">
                 {currentUser.role === 'ADMINISTRADOR' ? 'ADMIN' : currentUser.role}

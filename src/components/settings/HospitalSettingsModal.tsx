@@ -65,6 +65,8 @@ import { CustomNormalExamModal } from './CustomNormalExamModal';
 import { authService } from '../../services/authService';
 import { GeminiClinicalService } from '../../services/ai/GeminiClinicalService';
 import { geminiService, GeminiTelemetryStatus } from '../../services/ai/geminiService';
+import { UserAvatar } from '../common/UserAvatar';
+import { compressAvatar } from '../../services/imageTools';
 
 export const DEFAULT_HEADER_LAYOUT: HeaderLayoutConfig = {
   showHospitalLogo: true,
@@ -430,7 +432,7 @@ export const HospitalSettingsModal: React.FC<Props> = ({
         specialty: newUserSpecialty.trim() || 'Médico Especialista',
         exequatur: newUserExequatur.trim(),
         pin: newUserPin.trim() || '1234',
-        avatarUrl: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120&auto=format&fit=crop&q=80'
+        avatarUrl: ''
       });
 
       if (!res.success) {
@@ -1364,11 +1366,7 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                         }`}
                       >
                         <div className="flex items-start gap-3">
-                          <img
-                            src={u.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-                            alt={u.name}
-                            className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0 shadow-2xs"
-                          />
+                          <UserAvatar user={u} className="w-12 h-12 rounded-xl border border-slate-200 shrink-0 shadow-2xs" textClassName="text-sm" />
 
                           <div className="flex-1 min-w-0 space-y-1">
                             <div className="flex items-center justify-between gap-1 flex-wrap">
@@ -1980,11 +1978,7 @@ export const HospitalSettingsModal: React.FC<Props> = ({
               {/* Foto de Perfil con subida */}
               <div className="flex items-center gap-4 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                 <div className="relative group">
-                  <img
-                    src={editingUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-                    alt={editingUser.name}
-                    className="w-16 h-16 rounded-2xl object-cover border-2 border-white shadow-md"
-                  />
+                  <UserAvatar user={editingUser} className="w-16 h-16 rounded-2xl border-2 border-white shadow-md" textClassName="text-lg" />
                   <button
                     type="button"
                     onClick={() => editUserPhotoRef.current?.click()}
@@ -2010,14 +2004,15 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          setEditingUser({ ...editingUser, avatarUrl: reader.result as string });
-                        };
-                        reader.readAsDataURL(file);
+                      e.target.value = '';
+                      if (!file) return;
+                      try {
+                        const data = await compressAvatar(file);
+                        setEditingUser((prev) => (prev ? { ...prev, avatarUrl: data } : prev));
+                      } catch (err: any) {
+                        setUserModalError(err?.message || 'No se pudo usar esa imagen.');
                       }
                     }}
                   />
@@ -2072,6 +2067,37 @@ export const HospitalSettingsModal: React.FC<Props> = ({
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-medium focus:ring-2 focus:ring-[#0F4C5C] outline-none"
                 />
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Correo:</label>
+                  <input
+                    type="email"
+                    value={editingUser.email || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-medium focus:ring-2 focus:ring-[#0F4C5C] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Teléfono:</label>
+                  <input
+                    type="tel"
+                    value={editingUser.phone || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-medium focus:ring-2 focus:ring-[#0F4C5C] outline-none"
+                  />
+                </div>
+              </div>
+
+              {editingUser.avatarUrl && (
+                <button
+                  type="button"
+                  onClick={() => setEditingUser({ ...editingUser, avatarUrl: '' })}
+                  className="text-[11px] font-bold text-rose-700 hover:underline cursor-pointer"
+                >
+                  Quitar foto
+                </button>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button

@@ -30,6 +30,7 @@ import { centralSyncService, CentralSyncStatus } from '../../services/centralSyn
 import { db } from '../../db/dexieDb';
 import { SmartMedicalSearchBar } from './SmartMedicalSearchBar';
 import { ClinicalAiTopBar } from '../ai/ClinicalAiTopBar';
+import { UserAvatar } from '../common/UserAvatar';
 
 interface Props {
   currentUser?: User;
@@ -523,11 +524,7 @@ export const Header: React.FC<Props> = ({
               className="flex items-center gap-1 sm:gap-1.5 pl-1 pr-1 sm:pr-2 py-0.5 sm:py-1 rounded-full hover:bg-slate-100 border border-slate-200 transition-all select-none cursor-pointer group shadow-2xs"
               title={`Médico activo: ${currentUser.name} (${currentUser.role}) — Clic para abrir Mi Perfil / PIN / Foto`}
             >
-              <img
-                src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-                alt={currentUser.name}
-                className="w-6 h-6 rounded-full object-cover border border-slate-300 shadow-2xs group-hover:scale-105 transition-transform"
-              />
+              <UserAvatar user={currentUser} className="w-6 h-6 rounded-full border border-slate-300 shadow-2xs group-hover:scale-105 transition-transform" textClassName="text-[9px]" />
               <div className="hidden xl:flex flex-col text-left">
                 <span className="text-[11px] font-bold text-slate-800 max-w-[85px] truncate leading-none">
                   {currentUser.name.split(' ')[0]}
@@ -593,11 +590,7 @@ export const Header: React.FC<Props> = ({
                       }}
                       title="Editar Mi Perfil / PIN"
                     >
-                      <img
-                        src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=120'}
-                        alt={currentUser.name}
-                        className="w-8 h-8 rounded-full object-cover border border-slate-300 shrink-0"
-                      />
+                      <UserAvatar user={currentUser} className="w-8 h-8 rounded-full border border-slate-300 shrink-0" />
                       <div className="flex flex-col min-w-0">
                         <span className="text-xs font-bold text-slate-900 leading-tight truncate">
                           {currentUser.name}

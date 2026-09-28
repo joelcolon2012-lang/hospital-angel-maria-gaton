@@ -31,6 +31,7 @@ export interface User {
   specialty?: string;
   exequatur?: string;
   avatarUrl?: string;
+  phone?: string;
   isSuperAdmin?: boolean; // Dr. Joel Colón como Administrador Máximo exclusivo
   pin?: string;
   password?: string;

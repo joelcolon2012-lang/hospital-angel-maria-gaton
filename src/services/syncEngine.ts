@@ -114,6 +114,22 @@ function stripLocal(rec: any) {
   return clean;
 }
 
+/** Lo que sale del dispositivo: nunca PINs en texto (el PIN sólo se cambia en el servidor). */
+function outgoing(table: string, rec: any) {
+  const clean = stripLocal(rec);
+  if (table === 'users') {
+    delete clean.pin;
+    delete clean.password;
+    delete clean.pinHash;
+    if (clean._fclk) {
+      clean._fclk = { ...clean._fclk };
+      delete clean._fclk.pin;
+      delete clean._fclk.password;
+    }
+  }
+  return clean;
+}
+
 const META_KEYS = new Set(['id', '_mtime', '_lmod', '_seq', '_fclk', '_partial']);
 
 /**
@@ -597,7 +613,7 @@ class SyncEngine {
       if (fullPush) rows = await table.toArray();
       else rows = await table.where('_lmod').above(mark).toArray();
       for (const r of rows) {
-        entries.push({ table: name, rec: stripLocal(r) });
+        entries.push({ table: name, rec: outgoing(name, r) });
       }
     }
     const tombs = (await db.syncTombstones.toArray()).filter((t) => !t.serverAckedAt && t.deletedAt < cutoff);
