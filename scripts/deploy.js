@@ -1,6 +1,7 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { protectPages } from './protect-pages.js';
 
 function run(cmd, options = {}) {
   console.log(`> ${cmd}`);
@@ -10,6 +11,9 @@ function run(cmd, options = {}) {
 try {
   console.log('\n📦 [1/5] Compilando aplicación web (TypeScript + Vite)...');
   run('npm run build');
+  if (fs.existsSync(path.join('dist', 'hospital_master_db.json'))) {
+    throw new Error('La distribución contiene datos clínicos; publicación cancelada.');
+  }
 
   const tempDir = path.resolve('..', 'gh-pages-deploy-temp');
   console.log(`\n🌿 [2/5] Preparando rama gh-pages en worktree temporal: ${tempDir}`);
@@ -26,6 +30,7 @@ try {
 
   console.log('\n📂 [3/5] Copiando distribución optimizada (dist/) a gh-pages...');
   fs.cpSync('dist', tempDir, { recursive: true, force: true });
+  protectPages(tempDir, path.resolve('..', 'hospital-private-backups'));
 
   console.log('\n🚀 [4/5] Confirmando y enviando actualización a GitHub Pages...');
   run('git add -A', { cwd: tempDir });
